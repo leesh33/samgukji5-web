@@ -156,14 +156,33 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .hud-right { display: flex; gap: 6px; }
 
 .resbar {
-  display: flex; align-items: center; gap: 3px; padding: 3px 8px;
+  display: grid;
+  grid-template-columns: auto repeat(5, minmax(0, 1fr));
+  align-items: stretch; gap: 2px; padding: 3px 6px 4px;
   background: #0f1621; border-bottom: 1px solid #232c3d;
-  font-size: 10px; overflow: hidden;
+  overflow: hidden;
 }
-.res { display: flex; align-items: baseline; gap: 3px; flex: 0 0 auto; padding: 1px 5px; background: #161f2c; border: 1px solid #26303f; }
-.res i { font-style: normal; color: #8b7c4e; font-size: 9.5px; }
-.res b { color: #e3d7b2; font-weight: 700; font-size: 11px; }
-.res.ap { flex: 1; min-width: 0; justify-content: space-between; }
+.resbar-title {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 6px 0 1px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; color: #d8b34a;
+  border-right: 1px solid #35405a;
+}
+.res {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0; min-width: 0; padding: 1px 1px 1px;
+  background: #161f2c; border: 1px solid #2a3547;
+}
+.res i {
+  font-style: normal; color: #e2cc93; font-size: 11px; line-height: 1.1;
+  letter-spacing: 0.2px; white-space: nowrap;
+}
+.res b {
+  color: #fbf3d9; font-weight: 700; font-size: 13px; line-height: 1.1;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.res.ap { background: #1a2330; border-color: #4a4128; }
+.res.ap i { color: #f0d68c; }
 .res.ap b { color: var(--gold-bright); }
 
 /* ---------- 지도 ---------- */

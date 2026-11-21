@@ -184,6 +184,18 @@ function autoSave() {
 }
 
 /* ---------- HUD ---------- */
+// 자원 수치가 칸 폭을 넘으면 글자를 줄여 한 줄에 담는다(자릿수가 커지는 후반부 대비)
+function fitResValues() {
+  const sizes = ['', '12px', '11px', '10px'];
+  document.querySelectorAll('.resbar .res b').forEach((b) => {
+    const cell = b.parentElement;
+    for (const size of sizes) {
+      b.style.fontSize = size;
+      if (cell.scrollWidth <= cell.clientWidth) break;
+    }
+  });
+}
+
 function renderGame() {
   if (!game) return;
   if (!game.gameOver) E.checkVictory(game);
@@ -200,6 +212,7 @@ function renderGame() {
   $('#res-troops').textContent = fmt(sum.troops);
   $('#res-fame').textContent = Math.round(f.fame);
   $('#res-ap').textContent = `${game.actionPoints}/${game.maxActionPoints}`;
+  fitResValues();
   $('#turn-hint').textContent = `명령 ${game.actionPoints}`;
   $('#btn-endturn').disabled = !!game.gameOver;
 
@@ -1014,7 +1027,7 @@ function openHelp() {
   openSheet('게임 방법', `
     <p class="note" style="line-height:1.9">
     <b style="color:#e6d9b3">1. 목표</b> — 전국 42개 성을 모두 차지하면 천하통일입니다.<br>
-    <b style="color:#e6d9b3">2. 달마다</b> — 행동력(令)만큼 명령을 내립니다. 장수는 한 달에 한 번만 움직입니다.<br>
+    <b style="color:#e6d9b3">2. 달마다</b> — 행동력만큼 명령을 내립니다. 장수는 한 달에 한 번만 움직입니다.<br>
     <b style="color:#e6d9b3">3. 내정</b> — 개발(농업)·상업·치안·수리로 성을 키우고, 징병·훈련으로 군세를 만듭니다.<br>
     <b style="color:#e6d9b3">4. 인사</b> — 탐색으로 인재를 찾고 등용합니다. 포상으로 충성을 올립니다.<br>
     <b style="color:#e6d9b3">5. 출진</b> — 인접한 적 성을 공격합니다. 전장에서 부대를 움직여 성을 함락시키세요.<br>
@@ -1224,6 +1237,7 @@ export function boot() {
     if (mapView) mapView.resize();
     if (!$('#scr-battle').classList.contains('hidden')) resizeBattleCanvas();
     if (!$('#scr-title').classList.contains('hidden')) drawTitleArt();
+    fitResValues();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { closeSheet(); }
