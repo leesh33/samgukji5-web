@@ -163,7 +163,7 @@ export function cityPower(state, cityId, defensive = true) {
   const gens = generalsInCity(state, cityId);
   const best = gens.reduce((m, g) => Math.max(m, (GENERAL_BY_ID[g.id].lead + GENERAL_BY_ID[g.id].war) / 2), 40);
   let p = c.troops * (0.7 + c.train / 180) * (0.72 + best / 260);
-  if (defensive) p *= 1 + c.def / 260 + c.order / 500;
+  if (defensive) p *= 1 + c.def / 420 + c.order / 700;
   return Math.round(p);
 }
 export function adjacentEnemies(state, cityId) {
@@ -401,13 +401,13 @@ export function endTurnPhase1(state) {
       for (const en of adjacentEnemies(state, c.id)) {
         const atk = cityPower(state, c.id, false) * (0.9 + rng() * 0.5);
         const def = cityPower(state, en, true);
-        if (atk > def * 1.18 && c.troops > 2500) cands.push({ from: c.id, to: en, score: atk / def, fid });
+        if (atk > def * 1.02 && c.troops > 2500) cands.push({ from: c.id, to: en, score: atk / def, fid });
       }
     }
     if (!cands.length) continue;
     cands.sort((a, b) => b.score - a.score);
     const chosen = cands[0];
-    const appetite = 0.25 + f.fame / 220 + (f.id === state.playerId ? 0 : 0.25);
+    const appetite = 0.42 + f.fame / 260;
     if (rng() < appetite) attacks.push(chosen);
   }
 
@@ -442,7 +442,11 @@ function aiEconomy(state, fid, rng) {
     const t = GENERAL_BY_ID[g.id];
     const needFood = c.food < c.troops / 12;
     const stat = needFood ? 'agri' : (c.agri < c.comm ? 'agri' : 'comm');
-    if (c.troops < 3000 && c.gold > 600 && c.food > 1200) {
+    if (c.troops < 9000 && c.gold > 1600 && c.food > 2500) {
+      c.gold -= 250; c.food -= 400;
+      c.troops += 900 + Math.floor(t.lead * 4);
+      c.order = clamp(c.order - 3, 0, 100);
+    } else if (c.troops < 3000 && c.gold > 600 && c.food > 1200) {
       c.gold -= 250; c.food -= 400;
       c.troops += 900 + Math.floor(t.lead * 4);
       c.order = clamp(c.order - 3, 0, 100);

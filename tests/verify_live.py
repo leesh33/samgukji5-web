@@ -257,9 +257,15 @@ with sync_playwright() as p:
         if ai_battle:
             step("AI 반격 전투", True)
             shot(page, "19-ai-battle")
-            if end_battle(max_rounds=40):
+        # 연쇄 전투가 이어질 수 있으므로 모두 처리
+        for _ in range(4):
+            if not page.locator("#scr-battle").is_visible() and not page.locator('[data-act="bt-close"]').count():
+                break
+            if end_battle(max_rounds=40) and page.locator('[data-act="bt-close"]').count():
                 page.click('[data-act="bt-close"]')
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(1100)
+            else:
+                break
         d1 = page.locator("#hud-date").inner_text()
         step("턴 진행", d0 != d1, f"{d0} -> {d1}")
         shot(page, "20-next-turn")

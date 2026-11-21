@@ -89,18 +89,24 @@ function drawTitleArt() {
     ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
   }
   // 성 실루엣
-  const gy = h * 0.9, gw = Math.min(240, w * 0.62), gx = w / 2 - gw / 2;
+  const gy = h * 0.92, gw = Math.min(250, w * 0.66), gx = w / 2 - gw / 2;
   const u = gw / 24;
-  ctx.fillStyle = '#0b1219';
-  ctx.fillRect(gx, gy - u * 5, gw, h * 0.2);
-  ctx.fillRect(gx - u * 2, gy - u * 8, u * 7, h * 0.2);
-  ctx.fillRect(gx + gw - u * 5, gy - u * 8, u * 7, h * 0.2);
-  ctx.fillRect(gx + gw / 2 - u * 3, gy - u * 10, u * 6, h * 0.2);
-  ctx.fillStyle = '#16202c';
-  for (let i = 0; i < 12; i++) ctx.fillRect(gx + i * u * 2, gy - u * 6, u, u);
+  // 성벽 뒤 은은한 불빛
+  const glow = ctx.createRadialGradient(w / 2, gy - u * 4, 4, w / 2, gy - u * 4, gw * 0.75);
+  glow.addColorStop(0, 'rgba(200,120,50,0.20)');
+  glow.addColorStop(1, 'rgba(200,120,50,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, gy - u * 16, w, h * 0.24);
+  ctx.fillStyle = '#131e2a';
+  ctx.fillRect(gx, gy - u * 4, gw, h * 0.2);
+  ctx.fillRect(gx - u * 2, gy - u * 7, u * 7, h * 0.2);
+  ctx.fillRect(gx + gw - u * 5, gy - u * 7, u * 7, h * 0.2);
+  ctx.fillRect(gx + gw / 2 - u * 3, gy - u * 9, u * 6, h * 0.2);
+  ctx.fillStyle = '#1b2734';
+  for (let i = 0; i < 12; i++) ctx.fillRect(gx + i * u * 2, gy - u * 5, u, u);
   // 깃발
-  ctx.fillStyle = '#2a2418'; ctx.fillRect(gx + gw / 2 + u * 2, gy - u * 16, 2, u * 6);
-  ctx.fillStyle = '#8f2a22'; ctx.fillRect(gx + gw / 2 + u * 2 + 2, gy - u * 16, u * 4, u * 3);
+  ctx.fillStyle = '#2a2418'; ctx.fillRect(gx + gw / 2 + u * 2, gy - u * 13, 2, u * 5);
+  ctx.fillStyle = '#8f2a22'; ctx.fillRect(gx + gw / 2 + u * 2 + 2, gy - u * 13, u * 4, u * 3);
   // 횃불
   for (let i = 0; i < 6; i++) {
     const fx = gx + u * (2 + i * 4), fy = gy - u * 1.5;
@@ -270,7 +276,10 @@ function renderCityPanel() {
         <div class="cp-title"><span class="region-tag">${base.region}</span>${base.ko} <small>${base.hanja}</small></div>
         <div class="cp-hint">성 방어 ${c.def} · 훈련 ${c.train} · 인접 ${base.roads.map((r) => CITY_BY_ID[r].ko).join(' ')}</div>
       </div>
-      <div class="cp-owner" style="color:${colorOf(c.owner)}">${ownerName}</div>
+      <div class="cp-head-right">
+        <div class="cp-owner" style="color:${colorOf(c.owner)}">${ownerName}</div>
+        <button class="mini-btn cp-close" data-act="close-city" aria-label="닫기">✕</button>
+      </div>
     </div>
     <div class="cp-stats">
       <div class="stat"><i>농업</i><b>${c.agri}</b>${statBar(c.agri)}</div>
@@ -601,7 +610,9 @@ function drawBattle() {
 function unitCardHTML(u, selected) {
   const t = GENERAL_BY_ID[u.gid];
   return `<button class="pick-chip ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" style="opacity:${u.acted ? 0.5 : 1};padding:5px 7px">
-    ${u.name}<br><b style="font-size:10px;color:#9fd0a0">${fmt(u.troops)}</b> <span style="font-size:9px;color:#b8ab84">사기${Math.round(u.morale)}</span>
+    <span style="display:block;white-space:nowrap">${u.name}</span>
+    <b style="font-size:10px;color:#9fd0a0;white-space:nowrap">${fmt(u.troops)}</b>
+    <span style="font-size:9px;color:#b8ab84;white-space:nowrap">사기 ${Math.round(u.morale)}</span>
   </button>`;
 }
 
@@ -1066,6 +1077,7 @@ function onClick(e) {
     case 'zoom-out': mapView.zoomBy(0.8); break;
     case 'zoom-reset': mapView.resetView(); break;
     case 'endturn': endTurn(); break;
+    case 'close-city': selectedCity = null; mapView.setSelected(null); renderCityPanel(); break;
     case 'cmd': openCommandSheet(el.dataset.cmd, el.dataset.city); break;
     case 'do-command': doCommand(sheetCommandType, el.dataset.officer, sheetCityId); break;
     case 'do-hire': doHire(sheetCityId, el.dataset.officer); break;

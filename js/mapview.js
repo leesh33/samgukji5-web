@@ -52,23 +52,24 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     requestRender();
   }
 
-  const fitScale = () => Math.min(cssW / 82, cssH / 72);
+  const TOP_INSET = 28;
+  const fitScale = () => Math.min(cssW / 82, (cssH - TOP_INSET) / 72);
   const scale = () => fitScale() * cam.zoom;
 
   function toScreen(wx, wy) {
     const s = scale();
-    return { x: (wx - cam.x) * s + cssW / 2, y: (wy - cam.y) * s + cssH / 2 };
+    return { x: (wx - cam.x) * s + cssW / 2, y: (wy - cam.y) * s + TOP_INSET + (cssH - TOP_INSET) / 2 };
   }
   function toWorld(sx, sy) {
     const s = scale();
-    return { x: (sx - cssW / 2) / s + cam.x, y: (sy - cssH / 2) / s + cam.y };
+    return { x: (sx - cssW / 2) / s + cam.x, y: (sy - TOP_INSET - (cssH - TOP_INSET) / 2) / s + cam.y };
   }
 
   function clampCam() {
     cam.zoom = Math.max(1, Math.min(3.6, cam.zoom));
     if (!Number.isFinite(cam.x) || !Number.isFinite(cam.y)) cam.x = 56, cam.y = 36;
     if (!cssW || !cssH) return;
-    const halfW = cssW / 2 / scale(), halfH = cssH / 2 / scale();
+    const halfW = cssW / 2 / scale(), halfH = (cssH - TOP_INSET) / 2 / scale();
     const minX = 22 + halfW, maxX = 92 - halfW;
     const minY = 4 + halfH, maxY = 70 - halfH;
     cam.x = minX > maxX ? (minX + maxX) / 2 : Math.max(minX, Math.min(maxX, cam.x));
@@ -246,6 +247,29 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     ctx.strokeRect(x + u * 0.5, y + u * 0.5, u * 7, u * 7.5);
   }
 
+  function drawRegionLabels() {
+    if (cam.zoom >= 1.45) return;
+    const groups = {};
+    for (const c of CITIES) {
+      (groups[c.region] = groups[c.region] || []).push(c);
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const [region, list] of Object.entries(groups)) {
+      const cx = list.reduce((n, c) => n + c.x, 0) / list.length;
+      const cy = list.reduce((n, c) => n + c.y, 0) / list.length;
+      const p = toScreen(cx, cy);
+      const fs = Math.max(11, Math.min(16, 10 + cam.zoom * 5));
+      ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+      ctx.fillStyle = 'rgba(230, 210, 150, 0.34)';
+      ctx.fillText(region, p.x, p.y);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillText(region, p.x + 1, p.y + 1);
+      ctx.fillStyle = 'rgba(230, 210, 150, 0.32)';
+      ctx.fillText(region, p.x, p.y);
+    }
+  }
+
   function drawCities() {
     const s = scale();
     const showAllLabels = cam.zoom > 1.75;
@@ -272,23 +296,36 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       }
       castleIcon(p, size, color, owner);
       const label = c.ko;
-      const show = showAllLabels || isSel || (state && state.cities[c.id].owner === own);
+      const zoomed = cam.zoom >= 1.5;
+      const isOwn = state && state.cities[c.id].owner === state.playerId;
+      const show = zoomed ? true : (isSel || isOwn || c.major);
       if (show) {
         const fs = Math.max(9, Math.min(13, 9 + cam.zoom * 2));
-        const tw = label.length * fs * 0.98;
-        const tx = Math.round(p.x);
-        const ty = Math.round(p.y + size * 0.62);
-        const rect = [tx - tw / 2 - 1, ty - 1, tw + 2, fs + 2];
-        const hit = placed.some((r) => !(rect[0] > r[0] + r[2] || rect[0] + rect[2] < r[0] || rect[1] > r[1] + r[3] || rect[1] + rect[3] < r[1]));
-        if (hit && !isSel && !(state && state.cities[c.id].owner === own)) continue;
+        const tw = label.length * fs * 0.98 + 6;
+        const tx = Math.round(p.x - tw / 2);
+        const cand = [Math.round(p.y + size * 0.58), Math.round(p.y - size * 0.58 - fs - 3)];
+        let rect = null;
+        const overlaps = (r) => placed.some((q) => !(r[0] > q[0] + q[2] || r[0] + r[2] < q[0] || r[1] > q[1] + q[3] || r[1] + r[3] < q[1]));
+        for (const ty of cand) {
+          const r = [tx, ty, tw, fs + 3];
+          if (!overlaps(r)) { rect = r; break; }
+        }
+        if (!rect) {
+          if (!isSel) continue;
+          rect = [tx, cand[0], tw, fs + 3];
+        }
+        const ty = rect[1];
         placed.push(rect);
+        ctx.fillStyle = isSel ? 'rgba(52,40,12,0.92)' : 'rgba(8,12,18,0.82)';
+        ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
+        ctx.strokeStyle = isSel ? '#e0b93f' : 'rgba(140,120,70,0.45)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(rect[0] + 0.5, rect[1] + 0.5, rect[2] - 1, rect[3] - 1);
         ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillStyle = 'rgba(0,0,0,0.85)';
-        ctx.fillText(label, tx + 1, ty + 1);
-        ctx.fillStyle = isSel ? '#ffe9a8' : (state && state.cities[c.id].owner === own) ? '#d9f2c8' : '#ded4ba';
-        ctx.fillText(label, tx, ty);
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = isSel ? '#ffe9a8' : isOwn ? '#d9f2c8' : '#ded4ba';
+        ctx.fillText(label, tx + tw / 2, ty + rect[3] / 2 + 0.5);
       }
     }
   }
@@ -302,6 +339,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     drawRivers();
     drawMountains();
     drawRoads();
+    drawRegionLabels();
     drawCities();
   }
 
