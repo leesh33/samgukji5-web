@@ -253,10 +253,29 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .cs-toggle:active { filter: brightness(1.25); }
 .cs-close { width: 30px; height: 30px; font-size: 12px; }
 .cs-brief {
-  display: flex; gap: 8px; font-size: 10px; color: #948b70;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 10px; color: #948b70;
   white-space: nowrap; overflow: hidden;
 }
+.cs-brief-main { display: flex; gap: 8px; min-width: 0; overflow: hidden; }
 .cs-brief b { color: #e0d5b3; font-weight: 700; }
+.cs-nav {
+  margin-left: auto; flex: 0 0 auto; display: flex; align-items: center;
+  border: 1px solid #2b3648; background: #0f1723;
+}
+.cs-navbtn {
+  width: 22px; height: 19px; padding: 0; line-height: 1; font-size: 13px; color: #b9ad86;
+  background: none; border: 0;
+}
+.cs-navbtn:active { background: #222f44; color: #ffe9b0; }
+.cs-navidx {
+  min-width: 26px; padding: 0 2px; text-align: center;
+  font-size: 9px; letter-spacing: 0.4px; color: #a99a6c;
+}
+.citypanel.swipe-next { animation: cityInNext 0.2s ease-out; }
+.citypanel.swipe-prev { animation: cityInPrev 0.2s ease-out; }
+@keyframes cityInNext { from { transform: translateX(20px); opacity: 0.55; } to { transform: none; opacity: 1; } }
+@keyframes cityInPrev { from { transform: translateX(-20px); opacity: 0.55; } to { transform: none; opacity: 1; } }
 .cs-body { display: none; overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: 58vh; }
 .citypanel.open .cs-body { display: block; }
 .cs-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 2px 0 7px; }

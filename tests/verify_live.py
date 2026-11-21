@@ -81,9 +81,10 @@ with sync_playwright() as p:
     page.wait_for_timeout(1000)
     step("본 게임 진입", page.locator("#scr-game").is_visible() and page.locator("#map").is_visible(),
          page.locator("#hud-faction").inner_text())
-    step("성 시트(접힘)", page.locator("#citypanel").is_visible() and not page.locator("#citypanel").evaluate("el => el.classList.contains('open')"))
+    open0 = page.locator("#citypanel").evaluate("el => el.classList.contains('open')")
+    step("성 시트(기본 펼침)", page.locator("#citypanel").is_visible() and open0)
     ratio = page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100)")
-    step("지도 세로 비중 60% 이상", ratio >= 60, f"{ratio}%")
+    step("지도 세로 비중 45% 이상", ratio >= 45, f"{ratio}%")
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)
     shot(page, "04-map")
@@ -113,8 +114,9 @@ with sync_playwright() as p:
     # ---------- 내정 ----------
     page.click('[data-act="jump-region"][data-region="__mine"]')
     page.wait_for_timeout(350)
-    page.click('.cs-toggle')
-    page.wait_for_timeout(400)
+    if not page.locator("#citypanel").evaluate("el => el.classList.contains('open')"):
+        page.click('.cs-toggle')
+        page.wait_for_timeout(400)
     step("성 시트 펼침", page.locator("#citypanel").evaluate("el => el.classList.contains('open')"),
          page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100) + '%'"))
     shot(page, "06b-map-open")

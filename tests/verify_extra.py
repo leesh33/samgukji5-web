@@ -38,7 +38,8 @@ with sync_playwright() as p:
     pg.click('[data-act="new"]'); pg.wait_for_timeout(250)
     pg.click('.sc-card[data-id="s208"]'); pg.wait_for_timeout(300)
     pg.click('.lord-card[data-id="liubei"]'); pg.wait_for_timeout(900)
-    pg.click('.cs-toggle'); pg.wait_for_timeout(400)
+    if not pg.locator("#citypanel").evaluate("el => el.classList.contains('open')"):
+        pg.click('.cs-toggle'); pg.wait_for_timeout(400)
     pg.click('[data-act="cmd"][data-cmd="agri"]'); pg.wait_for_timeout(300)
     if pg.locator(".officer-row:not(.done)").count():
         pg.locator(".officer-row:not(.done)").first.click()

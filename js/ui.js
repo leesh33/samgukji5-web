@@ -16,7 +16,7 @@ const KEYS = { auto: 'samguk5.auto', slot: (i) => `samguk5.slot${i}`, muted: 'sa
 let game = null;
 let mapView = null;
 let selectedCity = null;
-let cityPanelOpen = false;
+let cityPanelOpen = true; // 성을 고르면 기본으로 펼친 상태
 let pendingSetup = null; // 출진 준비
 let battle = null;
 let battleSel = null;
@@ -171,6 +171,7 @@ function afterGameInit() {
   mapView.setState(game);
   const playerCities = E.factionCities(game, game.playerId);
   selectedCity = playerCities.length ? playerCities[0].id : null;
+  cityPanelOpen = true;
   mapView.setSelected(selectedCity);
   mapView.resetView();
   mapView.resize();
@@ -242,14 +243,107 @@ function openReports() {
 
 /* ---------- 도시 패널 ---------- */
 function selectCity(id) {
-  if (id !== selectedCity) cityPanelOpen = false;
+  if (id !== selectedCity) cityPanelOpen = true; // 새 성을 탭하면 다시 펼침
   selectedCity = id;
   sfx.select();
   if (mapView) { mapView.setSelected(id); }
   renderCityPanel();
 }
 
-function renderCityPanel() {
+/* 내 성을 지도 순서(북→남)대로 돌려보기 */
+function ownCityIds() {
+  if (!game) return [];
+  const order = new Map(CITIES.map((c, i) => [c.id, i]));
+  return E.factionCities(game, game.playerId).map((c) => c.id)
+    .sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+}
+
+function stepCity(dir) {
+  if (!game || !selectedCity) return false;
+  const ids = ownCityIds();
+  if (!ids.length) { toast('내 성이 없습니다.'); sfx.fail(); return false; }
+  const cur = ids.indexOf(selectedCity);
+  const next = cur < 0
+    ? (dir > 0 ? ids[0] : ids[ids.length - 1])
+    : ids[(cur + dir + ids.length) % ids.length];
+  if (next === selectedCity) {
+    if (mapView) mapView.focusCity(next);
+    return false;
+  }
+  selectedCity = next;
+  sfx.select();
+  if (mapView) { mapView.setSelected(next); mapView.focusCity(next); }
+  renderCityPanel(dir);
+  return true;
+}
+
+/* 하단 도시 패널 좌우 스와이프 → 내 성 전환 (장수 줄·입력칸은 양보) */
+let suppressClickUntil = 0;
+let swipeState = null;
+
+function bindCityPanelSwipe() {
+  const panel = $('#citypanel');
+  if (!panel || panel.dataset.swipeBound) return;
+  panel.dataset.swipeBound = '1';
+
+  const usable = (target) => !target.closest('.cp-gens') && !target.closest('input, select, textarea');
+
+  const begin = (x, y) => {
+    if (!selectedCity) return;
+    swipeState = { x, y, t: Date.now(), dx: 0, dy: 0, axis: null };
+  };
+  const move = (x, y, ev) => {
+    const s = swipeState;
+    if (!s) return false;
+    s.dx = x - s.x;
+    s.dy = y - s.y;
+    if (!s.axis && (Math.abs(s.dx) > 9 || Math.abs(s.dy) > 9)) {
+      s.axis = Math.abs(s.dx) > Math.abs(s.dy) * 1.35 ? 'x' : 'y';
+    }
+    if (s.axis === 'x') {
+      if (ev && ev.cancelable) ev.preventDefault();
+      panel.style.transform = `translateX(${Math.max(-18, Math.min(18, s.dx * 0.22))}px)`;
+    }
+    return s.axis === 'x';
+  };
+  const finish = () => {
+    const s = swipeState;
+    swipeState = null;
+    panel.style.transform = '';
+    if (!s || s.axis !== 'x') return;
+    const dt = Date.now() - s.t;
+    const dist = Math.abs(s.dx);
+    if (!(dist > 52 || (dist > 30 && dt < 500))) return;
+    suppressClickUntil = Date.now() + 350;
+    stepCity(s.dx < 0 ? 1 : -1);
+  };
+
+  // 터치: 브라우저 스크롤과 경합하지 않게 touch 이벤트로 처리
+  panel.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1 || !usable(e.target)) return;
+    begin(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+  panel.addEventListener('touchmove', (e) => {
+    if (e.touches.length !== 1) return;
+    move(e.touches[0].clientX, e.touches[0].clientY, e);
+  }, { passive: false });
+  panel.addEventListener('touchend', finish);
+  panel.addEventListener('touchcancel', () => { swipeState = null; panel.style.transform = ''; });
+
+  // 마우스: 넓은 화면에서 드래그로도 넘김
+  panel.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || !usable(e.target)) return;
+    begin(e.clientX, e.clientY);
+  });
+  panel.addEventListener('pointermove', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    move(e.clientX, e.clientY, null);
+  });
+  panel.addEventListener('pointerup', (e) => { if (e.pointerType === 'mouse') finish(); });
+  panel.addEventListener('pointercancel', (e) => { if (e.pointerType === 'mouse') { swipeState = null; panel.style.transform = ''; } });
+}
+
+function renderCityPanel(dir = 0) {
   const panel = $('#citypanel');
   if (!selectedCity) { panel.classList.add('hidden'); return; }
   const c = game.cities[selectedCity];
@@ -283,8 +377,21 @@ function renderCityPanel() {
       : '<button class="btn" disabled style="grid-column:span 2">공격 불가</button>';
   }
 
-  panel.classList.remove('hidden');
+  const own = ownCityIds();
+  const ownIdx = own.indexOf(selectedCity);
+  const showNav = own.length > 1 || (own.length === 1 && ownIdx === -1);
+  const navHTML = showNav
+    ? `<div class="cs-nav" role="group" aria-label="내 성 이동">
+        <button class="cs-navbtn" data-act="city-prev" aria-label="이전 내 성">‹</button>
+        <span class="cs-navidx">${ownIdx >= 0 ? `${ownIdx + 1}/${own.length}` : `내 성 ${own.length}`}</span>
+        <button class="cs-navbtn" data-act="city-next" aria-label="다음 내 성">›</button>
+      </div>`
+    : '';
+
+  panel.classList.remove('hidden', 'swipe-next', 'swipe-prev');
   panel.classList.toggle('open', cityPanelOpen);
+  panel.dataset.city = selectedCity;
+  panel.style.transform = '';
   panel.innerHTML = `
     <div class="cs-head">
       <div class="cs-row">
@@ -296,7 +403,10 @@ function renderCityPanel() {
         </div>
       </div>
       <div class="cs-brief">
-        <span>병 <b>${fmt(c.troops)}</b></span><span>금 <b>${fmt(c.gold)}</b></span><span>량 <b>${fmt(c.food)}</b></span><span>방 <b>${c.def}</b></span>
+        <div class="cs-brief-main">
+          <span>병 <b>${fmt(c.troops)}</b></span><span>금 <b>${fmt(c.gold)}</b></span><span>량 <b>${fmt(c.food)}</b></span><span>방 <b>${c.def}</b></span>
+        </div>
+        ${navHTML}
       </div>
     </div>
     <div class="cs-body">
@@ -314,6 +424,10 @@ function renderCityPanel() {
       <div class="cp-cmds">${cmdHTML}</div>
     </div>
   `;
+  if (dir) {
+    void panel.offsetWidth; // 애니메이션 재시작
+    panel.classList.add(dir > 0 ? 'swipe-next' : 'swipe-prev');
+  }
   if (mapView) requestAnimationFrame(() => mapView.resize());
 }
 
@@ -994,6 +1108,7 @@ function doLoad(slot) {
     game = E.deserialize(raw);
     closeSheet();
     selectedCity = E.factionCities(game, game.playerId)[0]?.id || null;
+    cityPanelOpen = true;
     if (!mapView) {
       mapView = createMapView($('#map'), { onSelectCity: (id) => selectCity(id) });
     }
@@ -1065,6 +1180,7 @@ function showEnding() {
 
 /* ---------- 이벤트 ---------- */
 function onClick(e) {
+  if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const act = el.dataset.act;
@@ -1090,7 +1206,7 @@ function onClick(e) {
       closeSheet();
       if (el.dataset.region === '__mine') {
         const mine = E.factionCities(game, game.playerId);
-        if (mine.length) { cityPanelOpen = false; selectedCity = mine[0].id; mapView.focusCity(selectedCity); mapView.setSelected(selectedCity); renderCityPanel(); }
+        if (mine.length) { cityPanelOpen = true; selectedCity = mine[0].id; mapView.focusCity(selectedCity); mapView.setSelected(selectedCity); renderCityPanel(); }
       } else {
         mapView.focusRegion(el.dataset.region);
       }
@@ -1099,6 +1215,8 @@ function onClick(e) {
     case 'region-menu': sfx.click(); openRegionMenu(); break;
     case 'open-reports': sfx.click(); openReports(); break;
     case 'city-toggle': cityPanelOpen = !cityPanelOpen; sfx.click(); renderCityPanel(); break;
+    case 'city-prev': stepCity(-1); break;
+    case 'city-next': stepCity(1); break;
     case 'zoom-in': mapView.zoomBy(1.25); break;
     case 'zoom-out': mapView.zoomBy(0.8); break;
     case 'zoom-reset': mapView.resetView(); break;
@@ -1229,6 +1347,7 @@ function doTransport(officerId) {
 export function boot() {
   $$('[data-act="mute"]').forEach((b) => { b.textContent = sfx.isMuted() ? '✕' : '♪'; });
   document.addEventListener('click', onClick);
+  bindCityPanelSwipe();
   $('#btn-continue').disabled = !localStorage.getItem(KEYS.auto);
   $('#map') && $('#map').addEventListener('pointerdown', () => sfx.unlock(), { once: true });
   const bc = $('#battle-canvas');
