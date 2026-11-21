@@ -186,6 +186,7 @@ function autoSave() {
 /* ---------- HUD ---------- */
 function renderGame() {
   if (!game) return;
+  if (!game.gameOver) E.checkVictory(game);
   const f = game.factions[game.playerId];
   const sum = E.factionSummary(game, game.playerId);
   const lord = GENERAL_BY_ID[f.lord];

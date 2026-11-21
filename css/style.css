@@ -364,6 +364,27 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .end-stat i { display: block; font-style: normal; font-size: 9.5px; color: #7f765b; }
 .end-stat b { font-size: 14px; color: #e6d9b3; }
 
+@media (min-width: 900px) {
+  #scr-game {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+  #scr-game .hud { grid-column: 1 / -1; grid-row: 1; }
+  #scr-game .resbar { grid-column: 1 / -1; grid-row: 2; }
+  #scr-game .mapwrap { grid-column: 1; grid-row: 3; }
+  #scr-game .logstrip { grid-column: 1; grid-row: 4; }
+  #scr-game .mapwrap { max-height: none; }
+  #scr-game .citypanel {
+    grid-column: 2; grid-row: 3 / 5; max-height: none; border-top: 0;
+    border-left: 2px solid var(--gold-dim); padding-bottom: 12px;
+  }
+  #scr-game .cp-cmds { grid-template-columns: repeat(3, 1fr); }
+  .cp-gens { flex-wrap: wrap; }
+  .lord-grid { grid-template-columns: repeat(4, 1fr); }
+  .scroll { max-width: 900px; margin: 0 auto; width: 100%; }
+}
+
 @media (min-width: 640px) {
   body { font-size: 14px; }
   .mapwrap { max-height: 62vh; }
