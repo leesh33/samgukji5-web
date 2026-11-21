@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0f18" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>삼국지 오 · 천하대세</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0f18'/%3E%3Crect x='3' y='4' width='10' height='8' fill='%236b6252'/%3E%3Crect x='3' y='4' width='10' height='2' fill='%23c8b078'/%3E%3Crect x='7' y='7' width='2' height='5' fill='%23221f19'/%3E%3Crect x='2' y='3' width='2' height='4' fill='%234e4739'/%3E%3Crect x='12' y='3' width='2' height='4' fill='%234e4739'/%3E%3Crect x='11' y='0' width='1' height='3' fill='%233a3326'/%3E%3Crect x='12' y='0' width='3' height='2' fill='%23c2453f'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- 타이틀 -->
+  <section id="scr-title" class="screen">
+    <canvas id="title-canvas"></canvas>
+    <div class="title-wrap">
+      <div class="title-mark">
+        <div class="title-hanja">三國志</div>
+        <h1>삼국지 <span>五</span></h1>
+        <p class="title-sub">천하대세 · 도트 전략</p>
+      </div>
+      <div class="title-menu">
+        <button class="btn big" data-act="new">새 게임</button>
+        <button class="btn big ghost" id="btn-continue" data-act="continue">이어하기</button>
+        <button class="btn big ghost" data-act="load">불러오기</button>
+      </div>
+      <div class="title-foot">
+        <span>42성 · 실존 장수 167명 · 시나리오 3종</span>
+        <button class="mini-btn" id="btn-mute-title" data-act="mute" aria-label="소리">♪</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 시나리오 선택 -->
+  <section id="scr-scenario" class="screen hidden">
+    <header class="topbar">
+      <button class="back" data-act="back-title">◀</button>
+      <h2>시나리오 선택</h2>
+      <span class="spacer"></span>
+    </header>
+    <div class="scroll" id="scenario-list"></div>
+  </section>
+
+  <!-- 군주 선택 -->
+  <section id="scr-lord" class="screen hidden">
+    <header class="topbar">
+      <button class="back" data-act="back-scenario">◀</button>
+      <h2 id="lord-title">군주 선택</h2>
+      <span class="spacer"></span>
+    </header>
+    <div class="scroll" id="lord-list"></div>
+  </section>
+
+  <!-- 본 게임 -->
+  <section id="scr-game" class="screen hidden">
+    <header class="hud">
+      <div class="hud-left">
+        <span class="crest" id="hud-crest">魏</span>
+        <div class="hud-name">
+          <b id="hud-faction">조조</b>
+          <small id="hud-date">194년 1월</small>
+        </div>
+      </div>
+      <div class="hud-right">
+        <button class="mini-btn" data-act="mute" id="btn-mute">♪</button>
+        <button class="mini-btn" data-act="menu">☰</button>
+      </div>
+    </header>
+
+    <div class="resbar">
+      <div class="res"><i>金</i><b id="res-gold">0</b></div>
+      <div class="res"><i>糧</i><b id="res-food">0</b></div>
+      <div class="res"><i>兵</i><b id="res-troops">0</b></div>
+      <div class="res"><i>名</i><b id="res-fame">0</b></div>
+      <div class="res ap"><i>令</i><b id="res-ap">0</b><div class="ap-dots" id="ap-dots"></div></div>
+    </div>
+
+    <div class="mapwrap">
+      <canvas id="map"></canvas>
+      <div class="chips" id="chips"></div>
+      <div class="mapctrl">
+        <button data-act="zoom-in" aria-label="확대">＋</button>
+        <button data-act="zoom-out" aria-label="축소">－</button>
+        <button data-act="zoom-reset" aria-label="전체">⤢</button>
+      </div>
+      <div class="toast hidden" id="toast"></div>
+      <button class="turn-btn" id="btn-endturn" data-act="endturn">턴 종료<small id="turn-hint">명령 0</small></button>
+    </div>
+
+    <div class="logstrip" id="logstrip"></div>
+    <div class="citypanel hidden" id="citypanel"></div>
+  </section>
+
+  <!-- 엔딩 -->
+  <section id="scr-end" class="screen hidden">
+    <div class="end-wrap" id="end-wrap"></div>
+  </section>
+
+  <!-- 시트(모달) -->
+  <div id="sheet" class="sheet hidden">
+    <div class="sheet-bg" data-act="sheet-close"></div>
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <h3 id="sheet-title">선택</h3>
+        <button class="mini-btn" data-act="sheet-close">✕</button>
+      </div>
+      <div class="sheet-body" id="sheet-body"></div>
+    </div>
+  </div>
+
+  <!-- 전투 -->
+  <section id="scr-battle" class="screen hidden battle">
+    <header class="bt-top">
+      <div class="bt-title">
+        <b id="bt-name">전장</b>
+        <small id="bt-round">1라운드 · 공격측</small>
+      </div>
+      <div class="bt-side" id="bt-side"></div>
+    </header>
+    <div class="bt-canvas-wrap"><canvas id="battle-canvas"></canvas></div>
+    <div class="bt-info" id="bt-info"></div>
+    <div class="bt-log" id="bt-log"></div>
+    <div class="bt-cmds" id="bt-cmds"></div>
+    <div class="bt-bar">
+      <button class="btn small ghost" data-act="bt-retreat">퇴각</button>
+      <button class="btn small ghost" data-act="bt-all" id="bt-all">전군 돌격</button>
+      <button class="btn small" data-act="bt-next" id="bt-next">진행 ▶</button>
+    </div>
+  </section>
+
+  <!-- 일기토 -->
+  <div id="duel" class="duel hidden">
+    <div class="duel-box">
+      <div class="duel-head">一騎討</div>
+      <div class="duel-fighters">
+        <div class="fighter" id="duel-a"></div>
+        <div class="vs">VS</div>
+        <div class="fighter" id="duel-b"></div>
+      </div>
+      <div class="duel-log" id="duel-log"></div>
+      <div class="duel-cmds" id="duel-cmds"></div>
+    </div>
+  </div>
+
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
