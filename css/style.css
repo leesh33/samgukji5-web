@@ -1,4 +1,4 @@
-/* 삼국지 오 — 16비트 KOEI 풍 레트로 도트 테마 */
+/* 도트삼국 — 16비트 레트로 도트 테마 */
 @font-face {
   font-family: 'Galmuri11';
   src: url('https://cdn.jsdelivr.net/gh/quiple/galmuri/dist/Galmuri11.woff2') format('woff2');
@@ -97,14 +97,12 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   text-shadow: 0 0 12px rgba(216, 179, 74, 0.3);
 }
 .title-mark h1 {
-  margin: 0; font-size: 46px; letter-spacing: 6px; color: var(--gold-bright);
+  margin: 0; font-size: 42px; letter-spacing: 5px; color: var(--gold-bright);
   text-shadow: 0 2px 0 #4a3610, 0 4px 0 #1b1406, 0 0 26px rgba(240, 200, 90, 0.38);
 }
-.title-mark h1 span { color: #f2e6bd; font-size: 40px; }
-.title-sub { margin: 10px 0 0; color: #b8a97c; letter-spacing: 4px; font-size: 12px; }
 .title-menu { display: flex; flex-direction: column; gap: 10px; }
 .title-foot {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: flex-end;
   color: #766c52; font-size: 10px; letter-spacing: 0.5px;
 }
 .title-foot .mini-btn { color: #9c8c5e; }
@@ -120,12 +118,11 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .sc-year { color: var(--gold); font-size: 11px; letter-spacing: 2px; }
 .sc-name { font-size: 21px; color: var(--gold-bright); margin: 2px 0 2px; letter-spacing: 3px; }
 .sc-name small { font-size: 12px; color: #8d7f58; letter-spacing: 2px; margin-left: 8px; }
-.sc-desc { color: #a8a08a; font-size: 11.5px; line-height: 1.7; margin: 6px 0 8px; }
 .sc-meta { display: flex; gap: 10px; flex-wrap: wrap; }
 .sc-meta span { color: #8b8267; font-size: 10.5px; }
 .sc-meta b { color: #d5c79c; }
 
-.lord-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.lord-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; align-content: start; }
 .lord-card {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 10px 8px 12px; background: linear-gradient(180deg, #1a2231, #111823);
@@ -138,51 +135,49 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .lord-card .lc-hanja { font-size: 10px; color: #8e8158; letter-spacing: 2px; }
 .lord-card .lc-meta { font-size: 10px; color: #998f70; display: flex; gap: 8px; }
 .lord-card .lc-meta b { color: #cfc095; }
+.lord-card .lc-stats { color: #7f7659; }
 
 /* ---------- HUD ---------- */
 .hud {
   display: flex; align-items: center; justify-content: space-between;
-  padding: calc(6px + env(safe-area-inset-top)) 10px 6px;
+  padding: calc(4px + env(safe-area-inset-top)) 10px 4px;
   background: linear-gradient(180deg, #1d2739 0%, #131b27 100%);
   border-bottom: 2px solid var(--line);
 }
 .hud-left { display: flex; align-items: center; gap: 8px; }
 .crest {
-  width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
   font-size: 16px; color: #111; background: var(--gold); border: 2px solid #6d5a24;
   box-shadow: inset 0 0 0 1px #f1dfa4;
 }
 .hud-name { display: flex; flex-direction: column; line-height: 1.25; }
-.hud-name b { font-size: 14px; color: var(--gold-bright); letter-spacing: 1px; }
-.hud-name small { font-size: 10.5px; color: #9b9276; }
+.hud-name b { font-size: 13px; color: var(--gold-bright); letter-spacing: 1px; }
+.hud-name small { font-size: 10px; color: #9b9276; }
 .hud-right { display: flex; gap: 6px; }
 
 .resbar {
-  display: flex; align-items: center; gap: 4px; padding: 5px 8px;
+  display: flex; align-items: center; gap: 3px; padding: 3px 8px;
   background: #0f1621; border-bottom: 1px solid #232c3d;
-  font-size: 10.5px; overflow: hidden;
+  font-size: 10px; overflow: hidden;
 }
-.res { display: flex; align-items: baseline; gap: 3px; flex: 0 0 auto; padding: 2px 5px; background: #161f2c; border: 1px solid #26303f; }
+.res { display: flex; align-items: baseline; gap: 3px; flex: 0 0 auto; padding: 1px 5px; background: #161f2c; border: 1px solid #26303f; }
 .res i { font-style: normal; color: #8b7c4e; font-size: 9.5px; }
 .res b { color: #e3d7b2; font-weight: 700; font-size: 11px; }
 .res.ap { flex: 1; min-width: 0; justify-content: space-between; }
-.ap-dots { display: flex; gap: 2px; }
-.ap-dots span { width: 5px; height: 9px; background: #2b3648; display: inline-block; }
-.ap-dots span.on { background: var(--gold); box-shadow: 0 0 4px rgba(216, 179, 74, 0.7); }
+.res.ap b { color: var(--gold-bright); }
 
 /* ---------- 지도 ---------- */
 .mapwrap { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #08121f; }
 #map { width: 100%; height: 100%; display: block; touch-action: none; }
-.chips {
-  position: absolute; left: 0; right: 0; top: 6px; display: flex; gap: 5px; padding: 0 8px;
-  overflow-x: auto; scrollbar-width: none; pointer-events: auto;
+.mapbar { position: absolute; left: 8px; top: 8px; display: flex; gap: 5px; pointer-events: auto; }
+.mapbtn {
+  height: 30px; padding: 0 10px; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: #d3c6a0; letter-spacing: 1px;
+  background: rgba(12, 19, 30, 0.9); border: 1px solid #4a4128;
+  box-shadow: inset 0 0 0 1px #060a10;
 }
-.chips::-webkit-scrollbar { display: none; }
-.chip {
-  flex: 0 0 auto; padding: 4px 8px; font-size: 10.5px; color: #cbbf9d;
-  background: rgba(14, 21, 33, 0.88); border: 1px solid #4a4128; letter-spacing: 1px;
-}
-.chip:active { background: #2a3448; color: var(--gold-bright); }
+.mapbtn span { color: var(--gold); font-size: 9px; }
+.mapbtn:active { background: #2a3448; color: var(--gold-bright); }
 .mapctrl { position: absolute; right: 8px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
 .mapctrl button {
   width: 38px; height: 38px; font-size: 16px; color: var(--gold);
@@ -211,53 +206,63 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
-.logstrip {
-  height: 30px; display: flex; align-items: center; padding: 0 10px;
-  background: #0c1219; border-top: 1px solid #1e2735; border-bottom: 1px solid #1e2735;
-  font-size: 10.5px; color: #a7c08f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  gap: 6px;
-}
-.logstrip::before { content: '軍報'; color: #6d5a24; font-size: 9px; border: 1px solid #3a3424; padding: 1px 3px; }
-#logstrip span { overflow: hidden; text-overflow: ellipsis; }
+.report-row { padding: 6px 0; border-bottom: 1px solid #1d2534; font-size: 11.5px; color: #a9c095; line-height: 1.5; }
+.report-row b { color: #6d8f5a; font-size: 10px; font-weight: 400; margin-right: 6px; }
 
-/* ---------- 도시 패널 ---------- */
+/* ---------- 도시 시트(접이식) ---------- */
 .citypanel {
-  max-height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  background: linear-gradient(180deg, #161f2d 0%, #0e151f 100%);
+  flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0;
+  background: linear-gradient(180deg, #182233 0%, #0e151f 100%);
   border-top: 2px solid var(--gold-dim);
-  padding: 8px 10px calc(10px + env(safe-area-inset-bottom));
+  padding: 0 10px calc(7px + env(safe-area-inset-bottom));
   animation: panelUp 0.16s ease-out;
 }
-@keyframes panelUp { from { transform: translateY(20px); opacity: 0.4; } to { transform: none; opacity: 1; } }
-.cp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.cp-title { font-size: 17px; color: var(--gold-bright); letter-spacing: 1px; display: flex; align-items: baseline; gap: 6px; }
-.cp-title small { font-size: 10px; color: #8b7f5b; letter-spacing: 1px; }
+@keyframes panelUp { from { transform: translateY(16px); opacity: 0.5; } to { transform: none; opacity: 1; } }
+.cs-head { display: flex; flex-direction: column; gap: 1px; padding: 5px 0 6px; }
+.cs-row { display: flex; align-items: center; gap: 7px; }
+.cs-id { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.cs-name { font-size: 17px; color: var(--gold-bright); letter-spacing: 1px; }
+.cs-hanja { font-size: 10px; color: #8b7f5b; letter-spacing: 1px; }
 .region-tag { font-size: 9px; padding: 1px 4px; border: 1px solid #4a4128; color: #a99a6c; letter-spacing: 1px; }
-.cp-head-right { display: flex; align-items: center; gap: 6px; }
-.cp-owner { font-size: 10.5px; padding: 2px 6px; border: 1px solid currentColor; }
-.cp-close { width: 26px; height: 26px; font-size: 12px; }
-.cp-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 8px 0; }
-.stat { background: #101823; border: 1px solid #232d3b; padding: 3px 5px; }
-.stat i { display: block; font-style: normal; font-size: 9px; color: #7d745a; letter-spacing: 0.5px; }
-.stat b { font-size: 12px; color: #e0d5b3; font-weight: 700; }
-.stat b.up { color: #8ed18e; }
-.bar { height: 3px; background: #222c3a; margin-top: 3px; }
-.bar > i { display: block; height: 100%; background: linear-gradient(90deg, #7a6428, var(--gold)); }
+.cs-owner { font-size: 10.5px; padding: 1px 6px; border: 1px solid currentColor; white-space: nowrap; }
+.cs-actions { margin-left: auto; display: flex; align-items: center; gap: 5px; }
+.cs-toggle {
+  height: 30px; padding: 0 10px; font-size: 12px; letter-spacing: 0.5px; color: #f0dfae;
+  background: linear-gradient(180deg, #2b3a55, #16202f); border: 1px solid var(--gold-dim);
+  box-shadow: inset 0 1px 0 rgba(255, 230, 160, 0.2);
+}
+.cs-toggle:active { filter: brightness(1.25); }
+.cs-close { width: 30px; height: 30px; font-size: 12px; }
+.cs-brief {
+  display: flex; gap: 8px; font-size: 10px; color: #948b70;
+  white-space: nowrap; overflow: hidden;
+}
+.cs-brief b { color: #e0d5b3; font-weight: 700; }
+.cs-body { display: none; overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: 58vh; }
+.citypanel.open .cs-body { display: block; }
+.cs-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 2px 0 7px; }
+.stat {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 3px;
+  background: #101823; border: 1px solid #232d3b; padding: 4px 6px;
+}
+.stat i { font-style: normal; font-size: 9px; color: #7d745a; letter-spacing: 0.3px; }
+.stat b { font-size: 12.5px; color: #e0d5b3; font-weight: 700; }
+.stat b.dim { color: #b6ab8c; font-size: 11.5px; }
 
 .cp-gens { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .cp-gens::-webkit-scrollbar { display: none; }
 .gen-chip {
-  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; width: 46px; gap: 1px;
-  padding: 3px 2px; background: #121a25; border: 1px solid #26303f;
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; width: 44px; gap: 1px;
+  padding: 2px 1px; background: #121a25; border: 1px solid #26303f;
 }
-.gen-chip img { width: 32px; height: 32px; image-rendering: pixelated; border: 1px solid #3a3424; }
-.gen-chip span { font-size: 9px; color: #cdc2a0; white-space: nowrap; overflow: hidden; max-width: 44px; text-overflow: ellipsis; }
+.gen-chip img { width: 30px; height: 30px; image-rendering: pixelated; border: 1px solid #3a3424; }
+.gen-chip span { font-size: 9px; color: #cdc2a0; white-space: nowrap; overflow: hidden; max-width: 42px; text-overflow: ellipsis; }
 .gen-chip.done { opacity: 0.45; }
-.cp-cmds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 8px; }
-.cp-cmds .btn { min-height: 42px; font-size: 12px; letter-spacing: 0.5px; padding: 4px 2px; flex-direction: column; gap: 1px; }
-.cp-cmds .btn small { font-size: 8.5px; color: #8e8464; font-weight: 400; letter-spacing: 0; }
-.cp-cmds .btn.march { border-color: #7a3229; color: #ffc7b8; background: linear-gradient(180deg, #46231f, #29130f); }
-.cp-hint { color: #8d8467; font-size: 10.5px; line-height: 1.6; margin: 6px 0 0; }
+.cp-gens .none { font-size: 10.5px; color: #857b5f; padding: 6px 0; }
+.cp-cmds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 6px; }
+.cp-cmds .btn { min-height: 40px; font-size: 12px; letter-spacing: 0.3px; padding: 4px 2px; flex-direction: column; gap: 0; }
+.cp-cmds .btn small { font-size: 8.5px; color: #9c926f; font-weight: 400; letter-spacing: 0; }
+.cp-cmds .btn.march { grid-column: span 2; border-color: #7a3229; color: #ffc7b8; background: linear-gradient(180deg, #46231f, #29130f); }
 
 /* ---------- 시트 ---------- */
 .sheet { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-end; }
@@ -302,7 +307,6 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .pick-chip { white-space: nowrap; padding: 7px 10px; font-size: 11.5px; color: #cbbf9d; border: 1px solid #3d3726; background: #121a25; }
 .pick-chip.on { border-color: var(--gold); color: var(--gold-bright); background: #232c1e; }
-.duel-note { font-size: 10px; color: #96895f; margin-top: 2px; }
 
 /* ---------- 전투 ---------- */
 #scr-battle { background: radial-gradient(circle at 50% 0%, #1a2434 0%, #0a0f18 70%); }
@@ -368,17 +372,18 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   #scr-game {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 400px;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
   #scr-game .hud { grid-column: 1 / -1; grid-row: 1; }
   #scr-game .resbar { grid-column: 1 / -1; grid-row: 2; }
   #scr-game .mapwrap { grid-column: 1; grid-row: 3; }
-  #scr-game .logstrip { grid-column: 1; grid-row: 4; }
   #scr-game .mapwrap { max-height: none; }
   #scr-game .citypanel {
-    grid-column: 2; grid-row: 3 / 5; max-height: none; border-top: 0;
-    border-left: 2px solid var(--gold-dim); padding-bottom: 12px;
+    grid-column: 2; grid-row: 3 / 4; max-height: none; border-top: 0;
+    border-left: 2px solid var(--gold-dim); padding: 0 12px 12px; overflow-y: auto;
   }
+  #scr-game .cs-body { display: block; max-height: none; }
+  #scr-game .cs-toggle { display: none; }
   #scr-game .cp-cmds { grid-template-columns: repeat(3, 1fr); }
   .cp-gens { flex-wrap: wrap; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
@@ -387,8 +392,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 
 @media (min-width: 640px) {
   body { font-size: 14px; }
-  .mapwrap { max-height: 62vh; }
-  .citypanel { max-height: 420px; }
+  .citypanel { max-height: 60vh; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
   .cp-cmds { grid-template-columns: repeat(6, 1fr); }
   .bt-cmds { grid-template-columns: repeat(5, 1fr); }

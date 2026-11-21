@@ -1,4 +1,4 @@
-/* 삼국지 V 풍 웹게임 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
+/* 도트삼국 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS } from './data.js';
 
 export const SAVE_VERSION = 3;

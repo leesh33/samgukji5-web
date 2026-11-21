@@ -16,6 +16,7 @@ const KEYS = { auto: 'samguk5.auto', slot: (i) => `samguk5.slot${i}`, muted: 'sa
 let game = null;
 let mapView = null;
 let selectedCity = null;
+let cityPanelOpen = false;
 let pendingSetup = null; // 출진 준비
 let battle = null;
 let battleSel = null;
@@ -125,7 +126,6 @@ function renderScenarios() {
     return `<button class="sc-card" data-act="pick-scenario" data-id="${s.id}">
       <div class="sc-year">${s.year}년</div>
       <div class="sc-name">${s.name} <small>${s.hanja}</small></div>
-      <div class="sc-desc">${s.desc}</div>
       <div class="sc-meta"><span>세력 <b>${facs}</b></span><span>성 <b>${s.factions.reduce((n, f) => n + f.cities.length, 0)}</b></span><span>등장 장수 <b>${gens.size}</b></span></div>
     </button>`;
   }).join('');
@@ -143,7 +143,7 @@ function renderLords(scenarioId) {
       <div class="lc-name">${f.name}</div>
       <div class="lc-hanja">${f.hanja}</div>
       <div class="lc-meta"><span>성 <b>${f.cities.length}</b></span><span>장수 <b>${f.generals.length}</b></span></div>
-      <div class="duel-note">${lord.ko} · 통솔 ${lord.lead} 무력 ${lord.war} 지력 ${lord.int}</div>
+      <div class="lc-meta lc-stats"><span>통 <b>${lord.lead}</b></span><span>무 <b>${lord.war}</b></span><span>지 <b>${lord.int}</b></span></div>
     </button>`;
   }).join('');
 }
@@ -165,7 +165,7 @@ function afterGameInit() {
   if (!mapView) {
     mapView = createMapView($('#map'), {
       onSelectCity: (id) => selectCity(id),
-      onTapEmpty: () => { selectedCity = null; mapView.setSelected(null); renderCityPanel(); },
+      onTapEmpty: () => { selectedCity = null; cityPanelOpen = false; mapView.setSelected(null); renderCityPanel(); },
     });
   }
   mapView.setState(game);
@@ -200,14 +200,10 @@ function renderGame() {
   $('#res-troops').textContent = fmt(sum.troops);
   $('#res-fame').textContent = Math.round(f.fame);
   $('#res-ap').textContent = `${game.actionPoints}/${game.maxActionPoints}`;
-  $('#ap-dots').innerHTML = Array.from({ length: game.maxActionPoints }, (_, i) => `<span class="${i < game.actionPoints ? 'on' : ''}"></span>`).join('');
-  $('#turn-hint').textContent = `명령 ${game.actionPoints}회`;
+  $('#turn-hint').textContent = `명령 ${game.actionPoints}`;
   $('#btn-endturn').disabled = !!game.gameOver;
 
-  const log = game.log.slice(-1)[0];
-  $('#logstrip').innerHTML = `<span>${log ? log.text : '성(城)을 눌러 명령을 내리세요.'}</span>`;
 
-  renderChips();
   renderCityPanel();
   if (mapView) {
     mapView.setState(game);
@@ -216,24 +212,28 @@ function renderGame() {
   if (game.gameOver) setTimeout(showEnding, 350);
 }
 
-function renderChips() {
+function openRegionMenu() {
   const regions = [...new Set(CITIES.map((c) => c.region))];
-  $('#chips').innerHTML = regions.map((r) => {
+  const chips = regions.map((r) => {
     const mine = CITIES.filter((c) => c.region === r && game.cities[c.id].owner === game.playerId).length;
-    return `<button class="chip" data-act="jump-region" data-region="${r}">${r}${mine ? ' <b style="color:#d8b34a">' + mine + '</b>' : ''}</button>`;
-  }).join('') + `<button class="chip" data-act="jump-region" data-region="__mine">내 성</button>`;
+    return `<button class="pick-chip ${mine ? 'on' : ''}" data-act="jump-region" data-region="${r}" style="min-width:76px">${r}${mine ? ` <b style="color:#e8c96a">${mine}</b>` : ''}</button>`;
+  }).join('');
+  openSheet('권역 이동', `<div class="chip-row">${chips}</div>`);
+}
+
+function openReports() {
+  const rows = game.log.slice(-40).reverse()
+    .map((l) => `<div class="report-row"><b>${l.year}.${String(l.month).padStart(2, '0')}</b>${l.text}</div>`).join('');
+  openSheet('군보(軍報)', rows || '<p class="note">아직 기록이 없습니다.</p>');
 }
 
 /* ---------- 도시 패널 ---------- */
 function selectCity(id) {
+  if (id !== selectedCity) cityPanelOpen = false;
   selectedCity = id;
   sfx.select();
   if (mapView) { mapView.setSelected(id); }
   renderCityPanel();
-}
-
-function statBar(v, max = 100) {
-  return `<div class="bar"><i style="width:${Math.max(0, Math.min(100, (v / max) * 100))}%"></i></div>`;
 }
 
 function renderCityPanel() {
@@ -254,47 +254,54 @@ function renderCityPanel() {
   let cmdHTML = '';
   if (mine) {
     const acts = [
-      ['agri', '개발', '농업'], ['comm', '상업', '상업'], ['order', '치안', '치안'], ['water', '수리', '수리'],
-      ['draft', '징병', '2령'], ['train', '훈련', '훈련'], ['search', '탐색', '인재'], ['hire', '등용', '재야'],
-      ['reward', '포상', '충성'], ['transport', '수송', '물자'],
+      ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'],
+      ['draft', '징병', '2령'], ['train', '훈련'], ['search', '탐색'], ['hire', '등용'],
+      ['reward', '포상'], ['transport', '수송'],
     ];
-    cmdHTML = acts.map(([k, ko, sub]) => `<button class="btn" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}">${ko}<small>${sub}</small></button>`).join('');
+    cmdHTML = acts.map(([k, ko, sub]) => `<button class="btn" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}">${ko}${sub ? `<small>${sub}</small>` : ''}</button>`).join('');
     const enemies = E.adjacentEnemies(game, selectedCity);
-    if (enemies.length) {
-      cmdHTML += `<button class="btn march" data-act="march" data-city="${selectedCity}">출진<small>${enemies.map((e) => CITY_BY_ID[e].ko).join('·')}</small></button>`;
-    } else {
-      cmdHTML += `<button class="btn" disabled>출진<small>적 인접 없음</small></button>`;
-    }
+    cmdHTML += enemies.length
+      ? `<button class="btn march" data-act="march" data-city="${selectedCity}">출진</button>`
+      : '<button class="btn" disabled>출진</button>';
   } else {
     const src = E.adjacentFriends(game, selectedCity).filter((id) => E.generalsInCity(game, id).length);
-    cmdHTML = `<button class="btn march" data-act="attack-enemy" data-city="${selectedCity}">공격<small>${src.length ? src.map((s) => CITY_BY_ID[s].ko).join('·') : '인접 아군 없음'}</small></button>`;
+    cmdHTML = src.length
+      ? `<button class="btn march" data-act="attack-enemy" data-city="${selectedCity}" style="grid-column:span 2">공격</button>`
+      : '<button class="btn" disabled style="grid-column:span 2">공격 불가</button>';
   }
 
   panel.classList.remove('hidden');
+  panel.classList.toggle('open', cityPanelOpen);
   panel.innerHTML = `
-    <div class="cp-head">
-      <div>
-        <div class="cp-title"><span class="region-tag">${base.region}</span>${base.ko} <small>${base.hanja}</small></div>
-        <div class="cp-hint">성 방어 ${c.def} · 훈련 ${c.train} · 인접 ${base.roads.map((r) => CITY_BY_ID[r].ko).join(' ')}</div>
+    <div class="cs-head">
+      <div class="cs-row">
+        <div class="cs-id"><span class="region-tag">${base.region}</span><b class="cs-name">${base.ko}</b><small class="cs-hanja">${base.hanja}</small></div>
+        <span class="cs-owner" style="color:${colorOf(c.owner)}">${ownerName}</span>
+        <div class="cs-actions">
+          <button class="cs-toggle" data-act="city-toggle">${cityPanelOpen ? '접기 ▾' : '명령 ▴'}</button>
+          <button class="cs-close" data-act="close-city" aria-label="닫기">✕</button>
+        </div>
       </div>
-      <div class="cp-head-right">
-        <div class="cp-owner" style="color:${colorOf(c.owner)}">${ownerName}</div>
-        <button class="mini-btn cp-close" data-act="close-city" aria-label="닫기">✕</button>
+      <div class="cs-brief">
+        <span>병 <b>${fmt(c.troops)}</b></span><span>금 <b>${fmt(c.gold)}</b></span><span>량 <b>${fmt(c.food)}</b></span><span>방 <b>${c.def}</b></span>
       </div>
     </div>
-    <div class="cp-stats">
-      <div class="stat"><i>농업</i><b>${c.agri}</b>${statBar(c.agri)}</div>
-      <div class="stat"><i>상업</i><b>${c.comm}</b>${statBar(c.comm)}</div>
-      <div class="stat"><i>치안</i><b>${c.order}</b>${statBar(c.order)}</div>
-      <div class="stat"><i>수리</i><b>${c.water}</b>${statBar(c.water)}</div>
-      <div class="stat"><i>병력</i><b>${fmt(c.troops)}</b></div>
-      <div class="stat"><i>훈련</i><b>${c.train}</b>${statBar(c.train)}</div>
-      <div class="stat"><i>금</i><b>${fmt(c.gold)}</b></div>
-      <div class="stat"><i>식량</i><b>${fmt(c.food)}</b></div>
+    <div class="cs-body">
+      <div class="cs-stats">
+        <div class="stat"><i>농업</i><b>${c.agri}</b></div>
+        <div class="stat"><i>상업</i><b>${c.comm}</b></div>
+        <div class="stat"><i>치안</i><b>${c.order}</b></div>
+        <div class="stat"><i>수리</i><b>${c.water}</b></div>
+        <div class="stat"><i>병력</i><b>${fmt(c.troops)}</b></div>
+        <div class="stat"><i>훈련</i><b>${c.train}</b></div>
+        <div class="stat"><i>금</i><b>${fmt(c.gold)}</b></div>
+        <div class="stat"><i>식량</i><b>${fmt(c.food)}</b></div>
+      </div>
+      ${gens.length ? `<div class="cp-gens">${genHTML}</div>` : '<div class="cp-gens"><span class="none">주둔 장수 없음</span></div>'}
+      <div class="cp-cmds">${cmdHTML}</div>
     </div>
-    ${gens.length ? `<div class="cp-gens">${genHTML}</div>` : `<p class="cp-hint">주둔 장수가 없습니다.</p>`}
-    <div class="cp-cmds">${cmdHTML}</div>
   `;
+  if (mapView) requestAnimationFrame(() => mapView.resize());
 }
 
 /* ---------- 시트 ---------- */
@@ -632,8 +639,8 @@ function renderBattle() {
 
   const mine = battle.units.filter((u) => u.side === my && u.alive);
   const info = battleSel
-    ? `선택: <b>${battleSel.name}</b> · ${fmt(battleSel.troops)}명 · 사기 ${Math.round(battleSel.morale)} · 진형 <b>${B.formOf(battleSel).ko}</b> (공${B.formOf(battleSel).atk} 방${B.formOf(battleSel).def} 사거리${B.formOf(battleSel).range}) · 이동력 ${B.movePoints(battleSel)}${battleSel.acted ? ' · 행동 완료' : ''}`
-    : '아군 부대를 눌러 지휘하세요. 파란 칸으로 이동, 붉은 테두리 적을 공격합니다.';
+    ? `<b>${battleSel.name}</b> ${fmt(battleSel.troops)} · 사기 ${Math.round(battleSel.morale)} · ${B.formOf(battleSel).ko}${battleSel.acted ? ' · 완료' : ''}`
+    : '';
   $('#bt-info').innerHTML = info;
 
   $('#bt-log').innerHTML = battle.log.slice(-40).map((l) => `<div>${l}</div>`).join('');
@@ -863,7 +870,7 @@ function renderDuel() {
       <span style="font-size:11px;color:#b3a884">${won ? target.name + ' 부대 사기 급락' : mine.name + ' 부대 사기 급락'}</span><br>
       <button class="btn" data-act="duel-close" style="margin-top:8px">돌아가기</button></div>`;
   } else {
-    $('#duel-cmds').innerHTML = DUEL_ACTIONS.map((a) => `<button class="btn" data-act="duel-act" data-a="${a.id}"><b>${a.ko}</b><small>${a.desc}</small></button>`).join('');
+    $('#duel-cmds').innerHTML = DUEL_ACTIONS.map((a) => `<button class="btn" data-act="duel-act" data-a="${a.id}"><b>${a.ko}</b></button>`).join('');
   }
 }
 
@@ -936,6 +943,7 @@ function openMenu() {
     <button class="btn big" data-act="save-slot" data-slot="2" style="margin-bottom:8px">슬롯 2에 저장</button>
     <button class="btn big" data-act="save-slot" data-slot="3" style="margin-bottom:8px">슬롯 3에 저장</button>
     <button class="btn big ghost" data-act="open-load" style="margin-bottom:8px">불러오기</button>
+    <button class="btn big ghost" data-act="open-reports" style="margin-bottom:8px">군보(軍報)</button>
     <button class="btn big ghost" data-act="open-rank" style="margin-bottom:8px">세력 순위</button>
     <button class="btn big ghost" data-act="open-help" style="margin-bottom:8px">게임 방법</button>
     <button class="btn big ghost" data-act="to-title">타이틀로</button>
@@ -1066,19 +1074,23 @@ function onClick(e) {
     case 'pick-scenario': renderLords(el.dataset.id); show('scr-lord'); break;
     case 'pick-lord': startGame(el.dataset.sc, el.dataset.id); break;
     case 'jump-region': {
+      closeSheet();
       if (el.dataset.region === '__mine') {
         const mine = E.factionCities(game, game.playerId);
-        if (mine.length) { selectedCity = mine[0].id; mapView.focusCity(selectedCity); renderCityPanel(); }
+        if (mine.length) { cityPanelOpen = false; selectedCity = mine[0].id; mapView.focusCity(selectedCity); mapView.setSelected(selectedCity); renderCityPanel(); }
       } else {
         mapView.focusRegion(el.dataset.region);
       }
       break;
     }
+    case 'region-menu': sfx.click(); openRegionMenu(); break;
+    case 'open-reports': sfx.click(); openReports(); break;
+    case 'city-toggle': cityPanelOpen = !cityPanelOpen; sfx.click(); renderCityPanel(); break;
     case 'zoom-in': mapView.zoomBy(1.25); break;
     case 'zoom-out': mapView.zoomBy(0.8); break;
     case 'zoom-reset': mapView.resetView(); break;
     case 'endturn': endTurn(); break;
-    case 'close-city': selectedCity = null; mapView.setSelected(null); renderCityPanel(); break;
+    case 'close-city': selectedCity = null; cityPanelOpen = false; mapView.setSelected(null); renderCityPanel(); break;
     case 'cmd': openCommandSheet(el.dataset.cmd, el.dataset.city); break;
     case 'do-command': doCommand(sheetCommandType, el.dataset.officer, sheetCityId); break;
     case 'do-hire': doHire(sheetCityId, el.dataset.officer); break;
@@ -1140,7 +1152,7 @@ function onClick(e) {
       if (g.skill === 'hollan' || g.int >= 75) can.push(['confuse', '혼란']);
       can.push(['rally', '고무']);
       if (g.skill === 'chiryo' || g.int >= 60) can.push(['heal', '치료']);
-      openSheet('계략 선택', `<div class="tactic-grid">${can.map(([k, ko]) => `<button class="btn" data-act="bt-tactic-kind" data-kind="${k}">${ko}</button>`).join('')}</div><p class="note" style="margin-top:8px">대상은 사거리 3 이내에서 고릅니다. 화계·혼란은 적, 고무·치료는 아군.</p>`);
+      openSheet('계략 선택', `<div class="tactic-grid">${can.map(([k, ko]) => `<button class="btn" data-act="bt-tactic-kind" data-kind="${k}">${ko}</button>`).join('')}</div>`);
       break;
     }
     case 'bt-tactic-kind': {

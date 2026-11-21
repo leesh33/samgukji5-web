@@ -1,4 +1,4 @@
-"""삼국지 오 — 라이브 검증 (390×844 · iPhone UA · 실제 터치)
+"""도트삼국 — 라이브 검증 (390×844 · iPhone UA · 실제 터치)
 사용: LD_LIBRARY_PATH=... python3 samgukji5-web/tests/verify_live.py [URL] [TAG]
 """
 import json
@@ -81,7 +81,9 @@ with sync_playwright() as p:
     page.wait_for_timeout(1000)
     step("본 게임 진입", page.locator("#scr-game").is_visible() and page.locator("#map").is_visible(),
          page.locator("#hud-faction").inner_text())
-    step("성 패널", page.locator("#citypanel").is_visible())
+    step("성 시트(접힘)", page.locator("#citypanel").is_visible() and not page.locator("#citypanel").evaluate("el => el.classList.contains('open')"))
+    ratio = page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100)")
+    step("지도 세로 비중 60% 이상", ratio >= 60, f"{ratio}%")
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)
     shot(page, "04-map")
@@ -99,16 +101,23 @@ with sync_playwright() as p:
     z = page.evaluate("() => document.querySelector('#map').width")
     shot(page, "05-map-zoom")
     step("드래그·확대", z > 0, page.evaluate("() => 1"))
-    page.click('.chip[data-region="익주"]')
-    page.wait_for_timeout(400)
+    page.click('[data-act="region-menu"]')
+    page.wait_for_timeout(300)
+    page.click('.pick-chip[data-region="익주"]')
+    page.wait_for_timeout(450)
     shot(page, "06-map-region")
-    step("권역 빠른 이동(익주)", True)
+    step("권역 빠른 이동(익주)", page.locator("#sheet").evaluate("el => el.classList.contains('hidden')"))
     page.click('[data-act="zoom-reset"]')
     page.wait_for_timeout(300)
 
     # ---------- 내정 ----------
-    page.click('.chip[data-region="__mine"]')
-    page.wait_for_timeout(300)
+    page.click('[data-act="jump-region"][data-region="__mine"]')
+    page.wait_for_timeout(350)
+    page.click('.cs-toggle')
+    page.wait_for_timeout(400)
+    step("성 시트 펼침", page.locator("#citypanel").evaluate("el => el.classList.contains('open')"),
+         page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100) + '%'"))
+    shot(page, "06b-map-open")
     ap0 = page.locator("#res-ap").inner_text()
     gold0 = page.locator("#res-gold").inner_text()
     page.click('[data-act="cmd"][data-cmd="agri"]')
@@ -179,7 +188,7 @@ with sync_playwright() as p:
     tile = cv["width"] / 13
     page.mouse.click(cv["x"] + tile * 2.2, cv["y"] + tile * 4.4)
     page.wait_for_timeout(450)
-    step("부대 이동", "선택:" in page.locator("#bt-info").inner_text())
+    step("부대 이동", page.locator("#bt-info b").count() > 0, page.locator("#bt-info").inner_text()[:60])
     shot(page, "12-battle-move")
 
     # 계략

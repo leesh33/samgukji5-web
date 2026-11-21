@@ -31,11 +31,14 @@ with sync_playwright() as p:
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(BASE, wait_until="networkidle")
     pg.wait_for_timeout(700)
+    step("이름 도트삼국 반영", "도트삼국" in pg.locator(".title-mark h1").inner_text()
+         and "삼국지" not in pg.title(), pg.title())
 
     # 새 게임 → 자동 저장 생성
     pg.click('[data-act="new"]'); pg.wait_for_timeout(250)
     pg.click('.sc-card[data-id="s208"]'); pg.wait_for_timeout(300)
     pg.click('.lord-card[data-id="liubei"]'); pg.wait_for_timeout(900)
+    pg.click('.cs-toggle'); pg.wait_for_timeout(400)
     pg.click('[data-act="cmd"][data-cmd="agri"]'); pg.wait_for_timeout(300)
     if pg.locator(".officer-row:not(.done)").count():
         pg.locator(".officer-row:not(.done)").first.click()

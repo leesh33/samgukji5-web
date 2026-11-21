@@ -32,7 +32,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
   const ctx = canvas.getContext('2d');
   let state = null;
   let selected = null;
-  let cam = { x: 56, y: 36, zoom: 1 };
+  let cam = { x: 57, y: 35, zoom: 1 };
   let dpr = Math.min(2.5, window.devicePixelRatio || 1);
   let cssW = 0, cssH = 0;
   let dragging = false;
@@ -44,34 +44,43 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
-    cssW = Math.max(1, rect.width || canvas.clientWidth || 0);
-    cssH = Math.max(1, rect.height || canvas.clientHeight || 0);
-    dpr = Math.min(2.5, window.devicePixelRatio || 1);
+    const w = Math.max(1, rect.width || canvas.clientWidth || 0);
+    const h = Math.max(1, rect.height || canvas.clientHeight || 0);
+    const d = Math.min(2.5, window.devicePixelRatio || 1);
+    if (w < 2 || h < 2) return; // 숨겨진 화면(전투 등)에서는 크기를 유지
+    if (w === cssW && h === cssH && d === dpr) return;
+    cssW = w; cssH = h; dpr = d;
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
+    clampCam();
     requestRender();
   }
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => resize()).observe(canvas);
+  }
 
-  const TOP_INSET = 28;
-  const fitScale = () => Math.min(cssW / 82, (cssH - TOP_INSET) / 72);
+  const TOP_INSET = 26;
+  const BOUNDS = { x0: 23, x1: 91, y0: 2, y1: 68 };
+  // 세로 화면을 채우기 위한 완만한 세로 신축(지도 여백 제거)
+  const STRETCH = 1.5;
+  const fitScale = () => Math.max(0.01, Math.min(cssW / (BOUNDS.x1 - BOUNDS.x0), (cssH - TOP_INSET) / (BOUNDS.y1 - BOUNDS.y0)));
   const scale = () => fitScale() * cam.zoom;
+  const scaleY = () => scale() * Math.min(STRETCH, Math.max(1, Math.max(0, (cssH - TOP_INSET)) / (BOUNDS.y1 - BOUNDS.y0) / fitScale()));
 
   function toScreen(wx, wy) {
-    const s = scale();
-    return { x: (wx - cam.x) * s + cssW / 2, y: (wy - cam.y) * s + TOP_INSET + (cssH - TOP_INSET) / 2 };
+    return { x: (wx - cam.x) * scale() + cssW / 2, y: (wy - cam.y) * scaleY() + TOP_INSET + (cssH - TOP_INSET) / 2 };
   }
   function toWorld(sx, sy) {
-    const s = scale();
-    return { x: (sx - cssW / 2) / s + cam.x, y: (sy - TOP_INSET - (cssH - TOP_INSET) / 2) / s + cam.y };
+    return { x: (sx - cssW / 2) / scale() + cam.x, y: (sy - TOP_INSET - (cssH - TOP_INSET) / 2) / scaleY() + cam.y };
   }
 
   function clampCam() {
     cam.zoom = Math.max(1, Math.min(3.6, cam.zoom));
-    if (!Number.isFinite(cam.x) || !Number.isFinite(cam.y)) cam.x = 56, cam.y = 36;
+    if (!Number.isFinite(cam.x) || !Number.isFinite(cam.y)) cam.x = 57, cam.y = 35;
     if (!cssW || !cssH) return;
-    const halfW = cssW / 2 / scale(), halfH = (cssH - TOP_INSET) / 2 / scale();
-    const minX = 22 + halfW, maxX = 92 - halfW;
-    const minY = 4 + halfH, maxY = 70 - halfH;
+    const halfW = cssW / 2 / scale(), halfH = (cssH - TOP_INSET) / 2 / scaleY();
+    const minX = BOUNDS.x0 + halfW, maxX = BOUNDS.x1 - halfW;
+    const minY = BOUNDS.y0 + halfH, maxY = BOUNDS.y1 - halfH;
     cam.x = minX > maxX ? (minX + maxX) / 2 : Math.max(minX, Math.min(maxX, cam.x));
     cam.y = minY > maxY ? (minY + maxY) / 2 : Math.max(minY, Math.min(maxY, cam.y));
   }
@@ -96,17 +105,17 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     const gy0 = toScreen(0, 0).y, gy1 = toScreen(0, 70).y;
     if (!Number.isFinite(gy0) || !Number.isFinite(gy1)) return;
     const g = ctx.createLinearGradient(0, gy0, 0, gy1);
-    g.addColorStop(0, '#2c3f30');
-    g.addColorStop(0.5, '#33452f');
-    g.addColorStop(1, '#2a3a28');
+    g.addColorStop(0, '#33492f');
+    g.addColorStop(0.5, '#3b5334');
+    g.addColorStop(1, '#2f452a');
     ctx.fillStyle = g;
     ctx.fill();
-    ctx.strokeStyle = '#1b2a1e';
-    ctx.lineWidth = Math.max(2, 2 * dpr);
+    ctx.strokeStyle = '#16241a';
+    ctx.lineWidth = Math.max(2, 2.5 * dpr);
     ctx.stroke();
     // 해안선 하이라이트
-    ctx.strokeStyle = 'rgba(120,160,140,0.25)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(150,190,165,0.35)';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 
@@ -196,7 +205,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
 
   function drawRoads() {
     const s = scale();
-    ctx.lineWidth = Math.max(1, Math.min(3, s * 0.45));
+    ctx.lineWidth = Math.max(1.4, Math.min(3.6, s * 0.55));
     const seen = new Set();
     for (const c of CITIES) {
       for (const nb of c.roads) {
@@ -204,7 +213,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
         if (seen.has(key)) continue;
         seen.add(key);
         const a = toScreen(c.x, c.y), b = toScreen(CITY_BY_ID[nb].x, CITY_BY_ID[nb].y);
-        ctx.strokeStyle = 'rgba(190,170,120,0.28)';
+        ctx.strokeStyle = 'rgba(214,192,138,0.42)';
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -212,7 +221,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
         // 도트 길
         const len = Math.hypot(b.x - a.x, b.y - a.y);
         const steps = Math.floor(len / 9);
-        ctx.fillStyle = 'rgba(200,180,130,0.22)';
+        ctx.fillStyle = 'rgba(226,205,150,0.36)';
         for (let i = 1; i < steps; i += 2) {
           const t = i / steps;
           ctx.fillRect(Math.round(a.x + (b.x - a.x) * t), Math.round(a.y + (b.y - a.y) * t), 2, 2);
@@ -223,32 +232,35 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
 
   function castleIcon(p, size, color, owner) {
     const u = Math.max(1, Math.round(size / 8));
-    const x = Math.round(p.x - size / 2), y = Math.round(p.y - size / 2);
-    // 성벽 본체 — 세력색을 섞어 소유를 한눈에
-    const wall = mix(color, '#6b6252', 0.55);
-    const wallTop = mix(color, '#a89e86', 0.5);
-    drawPixelRect(x + u * 1, y + u * 3, u * 6, u * 5, '#241f18');
-    drawPixelRect(x + u * 1, y + u * 3, u * 6, u * 4, wall);
-    drawPixelRect(x + u * 1, y + u * 3, u * 6, u * 1, wallTop);
+    const x = Math.round(p.x - u * 4), y = Math.round(p.y - u * 3);
+    const wall = mix(color, '#8a7f66', 0.4);
+    const wallTop = mix(color, '#e0d2a4', 0.55);
+    const gate = mix(color, '#1a1610', 0.72);
+    // 땅 그림자
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(x, y + u * 6, u * 8, u);
+    // 성벽 바탕(어두운 테)
+    drawPixelRect(x - u * 0.4, y - u * 0.4, u * 8.8, u * 6.8, '#0a0d13');
+    // 성벽 + 상단 하이라이트
+    drawPixelRect(x, y, u * 8, u * 6, wall);
+    drawPixelRect(x, y, u * 8, u, wallTop);
+    drawPixelRect(x, y + u * 5, u * 8, u, gate);
+    // 성가퀴 3개
+    for (let i = 0; i < 3; i++) drawPixelRect(x + u * (0.3 + i * 3), y - u * 1.6, u * 2, u * 1.8, wall);
     // 성문
-    drawPixelRect(x + u * 3, y + u * 5, u * 2, u * 3, '#221f19');
-    // 탑
-    drawPixelRect(x + u * 0, y + u * 1, u * 2, u * 5, mix(color, '#4e4739', 0.6));
-    drawPixelRect(x + u * 6, y + u * 1, u * 2, u * 5, mix(color, '#4e4739', 0.6));
-    drawPixelRect(x + u * 0, y + u * 0, u * 2, u * 2, '#c8b078');
-    drawPixelRect(x + u * 6, y + u * 0, u * 2, u * 2, '#c8b078');
-    drawPixelRect(x + u * 3, y + u * 0, u * 2, u * 2, '#c8b078');
-    // 깃발(세력색)
-    drawPixelRect(x + u * 3, y - u * 3, u * 1, u * 3, '#3a3326');
-    drawPixelRect(x + u * 4, y - u * 3, u * 3, u * 2, color);
-    // 소유자 표시 테두리
-    ctx.strokeStyle = owner ? color : '#777';
-    ctx.lineWidth = Math.max(1, u);
-    ctx.strokeRect(x + u * 0.5, y + u * 0.5, u * 7, u * 7.5);
+    drawPixelRect(x + u * 3, y + u * 3.2, u * 2, u * 2.8, gate);
+    // 깃대 + 세력 깃발
+    drawPixelRect(x + u * 3.5, y - u * 4.4, u * 1, u * 3, '#2c2418');
+    drawPixelRect(x + u * 4.2, y - u * 4.4, u * 3.4, u * 2.1, color);
+    drawPixelRect(x + u * 4.2, y - u * 4.4, u * 3.4, u * 0.7, mix(color, '#ffffff', 0.35));
+    // 소유 테두리
+    ctx.strokeStyle = owner ? color : '#79705d';
+    ctx.lineWidth = Math.max(1, u * 0.9);
+    ctx.strokeRect(x - u * 0.4, y - u * 0.4, u * 8.8, u * 6.8);
   }
 
   function drawRegionLabels() {
-    if (cam.zoom >= 1.45) return;
+    if (cam.zoom > 1.12) return;
     const groups = {};
     for (const c of CITIES) {
       (groups[c.region] = groups[c.region] || []).push(c);
@@ -261,72 +273,86 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       const p = toScreen(cx, cy);
       const fs = Math.max(11, Math.min(16, 10 + cam.zoom * 5));
       ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
-      ctx.fillStyle = 'rgba(230, 210, 150, 0.34)';
+      ctx.fillStyle = 'rgba(230, 210, 150, 0.22)';
       ctx.fillText(region, p.x, p.y);
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.fillText(region, p.x + 1, p.y + 1);
-      ctx.fillStyle = 'rgba(230, 210, 150, 0.32)';
+      ctx.fillStyle = 'rgba(230, 210, 150, 0.21)';
       ctx.fillText(region, p.x, p.y);
     }
   }
 
   function drawCities() {
-    const s = scale();
-    const showAllLabels = cam.zoom > 1.75;
-    const placed = [];
+    const sc = scale();
     const own = state ? state.playerId : null;
-    const ordered = CITIES.slice().sort((a, b) => {
-      const pa = (selected === a.id ? 3 : 0) + (state && state.cities[a.id].owner === own ? 2 : 0) + (a.major ? 1 : 0);
-      const pb = (selected === b.id ? 3 : 0) + (state && state.cities[b.id].owner === own ? 2 : 0) + (b.major ? 1 : 0);
-      return pb - pa;
-    });
-    for (const c of ordered) {
+    const items = [];
+    for (const c of CITIES) {
       const p = toScreen(c.x, c.y);
-      if (p.x < -40 || p.y < -40 || p.x > cssW + 40 || p.y > cssH + 40) continue;
+      if (p.x < -80 || p.y < -80 || p.x > cssW + 80 || p.y > cssH + 80) continue;
       const city = state ? state.cities[c.id] : null;
-      const owner = city ? city.owner : null;
-      const color = owner ? (state.factions[owner] ? state.factions[owner].color : '#888') : '#777';
-      const isSel = selected === c.id;
-      const size = Math.max(12, Math.min(22, s * 2.5));
+      const isOwn = !!(city && own && city.owner === own);
+      items.push({
+        c, city, isOwn, p,
+        sz: Math.max(15, Math.min(34, sc * 3.0)) * (c.major ? 1.12 : 1),
+        pri: (selected === c.id ? 4 : 0) + (isOwn ? 2 : 0) + (c.major ? 1 : 0),
+      });
+    }
+    // 아이콘: 중요도 낮은 성부터 그려 선택 성이 맨 위에 오게
+    const iconRects = [];
+    for (const it of items.slice().sort((a, b) => a.pri - b.pri)) {
+      const owner = it.city ? it.city.owner : null;
+      const color = owner ? (state.factions[owner] ? state.factions[owner].color : '#888') : '#7d7462';
+      const isSel = selected === it.c.id;
       if (isSel) {
-        const t = (Date.now() % 1000) / 1000;
-        ctx.strokeStyle = `rgba(255,215,120,${0.5 + 0.5 * Math.sin(t * Math.PI * 2)})`;
+        const pulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() / 520));
+        ctx.strokeStyle = `rgba(255,226,140,${0.35 + 0.5 * pulse})`;
         ctx.lineWidth = 2;
-        ctx.strokeRect(Math.round(p.x - size * 0.85), Math.round(p.y - size * 0.85), Math.round(size * 1.7), Math.round(size * 1.7));
+        const r = it.sz * 0.78;
+        ctx.strokeRect(Math.round(it.p.x - r), Math.round(it.p.y - r), Math.round(r * 2), Math.round(r * 2));
       }
-      castleIcon(p, size, color, owner);
-      const label = c.ko;
-      const zoomed = cam.zoom >= 1.5;
-      const isOwn = state && state.cities[c.id].owner === state.playerId;
-      const show = zoomed ? true : (isSel || isOwn || c.major);
-      if (show) {
-        const fs = Math.max(9, Math.min(13, 9 + cam.zoom * 2));
-        const tw = label.length * fs * 0.98 + 6;
-        const tx = Math.round(p.x - tw / 2);
-        const cand = [Math.round(p.y + size * 0.58), Math.round(p.y - size * 0.58 - fs - 3)];
-        let rect = null;
-        const overlaps = (r) => placed.some((q) => !(r[0] > q[0] + q[2] || r[0] + r[2] < q[0] || r[1] > q[1] + q[3] || r[1] + r[3] < q[1]));
-        for (const ty of cand) {
-          const r = [tx, ty, tw, fs + 3];
-          if (!overlaps(r)) { rect = r; break; }
-        }
-        if (!rect) {
-          if (!isSel) continue;
-          rect = [tx, cand[0], tw, fs + 3];
-        }
-        const ty = rect[1];
-        placed.push(rect);
-        ctx.fillStyle = isSel ? 'rgba(52,40,12,0.92)' : 'rgba(8,12,18,0.82)';
-        ctx.fillRect(rect[0], rect[1], rect[2], rect[3]);
-        ctx.strokeStyle = isSel ? '#e0b93f' : 'rgba(140,120,70,0.45)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(rect[0] + 0.5, rect[1] + 0.5, rect[2] - 1, rect[3] - 1);
-        ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = isSel ? '#ffe9a8' : isOwn ? '#d9f2c8' : '#ded4ba';
-        ctx.fillText(label, tx + tw / 2, ty + rect[3] / 2 + 0.5);
+      castleIcon(it.p, it.sz, color, owner);
+      iconRects.push({ id: it.c.id, r: [it.p.x - it.sz * 0.55, it.p.y - it.sz * 0.55, it.sz * 1.1, it.sz * 1.1] });
+    }
+    // 이름표: 중요한 성부터 자리를 잡고, 겹치면 다음 후보/생략
+    const fs = Math.max(9.5, Math.min(14, 8.5 + cam.zoom * 2.2));
+    ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const placed = [];
+    const overlap = (r, q, pad = 1) => !(r[0] > q[0] + q[2] + pad || r[0] + r[2] + pad < q[0] || r[1] > q[1] + q[3] + pad || r[1] + r[3] + pad < q[1]);
+    for (const it of items.slice().sort((a, b) => b.pri - a.pri)) {
+      const isSel = selected === it.c.id;
+      const label = it.c.ko;
+      const tw = Math.round(ctx.measureText(label).width) + 7;
+      const th = Math.round(fs + 4);
+      const half = it.sz * 0.62;
+      const cands = [
+        [it.p.x - tw / 2, it.p.y + half],
+        [it.p.x - tw / 2, it.p.y - half - th],
+        [it.p.x + half + 2, it.p.y - th / 2],
+        [it.p.x - half - 2 - tw, it.p.y - th / 2],
+      ];
+      let rect = null;
+      for (const [lx, ly] of cands) {
+        const r = [lx, ly, tw, th];
+        const clash = placed.some((q) => overlap(r, q))
+          || iconRects.some((ic) => ic.id !== it.c.id && overlap(r, ic.r, 0));
+        if (!clash) { rect = r; break; }
       }
+      if (!rect) {
+        if (!isSel) continue;
+        rect = [cands[0][0], cands[0][1], tw, th];
+      }
+      // 화면 밖으로 잘리지 않게
+      rect[0] = Math.max(2, Math.min(cssW - tw - 2, rect[0]));
+      placed.push(rect);
+      ctx.fillStyle = isSel ? 'rgba(58,44,12,0.95)' : 'rgba(7,11,17,0.86)';
+      ctx.fillRect(Math.round(rect[0]), Math.round(rect[1]), tw, th);
+      ctx.strokeStyle = isSel ? '#f0c94a' : (it.isOwn ? 'rgba(150,205,130,0.55)' : 'rgba(145,125,75,0.45)');
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(rect[0]) + 0.5, Math.round(rect[1]) + 0.5, tw - 1, th - 1);
+      ctx.fillStyle = isSel ? '#ffe9a8' : it.isOwn ? '#dcf5cb' : '#e8dec4';
+      ctx.fillText(label, rect[0] + tw / 2, rect[1] + th / 2 + 0.5);
     }
   }
 
@@ -389,9 +415,8 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     }
     if (dragging) {
       if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
-      const s = scale();
-      cam.x -= dx / s;
-      cam.y -= dy / s;
+      cam.x -= dx / scale();
+      cam.y -= dy / scaleY();
       clampCam();
       requestRender();
     }
@@ -447,7 +472,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       requestRender();
     },
     zoomBy(f) { cam.zoom = Math.max(1, Math.min(3.6, cam.zoom * f)); clampCam(); requestRender(); },
-    resetView() { cam = { x: 56, y: 36, zoom: 1 }; clampCam(); requestRender(); },
+    resetView() { cam = { x: 57, y: 35, zoom: 1 }; clampCam(); requestRender(); },
     resize,
     render: requestRender,
     getZoom: () => cam.zoom,

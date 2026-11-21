@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "삼국지 오 — 레트로 도트 웹 전략 게임",
+  "description": "도트삼국 — 레트로 도트 웹 전략 게임",
   "scripts": {
     "test": "node --test tests/",
     "serve": "python3 -m http.server 4173"
