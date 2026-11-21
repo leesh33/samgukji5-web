@@ -293,7 +293,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       const isOwn = !!(city && own && city.owner === own);
       items.push({
         c, city, isOwn, p,
-        sz: Math.max(15, Math.min(34, sc * 3.0)) * (c.major ? 1.12 : 1),
+        sz: Math.max(15, Math.min(30, sc * 2.8)) * (c.major ? 1.1 : 1),
         pri: (selected === c.id ? 4 : 0) + (isOwn ? 2 : 0) + (c.major ? 1 : 0),
       });
     }
@@ -314,13 +314,15 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       iconRects.push({ id: it.c.id, r: [it.p.x - it.sz * 0.55, it.p.y - it.sz * 0.55, it.sz * 1.1, it.sz * 1.1] });
     }
     // 이름표: 중요한 성부터 자리를 잡고, 겹치면 다음 후보/생략
-    const fs = Math.max(9.5, Math.min(14, 8.5 + cam.zoom * 2.2));
+    const fs = Math.max(9.5, Math.min(15, 8.5 + cam.zoom * 2.2 + Math.max(0, sc - 8) * 0.55));
     ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const placed = [];
     const overlap = (r, q, pad = 1) => !(r[0] > q[0] + q[2] + pad || r[0] + r[2] + pad < q[0] || r[1] > q[1] + q[3] + pad || r[1] + r[3] + pad < q[1]);
     for (const it of items.slice().sort((a, b) => b.pri - a.pri)) {
+      // 화면 밖 성의 이름표가 가장자리에 끌려 들어오지 않게
+      if (it.p.x < 6 || it.p.x > cssW - 6 || it.p.y < TOP_INSET || it.p.y > cssH - 4) continue;
       const isSel = selected === it.c.id;
       const label = it.c.ko;
       const tw = Math.round(ctx.measureText(label).width) + 7;
