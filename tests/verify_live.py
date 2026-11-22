@@ -318,6 +318,7 @@ with sync_playwright() as p:
         step("턴 진행 후 넘침 없음", len(overflow(page)["bad"]) == 0, overflow(page))
         # 연속 턴
         for _ in range(3):
+            dismiss_notices()
             if page.locator('[data-act="bt-close"]').count() and page.locator('[data-act="bt-close"]').is_visible():
                 page.click('[data-act="bt-close"]')
                 page.wait_for_timeout(600)
@@ -330,6 +331,7 @@ with sync_playwright() as p:
                     page.click('[data-act="bt-close"]')
                     page.wait_for_timeout(700)
                     clear_prisoners()
+            dismiss_notices()
         step("연속 턴 진행", page.locator("#hud-date").inner_text() != d1, page.locator("#hud-date").inner_text())
         shot(page, "21-turns-later")
 

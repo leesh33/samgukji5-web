@@ -74,7 +74,7 @@ export function drawFormation(ctx, formId, cx, cy, size, dir = 'E', colors = {})
   const tip = colors.tip || '#e9d3a4';
   const metal = colors.metal || '#dfe6ea';
   const pts = formationDots(formId, dir);
-  const r = Math.max(1.5, size * 0.052);
+  const r = Math.max(2, size * 0.062);
   const a = ((DIR_ANGLE[dir] || 0) * Math.PI) / 180;
   const ca = Math.cos(a), sa = Math.sin(a);
   const tipDot = frontTip(formId, dir);
@@ -88,14 +88,18 @@ export function drawFormation(ctx, formId, cx, cy, size, dir = 'E', colors = {})
     ctx.ellipse(x + r * 0.34, y + r * 0.4, r * 1.15, r * 0.8, 0, 0, Math.PI * 2);
     ctx.fillStyle = shade;
     ctx.fill();
-    // 몸통
+    // 몸통 — 어두운 테두리를 둘러 병사로 읽히게
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.16, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(6, 8, 10, 0.75)';
+    ctx.fill();
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = body;
     ctx.fill();
     // 윗면 빛
     ctx.beginPath();
-    ctx.arc(x - r * 0.2, y - r * 0.24, r * 0.54, 0, Math.PI * 2);
+    ctx.arc(x - r * 0.24, y - r * 0.28, r * 0.48, 0, Math.PI * 2);
     ctx.fillStyle = hi;
     ctx.fill();
     // 창 — 정면 쪽으로
@@ -103,8 +107,13 @@ export function drawFormation(ctx, formId, cx, cy, size, dir = 'E', colors = {})
     ctx.moveTo(x + ca * r * 0.9, y + sa * r * 0.9);
     ctx.lineTo(x + ca * r * 2.3, y + sa * r * 2.3);
     ctx.strokeStyle = metal;
-    ctx.lineWidth = Math.max(0.5, r * 0.3);
+    ctx.lineWidth = Math.max(0.5, r * 0.32);
     ctx.stroke();
+    // 창끝
+    ctx.beginPath();
+    ctx.arc(x + ca * r * 2.5, y + sa * r * 2.5, Math.max(0.5, r * 0.22), 0, Math.PI * 2);
+    ctx.fillStyle = metal;
+    ctx.fill();
   }
   // 창끝(정면)은 금빛 토큰으로 한 점 더 — 어느 쪽이 정면인지 바로 보이게
   const tx = cx + tipDot.x * size;
@@ -139,7 +148,7 @@ export function formationSVG(formId, dir = 'E', px = 24, opt = {}) {
   const tipDot = frontTip(formId, dir);
   const a = ((DIR_ANGLE[dir] || 0) * Math.PI) / 180;
   const ca = Math.cos(a), sa = Math.sin(a);
-  const r = 0.06;
+  const r = 0.068;
   const dots = pts.map((p) => {
     const isTip = Math.abs(p.x - tipDot.x) < 1e-6 && Math.abs(p.y - tipDot.y) < 1e-6;
     const spear = `<line x1="${(p.x + ca * r * 0.9).toFixed(3)}" y1="${(p.y + sa * r * 0.9).toFixed(3)}"
@@ -149,8 +158,9 @@ export function formationSVG(formId, dir = 'E', px = 24, opt = {}) {
       return `${spear}<circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${(r * 1.4).toFixed(3)}" fill="${tip}" stroke="rgba(20,16,8,0.55)" stroke-width="0.014"/>`;
     }
     return `${spear}<ellipse cx="${(p.x + r * 0.3).toFixed(3)}" cy="${(p.y + r * 0.36).toFixed(3)}" rx="${(r * 1.12).toFixed(3)}" ry="${(r * 0.82).toFixed(3)}" fill="${shade}"/>
+      <circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${(r * 1.16).toFixed(3)}" fill="rgba(6,8,10,0.75)"/>
       <circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${r.toFixed(3)}" fill="${body}"/>
-      <circle cx="${(p.x - r * 0.2).toFixed(3)}" cy="${(p.y - r * 0.24).toFixed(3)}" r="${(r * 0.52).toFixed(3)}" fill="${hi}"/>`;
+      <circle cx="${(p.x - r * 0.24).toFixed(3)}" cy="${(p.y - r * 0.28).toFixed(3)}" r="${(r * 0.46).toFixed(3)}" fill="${hi}"/>`;
   }).join('');
   return `<svg class="form-svg" width="${px}" height="${px}" viewBox="-0.55 -0.55 1.1 1.1" aria-hidden="true"><rect x="-0.55" y="-0.55" width="1.1" height="1.1" fill="#171009"/><rect x="-0.53" y="-0.53" width="1.06" height="1.06" fill="none" stroke="rgba(240,196,128,0.26)" stroke-width="0.016"/><rect x="-0.5" y="-0.5" width="1" height="0.5" fill="rgba(255,200,130,0.05)"/>${dots}</svg>`;
 }
