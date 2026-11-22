@@ -1,5 +1,5 @@
 /* UI — 화면 전환 · 지도 · 내정 · 전술전투 · 일기토 */
-import { CITIES, CITY_BY_ID, GENERAL_BY_ID, SCENARIOS, FORMATIONS, REGIONS, FACTION_COLORS, CUSTOM_COLORS, CUSTOM_HANJA, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS, SKILLS, FORMATION_GROUPS, CORE_FORMATIONS, formationGroup, formationRelation, formationCounterText } from './data.js';
+import { CITIES, CITY_BY_ID, GENERAL_BY_ID, SCENARIOS, FORMATIONS, REGIONS, FACTION_COLORS, CUSTOM_COLORS, CUSTOM_MARKS, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS, SKILLS, FORMATION_GROUPS, CORE_FORMATIONS, formationGroup, formationRelation, formationCounterText } from './data.js';
 import { formationSVG, drawFormation, DIR_KO } from './formation-art.js';
 import * as E from './engine.js';
 import * as B from './battle.js';
@@ -12,7 +12,7 @@ import * as Cloud from './sync.js';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const fmt = (n) => Math.round(n).toLocaleString('ko-KR');
-const FALLBACK_SPEC = { ko: '무명', hanja: '', lead: 50, war: 50, int: 50, pol: 50, cha: 50, arms: '보병', skill: 'tongsol', formations: ['eorin'] };
+const FALLBACK_SPEC = { ko: '무명', lead: 50, war: 50, int: 50, pol: 50, cha: 50, arms: '보병', skill: 'tongsol', formations: ['eorin'] };
 /* 신군주가 만든 장수까지 포함해 장수 데이터를 찾는다 */
 const gd = (id) => E.generalOf(game, id) || GENERAL_BY_ID[id] || FALLBACK_SPEC;
 
@@ -135,7 +135,7 @@ function renderScenarios() {
     s.factions.forEach((f) => f.generals.forEach((g) => gens.add(g)));
     return `<button class="sc-card" data-act="pick-scenario" data-id="${s.id}">
       <div class="sc-year">${s.year}년</div>
-      <div class="sc-name">${s.name} <small>${s.hanja}</small></div>
+      <div class="sc-name">${s.name}</div>
       <div class="sc-meta"><span>세력 <b>${facs}</b></span><span>성 <b>${s.factions.reduce((n, f) => n + f.cities.length, 0)}</b></span><span>등장 장수 <b>${gens.size}</b></span></div>
     </button>`;
   }).join('');
@@ -151,7 +151,7 @@ function renderLords(scenarioId) {
     return `<button class="lord-card" data-act="pick-lord" data-id="${f.id}" data-sc="${sc.id}">
       <img src="${portraitURL(lord.id, lord, 56, color)}" alt="${lord.ko}" />
       <div class="lc-name">${f.name}</div>
-      <div class="lc-hanja">${f.hanja}</div>
+      <div class="lc-mark">${f.mark || f.name[0]}</div>
       <div class="lc-meta"><span>성 <b>${f.cities.length}</b></span><span>장수 <b>${f.generals.length}</b></span></div>
       <div class="lc-meta lc-stats"><span>통 <b>${lord.lead}</b></span><span>무 <b>${lord.war}</b></span><span>지 <b>${lord.int}</b></span></div>
     </button>`;
@@ -176,7 +176,7 @@ function openCustomScreen(scenarioId) {
   customDraft = {
     scenarioId: sc.id,
     name: '',
-    hanja: CUSTOM_HANJA[0],
+    mark: CUSTOM_MARKS[0],
     color: CUSTOM_COLORS[0].hex,
     style: { hat: 0, beard: 1, skin: 1 },
     stats: E.rollCustomStats(),
@@ -208,7 +208,7 @@ function renderCustomBody() {
     <div class="cst-preview" style="border-color:${d.color}">
       <img class="cst-face" src="${portraitURL('cl_lord', preview, 104, d.color, d.style)}" alt="신군주 초상화" />
       <div class="cst-who">
-        <div class="cst-flag" style="background:${d.color}">${esc(d.hanja)}</div>
+        <div class="cst-flag" style="background:${d.color}">${esc(d.mark)}</div>
         <div class="cst-name" data-live="name">${esc(d.name || '새 군주')}</div>
         <div class="cst-sub">${sc.year}년 ${sc.name}${owner ? ` · ${owner.ko}에서 기상` : ''}</div>
       </div>
@@ -225,9 +225,9 @@ function renderCustomBody() {
     </div>
 
     <div class="cst-sec">
-      <label>깃발 한자</label>
-      <div class="chip-row">${CUSTOM_HANJA.map((h) => `<button class="pick-chip ${h === d.hanja ? 'on' : ''}" data-act="cst-hanja" data-v="${h}" style="min-width:44px;font-size:15px">${h}</button>`).join('')}</div>
-      <input id="cst-hanja" class="cst-input" maxlength="1" value="${esc(d.hanja)}" placeholder="한자 1자 직접 입력" autocomplete="off" />
+      <label>깃발 글자 <small>한글 1자</small></label>
+      <div class="chip-row">${CUSTOM_MARKS.map((h) => `<button class="pick-chip ${h === d.mark ? 'on' : ''}" data-act="cst-mark" data-v="${h}" style="min-width:44px;font-size:15px">${h}</button>`).join('')}</div>
+      <input id="cst-mark" class="cst-input" maxlength="1" value="${esc(d.mark)}" placeholder="한글 1자 직접 입력" autocomplete="off" />
     </div>
 
     <div class="cst-sec">
@@ -310,15 +310,15 @@ function startCustomGame() {
     if (inp) inp.focus();
     return;
   }
-  const hanja = String($('#cst-hanja') ? $('#cst-hanja').value : d.hanja).trim();
-  d.hanja = hanja.slice(0, 1) || name[0];
+  const mark = E.customMark(String($('#cst-mark') ? $('#cst-mark').value : d.mark).trim(), name);
+  d.mark = mark;
   const cities = E.customStartCities(d.scenarioId);
   const cityId = d.cityId || (cities[0] && cities[0].cityId);
   if (!cityId) { toast('시작 성을 골라 주세요.'); sfx.fail(); return; }
   let custom;
   try {
     custom = E.buildCustomLord({
-      name, hanja: d.hanja, color: d.color, cityId,
+      name, mark: d.mark, color: d.color, cityId,
       stats: d.stats, skill: d.skill, arms: d.arms,
       retinue: d.retinue, style: d.style,
     });
@@ -341,10 +341,11 @@ function onCustomInput(e) {
     customDraft.name = t.value;
     const live = $('[data-live="name"]');
     if (live) live.textContent = t.value || '새 군주';
-  } else if (t.id === 'cst-hanja') {
-    customDraft.hanja = t.value.slice(0, 1);
+  } else if (t.id === 'cst-mark') {
+    customDraft.mark = (t.value.match(/[가-힣]/) || [''])[0];
+    if (t.value !== customDraft.mark) t.value = customDraft.mark;
     const flag = $('.cst-flag');
-    if (flag) flag.textContent = customDraft.hanja || (customDraft.name || '新')[0];
+    if (flag) flag.textContent = customDraft.mark || (customDraft.name || '신')[0];
   } else if (t.id === 'cst-city' && e.type === 'change') {
     customDraft.cityId = t.value;
     renderCustomBody();
@@ -409,7 +410,7 @@ function renderGame() {
   const f = game.factions[game.playerId];
   const sum = E.factionSummary(game, game.playerId);
   const lord = gd(f.lord);
-  $('#hud-crest').textContent = f.hanja ? f.hanja[0] : f.name[0];
+  $('#hud-crest').textContent = f.mark || f.name[0];
   $('#hud-crest').style.background = f.color;
   $('#hud-crest').style.color = '#10131a';
   $('#hud-faction').textContent = `${f.name}군${lord && lord.ko !== f.name ? ' · ' + lord.ko : ''}`;
@@ -444,7 +445,7 @@ function openRegionMenu() {
 function openReports() {
   const rows = game.log.slice(-40).reverse()
     .map((l) => `<div class="report-row"><b>${l.year}.${String(l.month).padStart(2, '0')}</b>${l.text}</div>`).join('');
-  openSheet('군보(軍報)', rows || '<p class="note">아직 기록이 없습니다.</p>');
+  openSheet('군보', rows || '<p class="note">아직 기록이 없습니다.</p>');
 }
 
 /* ---------- 도시 패널 ---------- */
@@ -566,12 +567,20 @@ function renderCityPanel(dir = 0) {
 
   let cmdHTML = '';
   if (mine) {
+    const ownCount = E.factionCities(game, game.playerId).length;
+    const partners = E.talkPartners(game, selectedCity);
+    const talkLeft = partners.filter((g) => !E.talkedThisTurn(game, g.id) && g.loyalty < 100).length;
+    const moveReady = ownCount > 1 && E.generalsInCity(game, selectedCity).some((g) => !g.acted);
+    const moveSub = ownCount > 1 ? (moveReady ? '행동력 1' : '움직일 장수 없음') : '성 2곳부터';
+    const talkSub = !partners.length ? '대상 없음' : (talkLeft ? '행동력 1' : '이번 달 완료');
     const acts = [
+      ['move', '이동', moveSub, !moveReady],
+      ['talk', '대화', talkSub, !partners.length || !talkLeft || game.actionPoints < 1],
       ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'],
       ['draft', '징병', '2령'], ['train', '훈련'], ['search', '탐색'], ['hire', '등용'],
       ['reward', '포상'], ['transport', '수송'],
     ];
-    cmdHTML = acts.map(([k, ko, sub]) => `<button class="btn" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}">${ko}${sub ? `<small>${sub}</small>` : ''}</button>`).join('');
+    cmdHTML = acts.map(([k, ko, sub, off]) => `<button class="btn ${k === 'move' || k === 'talk' ? k : ''}" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}" ${off ? 'disabled' : ''}>${ko}${sub ? `<small>${sub}</small>` : ''}</button>`).join('');
     const enemies = E.adjacentEnemies(game, selectedCity);
     cmdHTML += enemies.length
       ? `<button class="btn march" data-act="march" data-city="${selectedCity}">출진</button>`
@@ -601,7 +610,7 @@ function renderCityPanel(dir = 0) {
   panel.innerHTML = `
     <div class="cs-head">
       <div class="cs-row">
-        <div class="cs-id"><span class="region-tag">${base.region}</span><b class="cs-name">${base.ko}</b><small class="cs-hanja">${base.hanja}</small></div>
+        <div class="cs-id"><span class="region-tag">${base.region}</span><b class="cs-name">${base.ko}</b></div>
         <span class="cs-owner" style="color:${colorOf(c.owner)}">${ownerName}</span>
         <div class="cs-actions">
           <button class="cs-toggle" data-act="city-toggle">${cityPanelOpen ? '접기 ▾' : '명령 ▴'}</button>
@@ -651,7 +660,7 @@ function officerRowHTML(g, actionAct, extra = '', disabledHint = '') {
   return `<button class="officer-row ${done ? 'done' : ''}" data-act="${actionAct}" data-officer="${g.id}" ${done ? 'disabled' : ''}>
     <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
     <div class="or-main">
-      <div class="or-name">${t.ko}<small>${t.hanja}</small> <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
+      <div class="or-name">${t.ko} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
       <div class="or-stats"><span>통<b>${t.lead}</b></span><span>무<b>${t.war}</b></span><span>지<b>${t.int}</b></span><span>정<b>${t.pol}</b></span><span>매<b>${t.cha}</b></span><span>충<b>${g.loyalty}</b></span></div>
     </div>
     <div class="or-go">${done ? '완료' : extra || '선택'}</div>
@@ -679,7 +688,7 @@ function openCommandSheet(type, cityId) {
       const t = gd(g.id);
       return `<button class="officer-row" data-act="do-hire" data-officer="${g.id}" data-city="${cityId}">
         <img src="${portraitURL(g.id, t, 40, '#444')}" alt="${t.ko}" />
-        <div class="or-main"><div class="or-name">${t.ko}<small>${t.hanja}</small> <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
+        <div class="or-main"><div class="or-name">${t.ko} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
         <div class="or-stats"><span>통<b>${t.lead}</b></span><span>무<b>${t.war}</b></span><span>지<b>${t.int}</b></span><span>정<b>${t.pol}</b></span><span>매<b>${t.cha}</b></span></div></div>
         <div class="or-go">등용</div></button>`;
     }).join('');
@@ -696,7 +705,7 @@ function openCommandSheet(type, cityId) {
       const t = gd(g.id);
       return `<button class="officer-row" data-act="do-reward" data-officer="${g.id}" data-city="${cityId}">
         <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
-        <div class="or-main"><div class="or-name">${t.ko}<small>${t.hanja}</small></div>
+        <div class="or-main"><div class="or-name">${t.ko}</div>
         <div class="or-stats"><span>충성 <b>${g.loyalty}</b></span><span>매력 <b>${t.cha}</b></span></div></div>
         <div class="or-go">포상</div></button>`;
     }).join('');
@@ -752,6 +761,151 @@ function doReward(cityId, gid) {
   closeSheet();
   if (res.ok) { sfx.coin(); toast(res.msg); } else { sfx.fail(); toast(res.msg); }
   renderGame(); autoSave();
+}
+
+/* ---------- 도시간 장수 이동 ---------- */
+let moveDraft = null;
+
+function openMoveSheet(cityId) {
+  const dests = E.moveDestinations(game, cityId);
+  if (!dests.length) { toast('옮겨 갈 다른 내 성이 없습니다.'); sfx.fail(); return; }
+  const ready = E.generalsInCity(game, cityId).filter((g) => !g.acted);
+  if (!ready.length) { toast('이번 달에 움직일 수 있는 장수가 없습니다.'); sfx.fail(); return; }
+  moveDraft = { fromCityId: cityId, toCityId: dests[0].cityId, gids: [] };
+  renderMoveSheet();
+  sfx.click();
+}
+
+function toggleMoveGeneral(gid) {
+  if (!moveDraft) return;
+  const i = moveDraft.gids.indexOf(gid);
+  if (i >= 0) moveDraft.gids.splice(i, 1); else moveDraft.gids.push(gid);
+  renderMoveSheet();
+  sfx.click();
+}
+
+function renderMoveSheet() {
+  const d = moveDraft;
+  if (!d) return;
+  const fromName = CITY_BY_ID[d.fromCityId].ko;
+  const gens = E.generalsInCity(game, d.fromCityId);
+  const lordId = game.factions[game.playerId].lord;
+  const rows = gens.map((g) => {
+    const t = gd(g.id);
+    const on = d.gids.includes(g.id);
+    const done = !!g.acted;
+    return `<button class="officer-row ${done ? 'done' : ''} ${on ? 'picked' : ''}" data-act="mv-gen" data-officer="${g.id}" ${done ? 'disabled' : ''}>
+      <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
+      <div class="or-main">
+        <div class="or-name">${t.ko}${g.id === lordId ? ' <i class="mv-lord">군주</i>' : ''} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
+        <div class="or-stats"><span>통<b>${t.lead}</b></span><span>무<b>${t.war}</b></span><span>지<b>${t.int}</b></span><span>충<b>${g.loyalty}</b></span></div>
+      </div>
+      <div class="or-go">${done ? '완료' : on ? '선택됨' : '선택'}</div>
+    </button>`;
+  }).join('');
+  const dests = E.moveDestinations(game, d.fromCityId).map((x) => {
+    const on = x.cityId === d.toCityId;
+    return `<button class="mv-dest ${on ? 'on' : ''}" data-act="mv-dest" data-city="${x.cityId}">
+      <b>${x.ko}</b>
+      <span>장수 ${x.generals}명 · 병력 ${fmt(x.troops)}</span>
+      <span class="mv-go-tag">${on ? '도착' : '고르기'}</span>
+    </button>`;
+  }).join('');
+  const dest = E.moveDestinations(game, d.fromCityId).find((x) => x.cityId === d.toCityId);
+  const check = E.canMoveGenerals(game, d.fromCityId, d.toCityId, d.gids);
+  const room = dest ? E.MAX_OFFICERS_PER_CITY - dest.generals : 0;
+  const over = !!dest && d.gids.length > room;
+  let warn = '';
+  if (d.gids.length && check.ok && check.warning) warn = `<p class="note warn">${check.warning}</p>`;
+  else if (over) warn = `<p class="note warn">${dest.ko}의 장수 자리가 ${room}명 남았습니다. 선택을 줄여 주세요.</p>`;
+  else if (d.gids.length && !check.ok) warn = `<p class="note warn">${check.why}</p>`;
+  openSheet(`${fromName} — 장수 이동`,
+    `<p class="note">옮길 장수를 고르고 도착할 성을 정하세요. 행동력 1을 쓰고, 옮긴 장수는 이번 달 행동을 마칩니다.</p>
+     <p class="note" style="margin-top:8px">도착 성</p>
+     <div class="mv-dest-row">${dests}</div>
+     <p class="note">옮길 장수 — ${fromName} 주둔 ${gens.length}명</p>
+     ${rows}
+     <p class="note" style="margin-top:8px">아군 성끼리는 어디든 옮길 수 있습니다. 성을 완전히 비우면 적에게 그대로 노출됩니다.</p>
+     <div class="sheet-foot">
+       ${warn}
+       <button class="btn big" data-act="mv-go" ${d.gids.length && check.ok && !over ? '' : 'disabled'}>
+         ${E.withJosa(CITY_BY_ID[d.toCityId].ko, '로')} 이동 · ${d.gids.length}명 (행동력 1)
+       </button>
+     </div>`);
+}
+
+function doMoveGenerals() {
+  const d = moveDraft;
+  if (!d) return;
+  const res = E.moveGenerals(game, d.fromCityId, d.toCityId, d.gids);
+  closeSheet();
+  moveDraft = null;
+  if (res.ok) { sfx.ok(); toast(res.msg + (res.warning ? ' ' + res.warning : ''), 2800); }
+  else { sfx.fail(); toast(res.msg); }
+  renderGame();
+  autoSave();
+}
+
+/* ---------- 장수 대화 ---------- */
+function openTalkSheet(cityId) {
+  const partners = E.talkPartners(game, cityId);
+  if (!partners.length) { toast('이 성에는 이야기할 장수가 없습니다.'); sfx.fail(); return; }
+  sheetCityId = cityId;
+  renderTalkSheet();
+  sfx.click();
+}
+
+function renderTalkSheet() {
+  const cityId = sheetCityId;
+  const partners = E.talkPartners(game, cityId);
+  const rows = partners.map((g) => {
+    const t = gd(g.id);
+    const talked = E.talkedThisTurn(game, g.id);
+    const maxed = g.loyalty >= 100;
+    const off = talked || maxed || game.actionPoints < 1;
+    const tag = talked ? '이번 달 완료' : maxed ? '충성 최대' : '대화';
+    return `<button class="officer-row ${off ? 'done' : ''}" data-act="talk-go" data-officer="${g.id}" ${off ? 'disabled' : ''}>
+      <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
+      <div class="or-main">
+        <div class="or-name">${t.ko} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
+        <div class="or-stats"><span>매력 <b>${t.cha}</b></span><span>충성 <b>${g.loyalty}</b></span></div>
+        <div class="or-loy"><div class="loy-bar"><i style="width:${g.loyalty}%"></i></div><span>${g.loyalty}/100</span></div>
+      </div>
+      <div class="or-go">${tag}</div>
+    </button>`;
+  }).join('');
+  openSheet(`${CITY_BY_ID[cityId].ko} — 대화`,
+    `<p class="note">장수와 이야기를 나누면 충성도가 오릅니다(기본 4~8, 군주 매력·인덕 보정, 최대 100). 금은 들지 않고 행동력 1을 쓰며, 장수마다 한 달에 한 번입니다.</p>
+     ${rows}`);
+}
+
+function doTalk(gid) {
+  const res = E.talkToGeneral(game, sheetCityId, gid);
+  if (!res.ok) { sfx.fail(); toast(res.msg); return; }
+  sfx.ok();
+  renderTalkScene(gid, res);
+  renderGame();
+  autoSave();
+}
+
+function renderTalkScene(gid, res) {
+  const t = gd(gid);
+  const lord = gd(game.factions[game.playerId].lord);
+  openSheet(`${E.withJosa(t.ko, '과')}의 대화`,
+    `<div class="talk-scene">
+      <div class="talk-who">
+        <img src="${portraitURL(gid, t, 64, colorOf(game.playerId))}" alt="${t.ko}" />
+        <div style="flex:1">
+          <div class="talk-name">${t.ko} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
+          <div class="talk-loy">충성 <b>${res.before}</b> → <b class="up">${res.after}</b><em>+${res.gain}</em></div>
+          <div class="loy-bar"><i style="width:${res.after}%"></i></div>
+        </div>
+      </div>
+      <p class="talk-line"><b>${t.ko}</b>“${res.line.g}”</p>
+      <p class="talk-line lord"><b>${lord.ko}</b>“${res.line.l}”</p>
+    </div>
+    <button class="btn big" data-act="talk-more" style="margin-top:12px">다른 장수와 대화</button>
+    <button class="btn big ghost" data-act="sheet-close" style="margin-top:6px">닫기</button>`);
 }
 
 /* ---------- 출진 ---------- */
@@ -833,7 +987,7 @@ function formationPickerHTML() {
     <p class="note" style="margin:12px 0 4px">진형 — 장수마다 대형과 상성이 다릅니다</p>
     ${rows}
     <div class="fp-detail">
-      <b>${cur.ko}</b> <small>${cur.hanja}</small>
+      <b>${cur.ko}</b>
       ${grp ? `<em class="fg-${grp.id}">${grp.ko}진</em>` : ''}
       <span>${cur.desc}</span>
       <span class="fp-ct">${formationCounterText(cur.id)}</span>
@@ -1064,7 +1218,7 @@ function unitInfoHTML(u) {
     ${formationSVG(u.formation, u.dir || 'E', 34)}
     <div class="bu-main">
       <div class="bu-name"><b>${u.name}</b> <span>${fmt(u.troops)} · 사기 ${Math.round(u.morale)}</span>${u.acted ? ' <i class="bu-done">행동 완료</i>' : ''}</div>
-      <div class="bu-form">${f.ko}<small>(${f.hanja})</small> <em class="fg-${grp ? grp.id : 'none'}">${grp ? grp.ko + '진' : ''}</em> · ${dirKo}쪽을 바라봄</div>
+      <div class="bu-form">${f.ko} <em class="fg-${grp ? grp.id : 'none'}">${grp ? grp.ko + '진' : ''}</em> · ${dirKo}쪽을 바라봄</div>
       <div class="bu-ct">${rel}</div>
     </div>
   </div>`;
@@ -1356,7 +1510,7 @@ function prisonerRowHTML(rec) {
   return `<div class="pw-row">
     <img src="${portraitURL(rec.gid, t, 46, colorOf(rec.faction))}" alt="" />
     <div class="pw-main">
-      <div class="pw-name">${t.ko} <small>${t.hanja || ''}</small>${rec.isLord ? ' <i class="pw-lord">군주</i>' : ''}</div>
+      <div class="pw-name">${t.ko}${rec.isLord ? ' <i class="pw-lord">군주</i>' : ''}</div>
       <div class="pw-stats">통 <b>${t.lead}</b> 무 <b>${t.war}</b> 지 <b>${t.int}</b> 매 <b>${t.cha}</b></div>
       <div class="pw-meta">${fname(rec.faction)} 소속 · 충성 ${Math.round(g.loyalty || 0)} · 등용 성공률 <b>${chance}%</b>${rec.tried ? ' · <i style="color:#e08a7a">등용 거절</i>' : ''}</div>
     </div>
@@ -1503,13 +1657,13 @@ function endTurn() {
 
 /* ---------- 메뉴/저장 ---------- */
 function openMenu() {
-  openSheet('군의(軍議)', `
+  openSheet('군의', `
     <div class="acc-box acc-menu" id="menu-account"></div>
     <button class="btn big" data-act="save-slot" data-slot="1" style="margin-bottom:8px">슬롯 1에 저장</button>
     <button class="btn big" data-act="save-slot" data-slot="2" style="margin-bottom:8px">슬롯 2에 저장</button>
     <button class="btn big" data-act="save-slot" data-slot="3" style="margin-bottom:8px">슬롯 3에 저장</button>
     <button class="btn big ghost" data-act="open-load" style="margin-bottom:8px">불러오기</button>
-    <button class="btn big ghost" data-act="open-reports" style="margin-bottom:8px">군보(軍報)</button>
+    <button class="btn big ghost" data-act="open-reports" style="margin-bottom:8px">군보</button>
     <button class="btn big ghost" data-act="open-rank" style="margin-bottom:8px">세력 순위</button>
     <button class="btn big ghost" data-act="open-help" style="margin-bottom:8px">게임 방법</button>
     <button class="btn big ghost" data-act="to-title">타이틀로</button>
@@ -1588,12 +1742,14 @@ function openHelp() {
     <b style="color:#e6d9b3">1. 목표</b> — 전국 42개 성을 모두 차지하면 천하통일입니다.<br>
     <b style="color:#e6d9b3">2. 달마다</b> — 행동력만큼 명령을 내립니다. 장수는 한 달에 한 번만 움직입니다.<br>
     <b style="color:#e6d9b3">3. 내정</b> — 개발(농업)·상업·치안·수리로 성을 키우고, 징병·훈련으로 군세를 만듭니다.<br>
-    <b style="color:#e6d9b3">4. 인사</b> — 탐색으로 인재를 찾고 등용합니다. 포상으로 충성을 올립니다.<br>
-    <b style="color:#e6d9b3">5. 출진</b> — 인접한 적 성을 공격합니다. 전장에서 부대를 움직여 성을 함락시키세요.<br>
-    <b style="color:#e6d9b3">6. 진형</b> — 어린(공격)·방원(방어)·학익(원거리)·봉시(돌격) 등 9종. 부대의 진형에 따라 공격·방어·사거리가 달라집니다.<br>
-    <b style="color:#e6d9b3">7. 계략</b> — 지력이 높은 장수는 화계·혼란·고무·치료를 씁니다.<br>
-    <b style="color:#e6d9b3">8. 일기토</b> — 인접한 적 장수에게 1:1 대결을 걸 수 있습니다. 이기면 적 부대 사기가 급락합니다.<br>
-    <b style="color:#e6d9b3">9. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.
+    <b style="color:#e6d9b3">4. 인사</b> — 탐색으로 인재를 찾고 등용합니다. 포상으로 금을 써서 충성을 올립니다.<br>
+    <b style="color:#e6d9b3">5. 이동</b> — 아군 성끼리 장수를 옮깁니다. 행동력 1을 쓰고, 옮긴 장수는 그 달 행동을 마칩니다.<br>
+    <b style="color:#e6d9b3">6. 대화</b> — 성의 장수와 이야기를 나누면 충성도가 오릅니다(행동력 1, 장수마다 한 달 1회, 금은 들지 않음).<br>
+    <b style="color:#e6d9b3">7. 출진</b> — 인접한 적 성을 공격합니다. 전장에서 부대를 움직여 성을 함락시키세요.<br>
+    <b style="color:#e6d9b3">8. 진형</b> — 어린(공격)·방원(방어)·학익(원거리)·봉시(돌격) 등 9종. 부대의 진형에 따라 공격·방어·사거리가 달라집니다.<br>
+    <b style="color:#e6d9b3">9. 계략</b> — 지력이 높은 장수는 화계·혼란·고무·치료를 씁니다.<br>
+    <b style="color:#e6d9b3">10. 일기토</b> — 인접한 적 장수에게 1:1 대결을 걸 수 있습니다. 이기면 적 부대 사기가 급락합니다.<br>
+    <b style="color:#e6d9b3">11. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.
     </p>`);
 }
 
@@ -1605,8 +1761,8 @@ function showEnding() {
   const win = g.type === 'victory';
   sfx[win ? 'win' : 'lose']();
   $('#end-wrap').innerHTML = `
-    <div class="end-hanja">${win ? '天下統一' : '群雄割據'}</div>
-    <div class="end-title">${win ? '천하통일' : '낙일(落日)'}</div>
+    <div class="end-mark">${win ? '천하' : '낙일'}</div>
+    <div class="end-title">${win ? '천하통일' : '낙일'}</div>
     <p class="end-text">${g.text}</p>
     <div class="end-stats">
       <div class="end-stat"><i>치세</i><b>${game.year}년 ${game.month}월</b></div>
@@ -1648,7 +1804,7 @@ function onClick(e) {
     case 'pick-lord': startGame(el.dataset.sc, el.dataset.id); break;
     case 'open-custom': openCustomScreen(el.dataset.sc || (currentScenario && currentScenario.id) || SCENARIOS[0].id); break;
     case 'cst-scenario': customDraft.scenarioId = el.dataset.v; renderCustomBody(); break;
-    case 'cst-hanja': customDraft.hanja = el.dataset.v; renderCustomBody(); break;
+    case 'cst-mark': customDraft.mark = el.dataset.v; renderCustomBody(); break;
     case 'cst-color': customDraft.color = el.dataset.v; renderCustomBody(); break;
     case 'cst-style': customDraft.style[el.dataset.k] = Number(el.dataset.v); renderCustomBody(); break;
     case 'cst-stat': adjustCustomStat(el.dataset.k, Number(el.dataset.d)); break;
@@ -1677,7 +1833,18 @@ function onClick(e) {
     case 'zoom-reset': mapView.resetView(); break;
     case 'endturn': endTurn(); break;
     case 'close-city': selectedCity = null; cityPanelOpen = false; mapView.setSelected(null); renderCityPanel(); break;
-    case 'cmd': openCommandSheet(el.dataset.cmd, el.dataset.city); break;
+    case 'cmd': {
+      const cmd = el.dataset.cmd;
+      if (cmd === 'move') openMoveSheet(el.dataset.city);
+      else if (cmd === 'talk') openTalkSheet(el.dataset.city);
+      else openCommandSheet(cmd, el.dataset.city);
+      break;
+    }
+    case 'mv-gen': toggleMoveGeneral(el.dataset.officer); break;
+    case 'mv-dest': moveDraft.toCityId = el.dataset.city; renderMoveSheet(); sfx.click(); break;
+    case 'mv-go': doMoveGenerals(); break;
+    case 'talk-go': doTalk(el.dataset.officer); break;
+    case 'talk-more': renderTalkSheet(); break;
     case 'do-command': doCommand(sheetCommandType, el.dataset.officer, sheetCityId); break;
     case 'do-hire': doHire(sheetCityId, el.dataset.officer); break;
     case 'do-reward': doReward(sheetCityId, el.dataset.officer); break;
@@ -1765,7 +1932,7 @@ function onClick(e) {
         const t = gd(u.gid);
         return `<button class="officer-row" data-act="bt-duel-go" data-unit="${u.id}">
           <img src="${portraitURL(u.gid, t, 40, '#8c2f24')}" alt="" />
-          <div class="or-main"><div class="or-name">${t.ko}<small>${t.hanja}</small></div>
+          <div class="or-main"><div class="or-name">${t.ko}</div>
           <div class="or-stats"><span>무력 <b>${t.war}</b></span><span>병력 <b>${fmt(u.troops)}</b></span><span>사기 <b>${Math.round(u.morale)}</b></span></div></div>
           <div class="or-go">일기토</div></button>`;
       }).join(''));

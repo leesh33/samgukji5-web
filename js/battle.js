@@ -138,7 +138,7 @@ export function createBattle(opts) {
       battle.units.push({
         id: `${side}-${gid}`,
         side, gid, name: g.ko,
-        spec: { id: g.id, ko: g.ko, hanja: g.hanja || '', lead: g.lead, war: g.war, int: g.int, pol: g.pol, cha: g.cha, arms: g.arms, skill: g.skill, formations: g.formations || ['eorin'] },
+        spec: { id: g.id, ko: g.ko, lead: g.lead, war: g.war, int: g.int, pol: g.pol, cha: g.cha, arms: g.arms, skill: g.skill, formations: g.formations || ['eorin'] },
         troops: Math.max(400, Math.round(base * (gid === gids[0] ? 1.1 : 1))),
         morale: clamp(58 + Math.round(g.lead / 4) + (isCastleDef ? 6 : 0), 40, 100),
         formation: formId,

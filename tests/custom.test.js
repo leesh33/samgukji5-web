@@ -6,7 +6,7 @@ import * as B from '../js/battle.js';
 
 const draft = (over = {}) => ({
   name: '한호',
-  hanja: '韓',
+  mark: '한',
   color: CUSTOM_COLORS[3].hex,
   cityId: E.customStartCities('s194')[0].cityId,
   stats: { lead: 72, war: 66, int: 58, pol: 54, cha: 60 },
@@ -24,7 +24,7 @@ test('신군주 생성: 세력·군주·휘하 장수가 게임 상태에 들어
   const f = s.factions[s.playerId];
   assert.ok(f, '신세력 존재');
   assert.equal(f.name, '한호');
-  assert.equal(f.hanja, '韓');
+  assert.equal(f.mark, '한');
   assert.equal(f.color, CUSTOM_COLORS[3].hex);
   assert.equal(f.lord, 'cl_lord');
   assert.equal(f.custom, true);
@@ -81,9 +81,12 @@ test('신군주: 이름·색 검증과 기본값', () => {
   // 팔레트에 없는 색은 첫 색으로
   const c2 = E.buildCustomLord(draft({ color: '#123456' }));
   assert.equal(c2.faction.color, CUSTOM_COLORS[0].hex);
-  // 한자 미입력 시 이름 첫 글자
-  const c3 = E.buildCustomLord(draft({ hanja: '' }));
-  assert.equal(c3.lord.hanja, '한');
+  // 깃발 글자 미입력 시 이름 첫 글자
+  const c3 = E.buildCustomLord(draft({ mark: '' }));
+  assert.equal(c3.faction.mark, '한');
+  // 한글이 아닌 글자는 이름 첫 글자로 대체
+  const c5 = E.buildCustomLord(draft({ mark: 'A' }));
+  assert.equal(c5.faction.mark, '한');
   // 휘하 0명
   const c4 = E.buildCustomLord(draft({ retinue: 0 }));
   assert.equal(c4.retinue.length, 0);
@@ -102,7 +105,7 @@ test('신군주: 주사위 능력치 총합·범위', () => {
 });
 
 test('신군주: 저장 → 불러오기 → 이어하기에 신세력이 그대로 살아난다', () => {
-  const custom = E.buildCustomLord(draft({ name: '구천', hanja: '九', retinue: 1 }));
+  const custom = E.buildCustomLord(draft({ name: '구천', mark: '구', retinue: 1 }));
   const s = E.createGame('s200', custom.faction.id, 777, { custom });
   const city = E.factionCities(s, s.playerId)[0];
   const officer = E.generalsInCity(s, city.id).find((g) => g.id === 'cl_lord');

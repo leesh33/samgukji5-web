@@ -90,7 +90,7 @@ with sync_playwright() as p:
     step("자원 바 존재", d["bar"]["w"] > 0, f'{d["bar"]["w"]}×{d["bar"]["h"]}')
     step("세력 타이틀", d["cells"][0]["text"] == "세력", d["cells"][0]["text"])
     step("한글 라벨 순서", titles == ["금", "식량", "총병력", "명성", "행동력"], titles)
-    step("한자 라벨 없음", not any(ch in d["cells"][0]["text"] + "".join(titles) for ch in "金糧兵名令"))
+    step("자원 라벨이 모두 한글", not any("\u4e00" <= ch <= "\u9fff" for ch in d["cells"][0]["text"] + "".join(titles)))
     step("가로 넘침 없음(doc)", d["docW"] <= d["winW"], f'{d["docW"]} / {d["winW"]}')
     step("바 자체 넘침 없음", d["bar"]["clipX"] <= 0, d["bar"]["clipX"])
     step("셀 내부 잘림 없음", all(c["clipX"] <= 0 and c["clipY"] <= 0 for c in d["cells"]),

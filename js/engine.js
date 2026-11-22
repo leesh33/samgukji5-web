@@ -1,7 +1,8 @@
 /* 도트삼국 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS } from './data.js';
+import { pickTalkLine, talkStyleOf } from './talk.js';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -62,6 +63,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     log: [],
     pendingBattles: [],
     pendingPrisoners: [],
+    talked: {},
     gameOver: null,
     stats: { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0, executed: 0, released: 0 },
   };
@@ -100,7 +102,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     defs.push({
       id: factionId,
       name: custom.faction.name || '신군주',
-      hanja: custom.faction.hanja || '新',
+      mark: custom.faction.mark || String(custom.faction.name || '신군주')[0],
       lord: custom.lord.id,
       cities: [takenCity],
       generals: [custom.lord.id, ...(custom.retinue || []).map((g) => g.id)],
@@ -113,7 +115,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     state.factions[f.id] = {
       id: f.id,
       name: f.name,
-      hanja: f.hanja,
+      mark: f.mark || String(f.name || '')[0] || '',
       lord: f.lord,
       color: f.color || FACTION_COLORS[f.id] || '#888',
       fame: 45,
@@ -168,7 +170,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
   state.maxActionPoints = calcActionPoints(state, factionId);
   state.actionPoints = state.maxActionPoints;
   const playerFac = state.factions[factionId];
-  log(state, `${sc.year}년 ${sc.name} — ${playerFac.name}${playerFac.hanja} 세력으로 천하에 나서다.`);
+  log(state, `${sc.year}년 ${sc.name} — ${playerFac.name} 세력으로 천하에 나서다.`);
   return state;
 }
 
@@ -178,8 +180,8 @@ export const CUSTOM_STAT_BUDGET = 225; // 5능력치 평균 45 — 총합 고정
 export const CUSTOM_NAME_MIN = 2;
 export const CUSTOM_NAME_MAX = 6;
 export const CUSTOM_RETINUE_PRESETS = [
-  { ko: '한석', hanja: '韓錫', skill: 'cheolbyeok', arms: '보병' },
-  { ko: '위담', hanja: '魏談', skill: 'dolgyeok', arms: '기병' },
+  { ko: '한석', skill: 'cheolbyeok', arms: '보병' },
+  { ko: '위담', skill: 'dolgyeok', arms: '기병' },
 ];
 const STAT_KEYS = ['lead', 'war', 'int', 'pol', 'cha'];
 
@@ -209,7 +211,6 @@ export function normalizeGeneral(g) {
   return {
     id: g.id,
     ko: String(g.ko || '무명').slice(0, 8),
-    hanja: String(g.hanja || ''),
     lead: stats.lead, war: stats.war, int: stats.int, pol: stats.pol, cha: stats.cha,
     arms: ARMS.includes(g.arms) ? g.arms : '보병',
     skill: SKILLS[g.skill] ? g.skill : 'tongsol',
@@ -223,7 +224,7 @@ export function normalizeGeneral(g) {
 export function buildCustomLord(opts) {
   const name = String(opts.name || '').trim();
   if (name.length < CUSTOM_NAME_MIN || name.length > CUSTOM_NAME_MAX) throw new Error('군주 이름은 2~6자로 지어 주세요.');
-  const hanja = String(opts.hanja || '').trim().slice(0, 1) || name[0];
+  const mark = customMark(opts.mark, name);
   const palette = CUSTOM_COLORS.find((c) => c.hex === opts.color) || CUSTOM_COLORS[0];
   const retinueN = clamp(Number(opts.retinue) || 0, 0, 2);
   const formations = [opts.formation || 'eorin', 'bangwon', 'hakyik'].filter((f, i, a) => FORMATIONS[f] && a.indexOf(f) === i);
@@ -231,7 +232,6 @@ export function buildCustomLord(opts) {
     ...opts.stats,
     id: 'cl_lord',
     ko: name,
-    hanja,
     arms: opts.arms,
     skill: opts.skill,
     formations,
@@ -243,7 +243,6 @@ export function buildCustomLord(opts) {
     retinue.push(normalizeGeneral({
       id: `cl_mate${i + 1}`,
       ko: p.ko,
-      hanja: p.hanja,
       lead: lord.lead - 8, war: lord.war - 6, int: lord.int - 10, pol: lord.pol - 8, cha: lord.cha - 6,
       arms: p.arms,
       skill: p.skill,
@@ -252,11 +251,19 @@ export function buildCustomLord(opts) {
     }));
   }
   return {
-    faction: { id: opts.factionId || 'custom', name, hanja, color: palette.hex },
+    faction: { id: opts.factionId || 'custom', name, mark, color: palette.hex },
     lord,
     retinue,
     cityId: opts.cityId,
   };
+}
+
+/* 깃발 글자 — 한글 1자. 비어 있거나 한글이 아니면 군주 이름의 첫 글자를 쓴다 */
+export function customMark(value, name) {
+  const picked = String(value || '').match(/[가-힣]/);
+  if (picked) return picked[0];
+  const fallback = String(name || '').match(/[가-힣]/);
+  return fallback ? fallback[0] : '신';
 }
 
 /* 신군주가 깃발을 꽂을 수 있는 성 — 성이 둘 이상인 세력에서 하나를 떼어낸다(원 세력이 멸망하지 않게) */
@@ -268,7 +275,7 @@ export function customStartCities(scenarioId) {
     if (f.cities.length < 2) continue;
     for (const cid of f.cities) {
       const c = CITY_BY_ID[cid];
-      rows.push({ cityId: cid, ko: c.ko, hanja: c.hanja, region: c.region, from: f.id, fromName: f.name, fromCities: f.cities.length, troops: c.troops });
+      rows.push({ cityId: cid, ko: c.ko, region: c.region, from: f.id, fromName: f.name, fromCities: f.cities.length, troops: c.troops });
     }
   }
   return rows.sort((a, b) => a.fromCities - b.fromCities || b.troops - a.troops);
@@ -508,6 +515,133 @@ export function runCommand(state, type, opts) {
   return { ok: true, msg };
 }
 
+/* ---------- 도시간 장수 이동 ---------- */
+export const MOVE_COST = 1;
+
+/* 이동 후보 성 — 아군이 소유한 다른 성 */
+export function moveDestinations(state, fromCityId) {
+  const fid = state.playerId;
+  return Object.values(state.cities)
+    .filter((c) => c.owner === fid && c.id !== fromCityId)
+    .map((c) => ({
+      cityId: c.id, ko: cityName(c.id), troops: c.troops,
+      generals: generalsInCity(state, c.id).length,
+      full: generalsInCity(state, c.id).length >= MAX_OFFICERS_PER_CITY,
+    }));
+}
+
+export function canMoveGenerals(state, fromCityId, toCityId, gids = []) {
+  const from = state.cities[fromCityId];
+  const to = state.cities[toCityId];
+  const fid = state.playerId;
+  if (!from || from.owner !== fid) return { ok: false, why: '아군 성이 아닙니다.' };
+  if (!to || to.owner !== fid) return { ok: false, why: '목적지가 아군 성이 아닙니다.' };
+  if (fromCityId === toCityId) return { ok: false, why: '출발 성과 목적지가 같습니다.' };
+  const ids = [...new Set(gids)];
+  if (!ids.length) return { ok: false, why: '옮길 장수를 고르세요.' };
+  if (state.actionPoints < MOVE_COST) return { ok: false, why: '행동력이 부족합니다.' };
+  for (const gid of ids) {
+    const g = state.generals[gid];
+    const t = generalOf(state, gid);
+    const who = t ? t.ko : '장수';
+    if (!g || g.city !== fromCityId || g.faction !== fid || g.captive || g.dead) {
+      return { ok: false, why: `${who}은(는) 이 성에 있는 아군 장수가 아닙니다.` };
+    }
+    if (g.acted) return { ok: false, why: `${who}은(는) 이번 달에 이미 움직였습니다.` };
+  }
+  const here = generalsInCity(state, fromCityId).length;
+  const there = generalsInCity(state, toCityId).length;
+  if (there + ids.length > MAX_OFFICERS_PER_CITY) {
+    return { ok: false, why: `목적지 성의 장수가 ${MAX_OFFICERS_PER_CITY}명을 넘습니다.` };
+  }
+  const left = here - ids.length;
+  const lordMoving = ids.includes(state.factions[fid].lord);
+  let warning = '';
+  if (left <= 0) warning = '출발 성에 장수가 한 명도 남지 않습니다. 빈 성은 적의 공격에 그대로 노출됩니다.';
+  else if (lordMoving && left <= 1) warning = '군주가 성을 떠나 장수 한 명만 남습니다.';
+  return { ok: true, warning, left };
+}
+
+/* 선택한 장수들을 다른 아군 성으로 옮긴다 — 행동력 1, 옮긴 장수는 이번 달 행동 완료 */
+export function moveGenerals(state, fromCityId, toCityId, gids = []) {
+  const check = canMoveGenerals(state, fromCityId, toCityId, gids);
+  if (!check.ok) return { ok: false, msg: check.why };
+  const ids = [...new Set(gids)];
+  for (const gid of ids) {
+    const g = state.generals[gid];
+    g.city = toCityId;
+    g.acted = true;
+    g.movedThisTurn = true;
+  }
+  state.actionPoints -= MOVE_COST;
+  const names = ids.map((gid) => generalOf(state, gid).ko);
+  const msg = `${cityName(fromCityId)}에서 ${withJosa(cityName(toCityId), '로')} 장수 ${ids.length}명(${names.join(', ')})을 옮겼습니다.`;
+  log(state, msg);
+  bumpRng(state);
+  return { ok: true, msg, moved: ids, warning: check.warning || '' };
+}
+
+/* ---------- 장수 대화 (충성도 상승) ---------- */
+export const TALK_COST = 1;
+export const TALK_GAIN_MIN = 4;
+export const TALK_GAIN_MAX = 8;
+
+export function talkedThisTurn(state, gid) {
+  return !!state.talked && state.talked[gid] === state.turn;
+}
+
+/* 대화 상대 — 이 성의 아군 장수 중 군주를 뺀 모두 */
+export function talkPartners(state, cityId) {
+  const lord = state.factions[state.playerId] ? state.factions[state.playerId].lord : null;
+  return generalsInCity(state, cityId).filter((g) => g.id !== lord);
+}
+
+export function canTalk(state, cityId, gid) {
+  const c = state.cities[cityId];
+  const fid = state.playerId;
+  if (!c || c.owner !== fid) return { ok: false, why: '아군 성이 아닙니다.' };
+  const g = state.generals[gid];
+  if (!g || g.city !== cityId || g.faction !== fid || g.captive || g.dead) {
+    return { ok: false, why: '이 성에 있는 아군 장수가 아닙니다.' };
+  }
+  if (state.factions[fid] && state.factions[fid].lord === gid) return { ok: false, why: '군주와는 대화할 상대가 아닙니다.' };
+  if (talkedThisTurn(state, gid)) return { ok: false, why: '이번 달에는 이미 이야기를 나눴습니다.' };
+  if ((g.loyalty || 0) >= 100) return { ok: false, why: '충성도가 이미 최대입니다.' };
+  if (state.actionPoints < TALK_COST) return { ok: false, why: '행동력이 부족합니다.' };
+  return { ok: true };
+}
+
+/* 대화로 오르는 충성도 — 기본 4~8 + 군주 매력·인덕 보정, 최대 100 */
+export function talkLoyaltyGain(state, lordSpec, roll) {
+  let gain = clamp(roll, TALK_GAIN_MIN, TALK_GAIN_MAX);
+  if (lordSpec) {
+    gain += clamp(Math.floor(((lordSpec.cha || 0) - 60) / 20), 0, 2);
+    if (lordSpec.skill === 'indeok') gain += 2;
+  }
+  return gain;
+}
+
+export function talkToGeneral(state, cityId, gid) {
+  const check = canTalk(state, cityId, gid);
+  if (!check.ok) return { ok: false, msg: check.why };
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  const lordSpec = lordOf(state, state.playerId);
+  const rng = rngOf(state);
+  const gain = talkLoyaltyGain(state, lordSpec, randInt(rng, TALK_GAIN_MIN, TALK_GAIN_MAX));
+  const before = g.loyalty || 0;
+  const after = clamp(before + gain, 0, 100);
+  g.loyalty = after;
+  state.talked = state.talked || {};
+  state.talked[gid] = state.turn;
+  state.actionPoints -= TALK_COST;
+  const line = pickTalkLine(gid, t, before, state.turn);
+  const msg = `${withJosa(t.ko, '과')} 이야기를 나눴습니다. 충성도 ${before} → ${after} (+${after - before})`;
+  log(state, msg);
+  bumpRng(state);
+  return { ok: true, msg, line, before, after, gain: after - before, style: talkStyleOf(t, before) };
+}
+
 /* ---------- 출진 ---------- */
 export function canAttack(state, fromCityId, toCityId) {
   const from = state.cities[fromCityId];
@@ -700,6 +834,7 @@ export function withJosa(name, kind = '을') {
     '이': hasFinal ? '이' : '가', '가': hasFinal ? '이' : '가',
     '은': hasFinal ? '은' : '는', '는': hasFinal ? '은' : '는',
     '과': hasFinal ? '과' : '와', '와': hasFinal ? '과' : '와',
+    '로': hasFinal ? '으로' : '로', '으로': hasFinal ? '으로' : '로',
   };
   return n + (map[kind] || kind);
 }
@@ -893,7 +1028,8 @@ export function endTurnPhase2(state) {
   state.turn++;
   state.month++;
   if (state.month > 12) { state.month = 1; state.year++; }
-  for (const g of Object.values(state.generals)) g.acted = false;
+  for (const g of Object.values(state.generals)) { g.acted = false; g.movedThisTurn = false; }
+  state.talked = {};
   state.maxActionPoints = calcActionPoints(state, state.playerId);
   state.actionPoints = state.maxActionPoints;
 
@@ -976,17 +1112,25 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전 양식, 4 = 포로 처분 이전 양식. 열어서 새 양식으로 옮긴다.
-  if (!s || ![3, 4, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전 양식, 4 = 포로 처분 이전 양식, 5 = 대화·이동 이전 양식. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, 5, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];
   s.pendingPrisoners = s.pendingPrisoners || [];
+  s.talked = s.talked || {};
   s.log = s.log || [];
-  s.stats = { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0, executed: 0, released: 0, ...(s.stats || {}) };
+  s.stats = { battles: 0, wins: 0, duelWins: 0, duels: 0, captured: 0, recruited: 0, executed: 0, released: 0, ...(s.stats || {}) };
+  // 옛 저장의 깃발 글자(한자)는 버리고 한글 한 글자로 바꿔 둔다
+  for (const f of Object.values(s.factions || {})) {
+    if (!f.mark) f.mark = String(f.name || '')[0] || '';
+    delete f.hanja;
+  }
+  for (const g of Object.values(s.customGenerals)) delete g.hanja;
   for (const g of Object.values(s.generals || {})) {
     if (g.dead === undefined) g.dead = false;
     if (g.captive === undefined) g.captive = false;
+    if (g.movedThisTurn === undefined) g.movedThisTurn = false;
   }
   return s;
 }

@@ -145,7 +145,7 @@ with sync_playwright() as p:
     hud = page.locator("#hud-faction").inner_text()
     step("세력 이름이 신군주", hut := ("한호" in hud), hud)
     crest = page.locator("#hud-crest").inner_text()
-    step("깃발 한자 '韓'", crest == "韓", crest)
+    step("깃발 글자 한글 1자", crest == "신" and len(crest) == 1, crest)
     step("시작 성", city_ko in page.locator("#citypanel").inner_text(), page.locator(".cs-name").inner_text())
     gens = page.locator("#citypanel .gen-chip").count()
     step("휘하 3명(군주+2) 표시", gens == 3, gens)
