@@ -9,7 +9,7 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else "https://samgukji5-web.vercel.app"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "https://dotsamguk.vercel.app"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "live"
 OUT = os.path.abspath("downloads/samguk5")
 CHROME = os.path.abspath(".cache/ms-playwright/chromium-1134/chrome-linux/chrome")

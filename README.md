@@ -2,7 +2,8 @@
 
 16비트 레트로 감성의 **도트 웹 전략 게임**. 삼국 시대를 배경으로 설치 없이 브라우저에서 바로 하며, 모바일(390×844) 세로 화면에 맞춰 만들었습니다.
 
-- 실서버: https://samgukji5-web.vercel.app (Vercel · 정적 배포)
+- 실서버: https://dotsamguk.vercel.app (Vercel · 정적 배포)
+- 이전 주소: https://samgukji5-web.vercel.app → 새 주소로 308 영구 리다이렉트
 - 저장소: https://github.com/leesh33/samgukji5-web
 
 ## 무엇을 할 수 있나
@@ -60,7 +61,7 @@ python3 tests/verify_sheet.py http://127.0.0.1:4173/index.html local  # 하단 �
 python3 tests/verify_custom.py http://127.0.0.1:4173/index.html local  # 시나리오 7종·신군주 생성/전투/저장·복원 검증
 python3 tests/verify_cloud.py http://127.0.0.1:4173/index.html        # 로그인 버튼·메뉴 자리 확인
 python3 tests/verify_sync_e2e.py http://127.0.0.1:4173/index.html    # 로그인 후 동기화(가짜 Supabase 응답)
-python3 tests/verify_login_live.py https://samgukji5-web.vercel.app  # 라이브: 구글·카카오 OAuth 이동·만료 세션
+python3 tests/verify_login_live.py https://dotsamguk.vercel.app  # 라이브: 구글·카카오 OAuth 이동·만료 세션
 python3 tests/verify_battle_v5.py http://127.0.0.1:4173/index.html local  # 진형 도트·방향 대미지·상성·포로 처분 검증
 ```
 
