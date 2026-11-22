@@ -328,8 +328,8 @@ with sync_playwright() as p:
             shot(page, "b06-event")
             page.locator('[data-act="event-go"]').first.click()
             page.wait_for_timeout(700)
-            step("이벤트 선택 반영", not page.locator('[data-act="event-go"]').count(),
-                 page.locator("#toast").inner_text() if page.locator("#toast").count() else "")
+            step("이벤트 선택 반영", page.locator('[data-act="event-go"]:visible').count() == 0,
+                 (page.locator("#toast").inner_text() if page.locator("#toast").count() else "") + " / 시트:" + (sheet_title(page) or "없음"))
             break
         end_turn(page, keep_event=True)
         page.wait_for_timeout(300)

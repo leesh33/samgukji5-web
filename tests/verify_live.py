@@ -277,8 +277,24 @@ with sync_playwright() as p:
         page.wait_for_timeout(900)
         clear_prisoners()
 
+    def dismiss_notices():
+        """관직 승급·달의 소식처럼 새로 생긴 알림 시트를 정리한다"""
+        for _ in range(4):
+            if page.locator("#sheet").evaluate("el => el.classList.contains('hidden')"):
+                return
+            if page.locator('[data-act="promo-ok"]').count():
+                page.click('[data-act="promo-ok"]')
+                page.wait_for_timeout(350)
+                continue
+            if page.locator('[data-act="event-go"]').count():
+                page.locator('[data-act="event-go"]').first.click()
+                page.wait_for_timeout(450)
+                continue
+            return
+
     # ---------- 턴 진행 ----------
     if page.locator("#scr-game").is_visible():
+        dismiss_notices()
         d0 = page.locator("#hud-date").inner_text()
         page.click("#btn-endturn")
         page.wait_for_timeout(1600)
