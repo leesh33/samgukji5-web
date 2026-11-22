@@ -1,7 +1,8 @@
-/* 장수 초상화 — 하이엔드 보드게임풍 벡터 실루엣 초상화
-   장수 id로부터 결정론적으로 생성한다(골드 림라이트 + 투구·관모·수염·세력색 배경).
-   canvas 대신 SVG 데이터 URI를 돌려주므로 어떤 크기에서도 매끄럽게 확대된다. */
+/* 장수 초상화 — HD-2D 픽셀 아트
+   64×64 격자에 다층 음영·림라이트·눈빛·머리카락·갑옷 결을 그려 SVG로 내보낸다.
+   장수 id에서 결정론적으로 생성하므로 같은 장수는 언제나 같은 얼굴이 나온다. */
 
+const W = 64, H = 64;
 const cache = new Map();
 
 function hash(s) {
@@ -13,204 +14,479 @@ function rnd(seed, i) {
   const x = Math.sin(seed * 12.9898 + i * 78.233) * 43758.5453;
   return x - Math.floor(x);
 }
+function rgb(c) {
+  const h = String(c || '#888888').replace('#', '');
+  const s = h.length === 3 ? h.split('').map((k) => k + k).join('') : h;
+  const n = parseInt(s, 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function hex(r, g, b) {
+  const cl = (v) => Math.max(0, Math.min(255, Math.round(v)));
+  return '#' + ((cl(r) << 16) | (cl(g) << 8) | cl(b)).toString(16).padStart(6, '0');
+}
+function mix(a, b, t) {
+  const pa = rgb(a), pb = rgb(b);
+  return hex(pa.r + (pb.r - pa.r) * t, pa.g + (pb.g - pa.g) * t, pa.b + (pb.b - pa.b) * t);
+}
+function light(c, amt) { return amt >= 0 ? mix(c, '#fff4e2', amt) : mix(c, '#0a0805', -amt); }
 
-const GOLD = '#c9a45c';
-const GOLD_HI = '#e8cf9f';
+const SKINS = [
+  { hi: '#f8ddb6', mid: '#e7bf92', base: '#d3a273', sh: '#a97449', deep: '#7c5030' },
+  { hi: '#f4d2a8', mid: '#dcae80', base: '#c69263', sh: '#9a673f', deep: '#6e472a' },
+  { hi: '#edc79c', mid: '#cda071', base: '#b08357', sh: '#865a36', deep: '#5c3b22' },
+  { hi: '#faddba', mid: '#ecc79c', base: '#d6ab80', sh: '#ab7e56', deep: '#7f5637' },
+];
+const HAIRS = ['#1a1116', '#1e1512', '#241a12', '#150f0c'];
 
-/* 얼굴 빛(피부) 4단 — 실루엣 위에 은은한 면 빛으로만 쓴다 */
-const SKIN_GLOW = ['#f0d3ae', '#e2bd92', '#cfa276', '#b78a63'];
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
-const clampIdx = (v, n) => Math.max(0, Math.min(n - 1, Math.floor(Number(v) || 0)));
-
-function shade(hex, amt) {
-  const h = String(hex || '#6b6b6b').replace('#', '');
-  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
-  let r = (n >> 16) + amt, g = ((n >> 8) & 255) + amt, b = (n & 255) + amt;
-  r = Math.max(0, Math.min(255, r)); g = Math.max(0, Math.min(255, g)); b = Math.max(0, Math.min(255, b));
-  return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+/* ---------- 얼굴 조명: 타원 표면의 법선으로 4단 피부색 ---------- */
+function skinShade(skin, nx, ny, nz, x, y) {
+  // 빛은 좌상단에서
+  const d = nx * -0.44 + ny * -0.55 + nz * 0.71;
+  const t = clamp01((d + 0.28) / 1.16);
+  let idx;
+  if (t > 0.74) idx = 0; else if (t > 0.56) idx = 1; else if (t > 0.38) idx = 2; else idx = 3;
+  // 경계에 디더 — 도트 특유의 부드러운 단차
+  const edge = [0.74, 0.56, 0.38][idx === 0 ? 0 : idx === 1 ? 1 : 2];
+  if (Math.abs(t - edge) < 0.035 && ((x + y) & 1)) idx = Math.min(3, idx + 1);
+  return [skin.hi, skin.mid, skin.base, skin.sh][idx];
 }
 
-/* 몸통·머리 실루엣 (오른쪽을 바라보는 옆얼굴) */
-const HEAD = 'M33,52 C32,34 42,21 55,21 C64,21 69.4,27 69.8,35.6 C70,39.4 69.2,41.4 68.8,43 C68.5,44.2 69,45 69.6,45.6 C71.4,47 74.4,49.4 74.9,52 C75.3,53.9 73.9,54.9 72.2,55.1 C70.5,55.3 69.4,55.2 68.7,55.9 C68.1,56.4 68.7,57.3 69.9,57.9 C71.1,58.5 71.3,59.3 70.5,60 C69.7,60.7 70.7,61.5 70.9,62.7 C71.1,64.5 70.3,66.7 68.5,68.3 C66.5,70.1 63.7,71.1 60.7,71.5 C58.4,71.8 57.2,74.2 57,77 C56.8,80.6 57.6,85 59,88 L59,96 L36,96 C35.4,87 34.4,79 34.4,71 C34,64 33.4,58 33,52 Z';
-
-/* 앞쪽 윤곽 — 여기에 금빛 림라이트를 준다 */
-const RIM = 'M69.8,35.6 C70,39.4 69.2,41.4 68.8,43 C68.5,44.2 69,45 69.6,45.6 C71.4,47 74.4,49.4 74.9,52 C75.3,53.9 73.9,54.9 72.2,55.1 C70.5,55.3 69.4,55.2 68.7,55.9 C68.1,56.4 68.7,57.3 69.9,57.9 C71.1,58.5 71.3,59.3 70.5,60 C69.7,60.7 70.7,61.5 70.9,62.7 C71.1,64.5 70.3,66.7 68.5,68.3 C66.5,70.1 63.7,71.1 60.7,71.5';
-
-/* 어깨·갑옷 */
-const TORSO = 'M14,120 L18,108 C22,99 30,94.4 39,93.4 L63,93.4 C73,94.4 81,99 85,109 L88,120 Z';
-const PAULDRON = 'M57,93.4 C66,93.4 74.4,97 79,105 L81.4,113 L60.4,113 C59,105 58.2,98 57,93.4 Z';
-const PAULDRON_BACK = 'M39,93.4 C31,94 24,98 20.4,105 L17,113 L38,113 C37.4,105.4 38,98.4 39,93.4 Z';
-
-function hatArt(hat, hair, accent) {
-  switch (hat) {
-    case 1: // 관모 — 높은 관과 뒤로 뻗은 날개
-      return {
-        back: `<path d="M37.6,30.4 L25.6,26.6 L25,31.6 L37.4,35.2 Z" fill="${hair}" opacity="0.95"/>`,
-        front: `<path d="M38.4,35.6 C38,25.4 45.6,17.6 55,17.6 C63.4,17.6 68.2,23 68.4,30.6 L68.6,36.2 Z" fill="#1b1f26"/>
-          <path d="M38.4,33.4 L68.5,33.4 L68.6,36.4 L38.4,36.4 Z" fill="${GOLD}" opacity="0.55"/>
-          <path d="M41,22.4 C45,18.4 51,16.6 56,16.8 C62,17 66,20.4 67,25.2 L66,26.6 C64.4,22 60,19.8 55,19.6 C49,19.4 44,21.8 41.6,25.6 Z" fill="${GOLD}" opacity="0.22"/>`,
-      };
-    case 2: // 두건 — 이마를 두른 천과 뒤로 늘어진 자락
-      return {
-        back: `<path d="M35.4,32.4 C30,38 28.6,47.6 29.8,57.4 L33.2,56.6 C32.6,47.6 33.4,39.6 37,34.4 Z" fill="${hair}"/>`,
-        front: `<path d="M35.2,38.6 C34.2,26.6 43,18 55,18 C64.6,18 70.2,24 70.4,33.4 L69.8,36.6 C62.4,30.4 46,30.4 36.6,40.4 Z" fill="#251e24"/>
-          <path d="M36.8,37.6 C46,29.4 62.4,29.6 69.6,35.8" fill="none" stroke="#3b2f36" stroke-width="1"/>
-          <path d="M38.6,33.4 C47,26.4 62,26.6 68.6,32.4" fill="none" stroke="${GOLD}" stroke-width="0.7" opacity="0.28"/>`,
-      };
-    case 3: // 상투 — 머리를 올려 묶고 금비녀
-      return {
-        back: `<ellipse cx="52.4" cy="13.6" rx="5.6" ry="5.2" fill="${hair}"/>
-          <path d="M47.4,14.6 L57.6,12.4" stroke="${GOLD}" stroke-width="1" stroke-linecap="round" opacity="0.85"/>`,
-        front: `<path d="M33.4,48 C32.2,32 42,20 55,20 C64.2,20 69.4,26 69.8,34.8 L69,37.6 C62,30 44,30.4 35.4,42.6 Z" fill="${hair}"/>
-          <path d="M36,30.6 C43,24.6 54,23.4 62.4,26.4" fill="none" stroke="#2a2b31" stroke-width="1.6" opacity="0.8"/>`,
-      };
-    case 4: // 전립 — 넓은 챙과 꼭지
-      return {
-        back: ``,
-        front: `<path d="M46.2,31.6 C46,21.6 50.6,16.4 55.4,16.4 C60,16.4 62.6,22.2 62.4,31.6 Z" fill="#232830"/>
-          <path d="M31.4,32 C38,29 47,27.6 55,27.6 C63,27.6 71,29 76.6,32 C71,35.2 63,36.4 55,36.4 C47,36.4 38,35 31.4,32 Z" fill="#1d222a"/>
-          <path d="M31.4,32 C38,35 47,36.4 55,36.4 C63,36.4 71,35.2 76.6,32" fill="none" stroke="${GOLD}" stroke-width="0.7" opacity="0.45"/>
-          <path d="M55.4,16.4 L55.4,11.6" stroke="${GOLD}" stroke-width="1.1"/>
-          <path d="M55.6,11.4 C57.4,7.6 60.4,5.4 63.6,4.6 C61.4,8 60.2,11 60.2,13.4 Z" fill="${accent}" opacity="0.9"/>`,
-      };
-    default: // 투구 — 보호덮개와 깃장식
-      return {
-        back: `<path d="M34.6,36 C33,46 33.6,58 36,68 L39.4,67 C37.4,56 37,46 38,36 Z" fill="${hair}"/>`,
-        front: `<path d="M34,41 C33,25.4 43.6,16.4 56,16.4 C66.4,16.4 72.2,23 72.6,33.6 L71.6,38.4 C70.6,29.4 64.4,22.6 55.6,22.2 C45,21.8 37.6,29.6 37,42 Z" fill="#2a2f37"/>
-          <path d="M34.6,40.4 C44.6,34.4 64,33.6 72.2,36.6 L71.8,41 C62,37.8 45.4,38.6 35.4,44.4 Z" fill="${GOLD}" opacity="0.42"/>
-          <path d="M66.6,42.4 L70.4,54.6 L64,53.2 Z" fill="#232830" opacity="0.95"/>
-          <path d="M52.6,16.8 C50.6,10.2 52.6,5 57,2 C55.4,7 55.6,11.6 57.4,16.6 Z" fill="${accent}" opacity="0.85"/>
-          <path d="M38.6,26.4 C42.6,21.6 49,19 55.4,19.2" fill="none" stroke="${GOLD_HI}" stroke-width="0.8" opacity="0.35"/>`,
-      };
-  }
-}
-
-function beardArt(beard, hair) {
-  switch (beard) {
-    case 1: // 짧은 수염 — 콧수염과 짧은 턱수염
-      return `<path d="M66.2,55.9 C68.4,55.6 70.6,56.5 71.4,58.1 C70,58.9 67.6,58.7 66.2,57.9 Z" fill="${hair}"/>
-        <path d="M65.6,66.4 C68,67.6 68.8,70.4 67.4,73.2 C66,76 63.4,77 61.6,76.2 C63.6,73.8 64.6,70.4 63.8,67.4 Z" fill="${hair}"/>`;
-    case 2: // 구레나룻 — 턱선을 따라 흐르는 수염
-      return `<path d="M48.4,45.4 C55,46.4 61.6,52.4 63.6,60.4 C65.4,67.6 64.2,71.6 62.4,73 C63.6,68 62.8,61.6 59.6,56.6 C56.6,52 52.2,48.6 47,47 Z" fill="${hair}" opacity="0.95"/>
-        <path d="M66.2,56.2 C68.6,55.8 70.8,56.8 71.6,58.4 C70,59.2 67.6,59 66.2,58.2 Z" fill="${hair}"/>`;
-    case 3: // 장수염 — 가슴까지 흐르는 긴 수염
-      return `<path d="M66,55.8 C68.4,55.4 70.8,56.4 71.6,58.2 C69.8,59.4 67.2,59.2 65.8,58.2 Z" fill="${hair}"/>
-        <path d="M64.6,66.6 C68.4,67.4 70.6,71 69.4,76.6 C68.4,81.6 64.6,89.6 60.6,94.4 C59,96.2 56.6,96.2 55.8,94.6 C58.4,90 60.6,83.4 61.2,77.6 C61.8,72.6 61.4,69 60.2,67.2 Z" fill="${hair}"/>
-        <path d="M63.4,74.4 C65.4,78 65,84 63,88.6" fill="none" stroke="#000" stroke-width="0.5" opacity="0.35"/>`;
-    default:
-      return '';
-  }
-}
-
-function browArt(war, seed) {
-  const steep = war >= 85 || rnd(seed, 21) > 0.72;
-  return steep
-    ? `<path d="M60.8,40.6 C63.2,39 66.2,39.4 68,40.8" fill="none" stroke="#0a0b0d" stroke-width="1.5" stroke-linecap="round"/>`
-    : `<path d="M61.4,41.2 C63.6,40.2 66.2,40.4 67.8,41.4" fill="none" stroke="#0a0b0d" stroke-width="1.3" stroke-linecap="round"/>`;
-}
-
-export function portraitSVG(gid, general, size = 64, factionColor = '#2b3550', style = null) {
-  const st = style || (general && general.style) || null;
-  const key = `${gid}|${size}|${factionColor}|${st ? `${st.hat}-${st.beard}-${st.skin}` : '-'}`;
-  if (cache.has(key)) return cache.get(key);
+function build(gid, general, factionColor, style) {
   const seed = hash(gid || 'x');
   const r = (i) => rnd(seed % 9973, i);
   const war = general && general.war != null ? general.war : 60;
   const lead = general && general.lead != null ? general.lead : 60;
+  const fac = factionColor || '#3b4f6b';
+  const st = style || {};
 
-  const fac = factionColor || '#2b3550';
-  const accent = shade(fac, 18);
-  const hat = st && st.hat != null ? clampIdx(st.hat, 5) : (lead > 88 ? 0 : Math.floor(r(8) * 5));
-  const beardId = st && st.beard != null ? clampIdx(st.beard, 4) : (r(4) < 0.18 ? 0 : r(5) < 0.5 ? 1 : r(6) < 0.55 ? 2 : 3);
-  const skin = SKIN_GLOW[st && st.skin != null ? clampIdx(st.skin, 4) : Math.floor(r(1) * 4)];
-  const hair = r(9) < 0.5 ? '#141519' : '#1a1713';
-  const scar = r(12) < 0.22;
-  const tilt = (r(31) * 5.2 - 2.6).toFixed(2);
-  const hatArtParts = hatArt(hat, hair, accent);
+  const hat = st.hat != null ? Math.max(0, Math.min(4, Math.floor(st.hat))) : (lead > 88 ? 1 : Math.floor(r(8) * 5));
+  const beard = st.beard != null ? Math.max(0, Math.min(3, Math.floor(st.beard))) : (r(4) < 0.34 ? 0 : r(5) < 0.55 ? 1 : r(6) < 0.62 ? 2 : 3);
+  const skin = SKINS[st.skin != null ? Math.max(0, Math.min(3, Math.floor(st.skin))) : Math.floor(r(1) * 4)];
+  const hairC = HAIRS[Math.floor(r(9) * HAIRS.length)];
+  const hairHi = mix(hairC, '#a8834f', 0.52);
+  const scar = r(12) < 0.2;
+  const scarf = mix(fac, '#1a120c', 0.4);
+  const scarfHi = mix(fac, '#ffe0b4', 0.36);
+  const lash = mix(hairC, '#1a0f08', 0.4);
+  const irisC = mix('#6b4526', '#2c1a0e', 0.45 + r(24) * 0.3);
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}" preserveAspectRatio="xMidYMid slice">
-<defs>
-<linearGradient id="bg" x1="0" y1="0" x2="0.25" y2="1">
-<stop offset="0" stop-color="#1a1f25"/><stop offset="0.55" stop-color="#12161b"/><stop offset="1" stop-color="#0b0e12"/>
-</linearGradient>
-<radialGradient id="glow" cx="0.6" cy="0.28" r="0.62">
-<stop offset="0" stop-color="${accent}" stop-opacity="0.45"/><stop offset="0.5" stop-color="${shade(fac, -20)}" stop-opacity="0.24"/><stop offset="1" stop-color="#000000" stop-opacity="0"/>
-</radialGradient>
-<linearGradient id="face" x1="1" y1="0.1" x2="0.1" y2="0.95">
-<stop offset="0" stop-color="${skin}" stop-opacity="0.58"/><stop offset="0.42" stop-color="${skin}" stop-opacity="0.24"/><stop offset="0.78" stop-color="${skin}" stop-opacity="0.06"/><stop offset="1" stop-color="${skin}" stop-opacity="0"/>
-</linearGradient>
-<linearGradient id="rim" x1="0.5" y1="0" x2="0.9" y2="1">
-<stop offset="0" stop-color="${GOLD_HI}"/><stop offset="0.45" stop-color="${GOLD}"/><stop offset="1" stop-color="${shade(GOLD, -40)}"/>
-</linearGradient>
-<linearGradient id="steel" x1="0" y1="0" x2="0.6" y2="1">
-<stop offset="0" stop-color="#333941"/><stop offset="0.5" stop-color="#1f242b"/><stop offset="1" stop-color="#12161b"/>
-</linearGradient>
-<linearGradient id="body" x1="0" y1="0" x2="0.3" y2="1">
-<stop offset="0" stop-color="#1b1f25"/><stop offset="1" stop-color="#0a0d10"/>
-</linearGradient>
-<filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.5"/></filter>
-<filter id="soft2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="0.7"/></filter>
-<clipPath id="frm"><rect x="2.6" y="2.6" width="94.8" height="94.8"/></clipPath>
-</defs>
-<g clip-path="url(#frm)">
-<rect x="0" y="0" width="100" height="100" fill="url(#bg)"/>
-<rect x="0" y="0" width="100" height="100" fill="url(#glow)"/>
-<g stroke="${GOLD}" stroke-width="0.4" fill="none" opacity="0.12">
-<path d="M-4,18 C16,14 32,22 48,17 C64,12 80,18 104,12"/>
-<path d="M-4,25 C18,21 34,29 50,24 C66,19 82,25 104,20"/>
-<path d="M-4,80 C18,76 34,83 50,79 C66,75 82,81 104,77"/>
-<path d="M-4,87 C18,83 34,90 50,86 C66,82 82,88 104,84"/>
-</g>
-<ellipse cx="54" cy="26" rx="30" ry="24" fill="${accent}" opacity="0.13" filter="url(#soft)"/>
-<g transform="translate(2.6,2.4) scale(0.90) rotate(${tilt} 54 62)">
-<path d="${TORSO}" fill="url(#body)"/>
-<path d="${PAULDRON_BACK}" fill="url(#steel)"/>
-<path d="${PAULDRON}" fill="url(#steel)"/>
-<path d="M60.6,96 C62.2,102 63.4,108 64,113" fill="none" stroke="${GOLD}" stroke-width="0.6" opacity="0.35"/>
-<path d="M57.4,99.4 C59,104 60,108.6 60.6,112.6" fill="none" stroke="#0b0e12" stroke-width="1.4" opacity="0.8"/>
-<path d="M41,96 C39.6,102 38.6,108 38.2,113" fill="none" stroke="#000" stroke-width="1" opacity="0.55"/>
-<path d="M39.4,93.6 C47,91.6 58,91.4 63.6,93.4" fill="none" stroke="${GOLD}" stroke-width="0.8" opacity="0.5"/>
-<path d="M18,110 C26,105 36,103 44,105" fill="none" stroke="${GOLD}" stroke-width="0.5" opacity="0.22"/>
-${hatArtParts.back}
-<path d="${HEAD}" fill="url(#body)"/>
-<path d="${HEAD}" fill="url(#face)"/>
-<ellipse cx="60.6" cy="36.4" rx="4.2" ry="5" fill="${skin}" opacity="0.34" filter="url(#soft)"/>
-<path d="M67.6,44.6 C70.4,47.2 73,49.6 73.4,51.8" fill="none" stroke="${skin}" stroke-width="1.6" opacity="0.42" filter="url(#soft2)" stroke-linecap="round"/>
-<path d="M62.4,38.6 C64.2,38.2 66,39 66.9,40.3" fill="none" stroke="${shade(skin, 40)}" stroke-width="1.5" opacity="0.35" filter="url(#soft2)" stroke-linecap="round"/>
-<ellipse cx="64.2" cy="52.6" rx="3.4" ry="5.4" fill="#000" opacity="0.34" filter="url(#soft2)"/>
-<path d="M62.4,45.4 C64.6,46.4 66,48.2 66.4,50.6" fill="none" stroke="#000" stroke-width="1.2" opacity="0.28" filter="url(#soft2)"/>
-<path d="${RIM}" fill="none" stroke="${GOLD}" stroke-width="3.4" opacity="0.32" filter="url(#soft)" stroke-linecap="round"/>
-<path d="${RIM}" fill="none" stroke="url(#rim)" stroke-width="1.2" stroke-linecap="round"/>
-<path d="M34.4,50 C33.4,60 33.8,70 35.6,80" fill="none" stroke="${GOLD}" stroke-width="1.8" opacity="0.16" filter="url(#soft)"/>
-<path d="M49.6,45.4 C51.6,45 53.2,46.6 53.2,48.6 C53.2,50.6 51.4,51.8 49.8,51.4" fill="none" stroke="${shade(skin, -90)}" stroke-width="0.7" opacity="0.55"/>
-<path d="M62.4,43.3 C63.6,42.8 65.2,43 66.3,43.6 C65.1,44.2 63.5,44.2 62.4,43.3 Z" fill="#08090b" opacity="0.9"/>
-<circle cx="64.7" cy="43.4" r="0.5" fill="${GOLD_HI}" opacity="0.6"/>
-${browArt(war, seed)}
-<path d="M67.8,57.4 C68.8,57.2 69.6,57.8 69.4,58.6" fill="none" stroke="#08090b" stroke-width="0.6" opacity="0.75"/>
-${beardArt(beardId, hair)}
-${scar ? `<path d="M65.2,46.4 L63.8,52.2" stroke="${shade(skin, -95)}" stroke-width="0.55" opacity="0.7"/>` : ''}
-${hatArtParts.front}
-<path d="M59.4,72 C57.4,75 56.8,81 58.4,86.4" fill="none" stroke="${GOLD}" stroke-width="1.6" opacity="0.2" filter="url(#soft)"/>
-<path d="M59.4,72 C57.6,75.4 57.2,80.6 58.2,85.4" fill="none" stroke="rgba(201,164,92,0.42)" stroke-width="0.55"/>
-<path d="M60.6,71.6 C62.6,74.6 63,80 62,85" fill="none" stroke="#000" stroke-width="1.2" opacity="0.5" filter="url(#soft2)"/>
-</g>
-</g>
-<rect x="1.6" y="1.6" width="96.8" height="96.8" fill="none" stroke="${GOLD}" stroke-width="1.1" opacity="0.9"/>
-<rect x="5" y="5" width="90" height="90" fill="none" stroke="${GOLD}" stroke-width="0.5" opacity="0.26"/>
-<g fill="${GOLD}" opacity="0.95">
-<rect x="47.4" y="-2.8" width="5.2" height="5.2" transform="rotate(45 50 -0.2)"/>
-<rect x="47.4" y="97.4" width="5.2" height="5.2" transform="rotate(45 50 100)"/>
-</g>
-<g fill="${GOLD}" opacity="0.6">
-<rect x="-0.6" y="-0.6" width="3" height="3" transform="rotate(45 0.9 0.9)"/>
-<rect x="97.6" y="97.6" width="3" height="3" transform="rotate(45 99.1 99.1)"/>
-</g>
-</svg>`;
+  const grid = new Array(W * H).fill(null);
+  const set = (x, y, c) => {
+    x = Math.round(x); y = Math.round(y);
+    if (x < 0 || y < 0 || x >= W || y >= H || !c) return;
+    grid[y * W + x] = c;
+  };
+  const get = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? null : grid[y * W + x]);
+  const fillEllipse = (cx, cy, rx, ry, color) => {
+    for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
+      for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+        const dx = (x - cx) / rx, dy = (y - cy) / ry;
+        if (dx * dx + dy * dy <= 1) set(x, y, color);
+      }
+    }
+  };
+  const rect = (x, y, w, h, color) => {
+    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) set(x + i, y + j, color);
+  };
+
+  const cx = 32, cy = 27.5;
+  const rx = 9.8 + r(20) * 0.8;
+  const ry = 13.6;
+  const eyeY = 28 + (r(22) > 0.78 ? 1 : 0);
+  const eyeDx = 4.6 + r(23) * 0.5;
+  const mouthY = 36;
+
+  /* ---------- 몸통·갑옷 ---------- */
+  const bodyHalf = (y) => {
+    const t = clamp01((y - 46) / (H - 46));
+    return 8.6 + Math.pow(t, 0.5) * 19.5;
+  };
+  for (let y = 46; y < H; y++) {
+    const half = bodyHalf(y);
+    for (let x = Math.round(32 - half); x <= Math.round(32 + half); x++) {
+      const nx = (x - 32) / half;
+      let c = mix('#241b13', '#4a3927', 0.35 + (1 - Math.abs(nx)) * 0.3);
+      if (nx < -0.55) c = light(c, 0.2);
+      else if (nx > 0.5) c = light(c, -0.26);
+      set(x, y, c);
+    }
+  }
+  // 가슴 찰갑 띠와 못
+  for (let y = 53; y < H; y += 4) {
+    for (let x = 8; x < 57; x++) {
+      const c = get(x, y);
+      if (!c) continue;
+      set(x, y, light(c, 0.16));
+      set(x, y + 1, light(c, -0.3));
+    }
+    for (let x = 12; x < 54; x += 5) {
+      const c = get(x, y - 1);
+      if (c) set(x, y - 1, '#d8a866');
+    }
+  }
+  // 어깨 판금 — 몸통 곡선을 따라 겹친 판
+  for (const side of [-1, 1]) {
+    for (let k = 0; k < 3; k++) {
+      const yy = 48 + k * 3;
+      const half = bodyHalf(yy) - 0.6;
+      const w = 10 - k * 2;
+      const x0 = side < 0 ? Math.round(32 - half) : Math.round(32 + half - w + 1);
+      for (let i = 0; i < w; i++) {
+        const t = i / Math.max(1, w - 1);
+        const base = mix('#3f4a54', '#101519', 0.3);
+        let c = side < 0 ? light(base, 0.26 - t * 0.18) : light(base, 0.04 - t * 0.2);
+        if (k === 0) c = light(c, 0.12);
+        set(x0 + i, yy, c);
+        set(x0 + i, yy + 1, light(c, -0.44));
+      }
+      set(side < 0 ? x0 + w - 1 : x0, yy, '#e8bc7c');
+      set(side < 0 ? x0 : x0 + w - 1, yy, '#b8863e');
+    }
+  }
+  // 가슴 중앙의 금빛 고리
+  set(32, 54, '#f0cc86');
+  set(32, 55, '#c8944e');
+  set(31, 55, '#8a5f28');
+  set(33, 55, '#8a5f28');
+
+  // 목깃 — 세력색 옷깃
+  for (let y = 43; y <= 49; y++) {
+    const half = 5.2 + (y - 43) * 1.55;
+    for (let x = Math.round(32 - half); x <= Math.round(32 + half); x++) {
+      const nx = (x - 32) / half;
+      let c = nx < -0.2 ? scarfHi : scarf;
+      if (y === 43) c = light(c, 0.22);
+      if (nx > 0.55) c = light(c, -0.22);
+      set(x, y, c);
+    }
+  }
+
+  /* ---------- 목 (턱 그늘 포함) ---------- */
+  for (let y = 38; y <= 47; y++) {
+    for (let x = 29; x <= 35; x++) {
+      const nx = (x - 32) / 4, ny = (y - 42) / 6;
+      const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+      let c = skinShade(skin, nx * 0.55, ny, nz, x, y);
+      if (y < 42) c = light(c, -0.3);
+      if (x > 34) c = light(c, -0.12);
+      set(x, y, c);
+    }
+  }
+
+  /* ---------- 얼굴 ---------- */
+  for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
+    const vy = (y - cy) / ry;
+    let rrx = rx;
+    if (vy > 0.24) rrx = rx * (1 - Math.pow((vy - 0.24) / 0.9, 1.45) * 0.5);
+    if (vy < -0.5) rrx *= 0.95;
+    for (let x = Math.round(cx - rrx); x <= Math.round(cx + rrx); x++) {
+      const nx = (x - cx) / rrx;
+      const nz = Math.sqrt(Math.max(0, 1 - nx * nx - vy * vy));
+      let c = skinShade(skin, nx, vy, nz, x, y);
+      // 광대·턱의 면
+      if (nx > 0.52 && vy > -0.1 && vy < 0.55) c = light(c, -0.06);
+      if (vy > 0.6) c = light(c, -0.1);
+      if (nx < -0.62 && vy > 0.1) c = light(c, 0.05);
+      set(x, y, c);
+    }
+  }
+  // 턱 밑 그늘 — 목과 분리
+  for (let x = Math.round(cx - rx * 0.55); x <= Math.round(cx + rx * 0.55); x++) {
+    set(x, Math.round(cy + ry * 0.94), light(skin.deep, -0.16));
+  }
+  // 귀
+  for (const side of [-1, 1]) {
+    const ex = Math.round(cx + side * (rx - 0.2));
+    for (let y = eyeY - 3; y <= eyeY + 2; y++) {
+      set(ex, y, side < 0 ? light(skin.base, 0.04) : light(skin.sh, 0.02));
+    }
+    set(ex + side, eyeY - 1, light(skin.sh, -0.06));
+  }
+
+  /* ---------- 눈 ---------- */
+  for (const side of [-1, 1]) {
+    const ex = Math.round(cx + side * eyeDx);
+    // 눈두덩 그늘
+    for (let x = ex - 2; x <= ex + 2; x++) set(x, eyeY - 2, light(skin.base, -0.02));
+    // 눈: 바깥→안쪽
+    const inner = -side; // 코 쪽
+    set(ex + inner * 2, eyeY, '#ded0b8');
+    set(ex + inner, eyeY, irisC);
+    set(ex, eyeY, mix(irisC, '#0d0805', 0.55));
+    set(ex - inner, eyeY, '#ecdfc9');
+    set(ex - inner * 2, eyeY, light(skin.sh, 0.02));
+    // 위 눈꺼풀선
+    for (let x = ex - 2; x <= ex + 1; x++) set(x, eyeY - 1, lash);
+    // 안광 — 눈동자 위 한 점
+    set(ex + inner, eyeY - 1, '#ffe9b8');
+    // 아래 눈꺼풀
+    set(ex - 1, eyeY + 1, light(skin.sh, 0.06));
+    set(ex, eyeY + 1, light(skin.sh, 0.02));
+    set(ex + 1, eyeY + 1, light(skin.sh, -0.04));
+
+  }
+  // 눈썹
+  const steep = war >= 85 || r(25) > 0.7;
+  const browC = mix(hairC, '#4a3722', 0.45);
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 6; i++) {
+      const bx = Math.round(cx + side * (eyeDx - 2.4 + i * 0.9));
+      const lift = steep ? Math.round((i > 3 ? (i - 3) : 0) * 0.5) : 0;
+      set(bx, eyeY - 4 - lift, i === 0 ? light(browC, -0.1) : browC);
+    }
+    set(Math.round(cx + side * (eyeDx + 2.6)), eyeY - 4, light(browC, 0.06));
+  }
+
+  /* ---------- 코 ---------- */
+  set(cx - 1, eyeY + 2, light(skin.mid, 0.16));
+  set(cx - 1, eyeY + 3, light(skin.mid, 0.2));
+  set(cx + 1, eyeY + 2, light(skin.sh, -0.04));
+  set(cx + 1, eyeY + 3, light(skin.sh, -0.06));
+  set(cx, eyeY + 4, light(skin.sh, -0.02));
+  set(cx - 1, eyeY + 4, light(skin.deep, 0.06));
+  set(cx + 1, eyeY + 4, light(skin.deep, 0.06));
+  // 콧방울 그늘
+  set(cx - 2, eyeY + 4, light(skin.sh, -0.04));
+  set(cx + 2, eyeY + 4, light(skin.sh, -0.1));
+
+  /* ---------- 입 ---------- */
+  const lipC = mix('#a8604a', skin.base, 0.4);
+  for (let x = cx - 1; x <= cx + 2; x++) set(x, mouthY, lipC);
+  set(cx - 1, mouthY, light(lipC, -0.1));
+  set(cx + 2, mouthY, light(lipC, -0.16));
+  set(cx, mouthY + 1, light(skin.mid, 0.16));
+
+  /* ---------- 수염 ---------- */
+  const beardC = mix(hairC, '#4e3a26', 0.42);
+  if (beard >= 1) {
+    for (let x = cx - 2; x <= cx + 2; x++) set(x, mouthY - 1, x === cx ? beardC : light(beardC, -0.08));
+  }
+  if (beard === 1) { // 짧은 턱수염
+    for (let x = cx - 2; x <= cx + 2; x++) set(x, mouthY + 2, light(beardC, 0.04));
+    set(cx - 1, mouthY + 2, light(beardC, 0.12));
+  } else if (beard === 2) { // 구레나룻 + 턱수염
+    for (const side of [-1, 1]) {
+      for (let y = eyeY - 1; y <= mouthY + 2; y++) {
+        const bx = Math.round(cx + side * (rx - 0.8 + (y - eyeY) * 0.04));
+        set(bx, y, side < 0 ? light(beardC, 0.1) : beardC);
+      }
+    }
+    for (let x = cx - 1; x <= cx + 1; x++) set(x, mouthY + 2, beardC);
+    rect(cx - 1, mouthY + 3, 3, 2, light(beardC, -0.04));
+    set(cx, mouthY + 4, light(beardC, 0.12));
+  } else if (beard === 3) { // 장수염 — 가슴까지
+    for (const side of [-1, 1]) {
+      for (let y = eyeY; y <= mouthY + 1; y++) {
+        const bx = Math.round(cx + side * (rx - 0.9));
+        set(bx, y, hairC);
+      }
+    }
+    for (let y = mouthY + 2; y <= mouthY + 10; y++) {
+      const w = Math.max(1, 3 - Math.floor((y - mouthY) / 3));
+      for (let x = cx - w; x <= cx + w; x++) {
+        set(x, y, x < cx ? light(beardC, 0.12) : beardC);
+      }
+    }
+    set(cx, mouthY + 6, light(beardC, 0.3));
+    set(cx - 1, mouthY + 4, light(beardC, 0.18));
+  }
+
+  /* ---------- 흉터 ---------- */
+  if (scar) {
+    for (let i = 0; i < 4; i++) set(cx + 5 + (i % 2), eyeY - 3 + i, light(skin.sh, -0.3));
+  }
+
+  /* ---------- 머리카락 ---------- */
+  const hairTop = 13.2 + r(26) * 0.7;
+  const hairR = rx + 1.5;
+  for (let y = Math.floor(hairTop); y <= Math.round(cy + 4); y++) {
+    const vy = (y - (cy - 2.2)) / (ry + 3);
+    let hrx = hairR;
+    if (vy > 0.3) hrx = hairR * (1 - Math.pow((vy - 0.3) / 0.85, 1.3) * 0.62);
+    for (let x = Math.round(cx - hrx); x <= Math.round(cx + hrx); x++) {
+      const nx = (x - cx) / hrx;
+      const nz = Math.sqrt(Math.max(0, 1 - nx * nx - vy * vy));
+      const insideFace = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;
+      // 이마를 덮는 앞머리 — 눈썹 위까지
+      const fringe = y < hairTop + 3.4
+        + Math.sin((x - 18) * 0.62) * 1.1
+        + Math.sin((x - 18) * 1.9) * 0.7
+        + rnd(x + 17, 31) * 1.5;
+      if (insideFace && !fringe) continue;
+      // 귀는 살린다
+      if (insideFace && y > eyeY - 4 && Math.abs(x - cx) < rx - 2.5) continue;
+      let c = mix(hairC, hairHi, clamp01(nz * 0.75) * 0.45);
+      if (nx < -0.35) c = light(c, 0.1);
+      if (nx > 0.5) c = light(c, -0.2);
+      set(x, y, c);
+    }
+  }
+  // 윤기 가닥
+  for (let i = 0; i < 3; i++) {
+    for (let k = 0; k < 4; k++) {
+      set(25 - i + k * 0.4, Math.round(hairTop) + 1 + i * 2 + Math.round(k * 0.4), mix(hairHi, '#d8b070', 0.32));
+    }
+  }
+
+  /* ---------- 쓰개 ---------- */
+  if (hat === 1) {
+    const capTop = Math.round(hairTop) - 7;
+    for (let y = capTop; y <= Math.round(hairTop) + 2; y++) {
+      const half = 6.2 + (y - capTop) * 0.5;
+      for (let x = Math.round(cx - half); x <= Math.round(cx + half); x++) {
+        const nx = (x - cx) / half;
+        set(x, y, nx < -0.3 ? '#2d2b34' : nx > 0.4 ? '#141319' : '#1f1e26');
+      }
+    }
+    for (let x = Math.round(cx - 8); x <= Math.round(cx + 8); x++) set(x, Math.round(hairTop) + 2, '#d9a95e');
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 8; i++) {
+        const yy = Math.round(hairTop) + 1 + Math.round(i * 0.2);
+        set(cx + side * (9 + i), yy, i % 2 ? '#33313a' : '#1b1a21');
+        set(cx + side * (9 + i), yy + 1, '#141319');
+        if (i < 5) set(cx + side * (9 + i), yy - 1, '#8a6532');
+      }
+    }
+    set(cx, capTop - 1, '#e8c078');
+  } else if (hat === 0) {
+    const helmTop = Math.round(hairTop) - 5;
+    for (let y = helmTop; y <= Math.round(hairTop) + 1; y++) {
+      const vy = (y - (helmTop + 3)) / 4.6;
+      const half = 10 * Math.sqrt(Math.max(0.03, 1 - vy * vy * 0.7));
+      for (let x = Math.round(cx - half); x <= Math.round(cx + half); x++) {
+        const nx = (x - cx) / half;
+        let c = nx < -0.25 ? '#5f6d78' : nx > 0.4 ? '#1b222a' : '#333d46';
+        if (vy < -0.35) c = light(c, 0.2);
+        set(x, y, c);
+      }
+    }
+    for (let x = Math.round(cx - 9); x <= Math.round(cx + 9); x++) set(x, Math.round(hairTop) + 1, '#e0b070');
+    for (const side of [-1, 1]) {
+      for (let y = Math.round(hairTop) + 1; y <= eyeY + 5; y++) {
+        const bx = Math.round(cx + side * (rx - 0.4));
+        set(bx, y, side < 0 ? '#414c55' : '#232a31');
+        set(bx + side, y, '#1a2127');
+      }
+    }
+    for (let i = 0; i < 7; i++) {
+      set(cx - 1 + Math.round(Math.sin(i * 0.8) * 1.5), helmTop - 2 - i, i > 4 ? '#c8563e' : '#9c3a2a');
+      set(cx + Math.round(Math.sin(i * 0.8) * 1.5), helmTop - 2 - i, '#7a2a1e');
+    }
+  } else if (hat === 2) {
+    for (let y = Math.round(hairTop) + 1; y <= Math.round(hairTop) + 4; y++) {
+      for (let x = Math.round(cx - rx - 1); x <= Math.round(cx + rx + 1); x++) {
+        const inside = ((x - cx) / (rx + 1.3)) ** 2 + ((y - cy) / ry) ** 2 <= 1.14;
+        if (!inside) continue;
+        const nx = (x - cx) / rx;
+        set(x, y, nx < -0.2 ? '#4c3b45' : nx > 0.4 ? '#221a20' : '#342731');
+      }
+    }
+    for (let i = 0; i < 8; i++) {
+      set(Math.round(cx - rx - 1 - i * 0.45), Math.round(hairTop) + 3 + i, i % 2 ? '#2e2229' : '#43333b');
+      if (i % 3 === 0) set(Math.round(cx - rx - 2 - i * 0.45), Math.round(hairTop) + 3 + i, '#57424c');
+    }
+    for (let y = Math.round(hairTop) + 1; y <= Math.round(hairTop) + 5; y++) {
+      set(Math.round(cx - rx - 1), y, '#5a4550');
+    }
+    for (let x = Math.round(cx - 8); x <= Math.round(cx + 7); x++) set(x, Math.round(hairTop) + 1, '#705863');
+  } else if (hat === 3) {
+    fillEllipse(cx, Math.round(hairTop) - 3, 3.4, 3, hairC);
+    fillEllipse(cx - 0.8, Math.round(hairTop) - 4, 1.5, 1.3, mix(hairC, hairHi, 0.55));
+    for (let x = Math.round(cx - 4); x <= Math.round(cx + 3); x++) set(x, Math.round(hairTop) - 3, '#d8a860');
+    for (let i = 0; i < 4; i++) set(cx + i, Math.round(hairTop) - 4, '#e8c078');
+  } else if (hat === 4) {
+    for (let x = Math.round(cx - 17); x <= Math.round(cx + 17); x++) {
+      const dx = (x - cx) / 17;
+      const th = Math.max(1, Math.round(2.8 * Math.sqrt(Math.max(0, 1 - dx * dx))));
+      for (let k = 0; k < th; k++) set(x, Math.round(hairTop) - 1 + k, k === 0 ? '#4d4231' : '#241e16');
+    }
+    for (let y = Math.round(hairTop) - 7; y <= Math.round(hairTop); y++) {
+      const half = 6.2 - (Math.round(hairTop) - y) * 0.22;
+      for (let x = Math.round(cx - half); x <= Math.round(cx + half); x++) {
+        const nx = (x - cx) / half;
+        set(x, y, nx < -0.2 ? '#5f5439' : nx > 0.4 ? '#2a2418' : '#3d3524');
+      }
+    }
+    set(cx, Math.round(hairTop) - 7, '#c8563e');
+    set(cx, Math.round(hairTop) - 8, '#8e3324');
+  }
+
+  /* ---------- 림라이트 ---------- */
+  const lit = grid.slice();
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const c = lit[y * W + x];
+      if (!c) continue;
+      const left = lit[y * W + x - 1];
+      const right = x + 1 < W ? lit[y * W + x + 1] : null;
+      const up = y > 0 ? lit[(y - 1) * W + x] : null;
+      if (!left) grid[y * W + x] = light(c, 0.22);
+      else if (!right) grid[y * W + x] = light(c, -0.2);
+      else if (!up) grid[y * W + x] = light(c, 0.1);
+    }
+  }
+
+  /* ---------- 배경 ---------- */
+  const bg = new Array(W * H);
+  const baseDark = mix(fac, '#0a0806', 0.74);
+  const baseMid = mix(fac, '#1a120c', 0.52);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const vy = y / H;
+      let c = mix(baseMid, baseDark, clamp01(vy * 1.05));
+      const dx = (x - 30) / 40, dy = (y - 18) / 34;
+      const g = clamp01(1 - Math.sqrt(dx * dx + dy * dy) * 1.15);
+      if (g > 0) c = mix(c, mix(fac, '#ffd9a0', 0.42), g * 0.55);
+      if (((x + y * 2) % 37 === 0) && y < 44) c = light(c, 0.12);
+      const vx = (x - 32) / 32, vyr = (y - 32) / 32;
+      const v = clamp01(Math.sqrt(vx * vx + vyr * vyr) - 0.55);
+      c = light(c, -v * 0.5);
+      bg[y * W + x] = c;
+    }
+  }
+  for (let i = 0; i < 12; i++) {
+    const x = Math.floor(rnd(seed, 40 + i) * W), y = Math.floor(rnd(seed, 60 + i) * 44);
+    bg[y * W + x] = mix('#ffd79a', fac, 0.2);
+  }
+
+  const out = new Array(W * H);
+  for (let i = 0; i < W * H; i++) out[i] = grid[i] || bg[i];
+  return out;
+}
+
+function toSVG(grid, size) {
+  const byColor = new Map();
+  for (let y = 0; y < H; y++) {
+    let x = 0;
+    while (x < W) {
+      const c = grid[y * W + x];
+      let w = 1;
+      while (x + w < W && grid[y * W + x + w] === c) w++;
+      if (c) {
+        if (!byColor.has(c)) byColor.set(c, []);
+        byColor.get(c).push(`M${x} ${y}h${w}v1h-${w}z`);
+      }
+      x += w;
+    }
+  }
+  let paths = '';
+  for (const [c, list] of byColor) paths += `<path fill="${c}" d="${list.join('')}"/>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${size}" height="${size}" shape-rendering="crispEdges">${paths}</svg>`;
+}
+
+export function portraitSVG(gid, general, size = 64, factionColor = '#3b4f6b', style = null) {
+  const fac = factionColor || '#3b4f6b';
+  const key = `${gid}|${size}|${fac}|${style ? `${style.hat}-${style.beard}-${style.skin}` : '-'}|v2`;
+  if (cache.has(key)) return cache.get(key);
+  const grid = build(gid, general, fac, style);
+  const svg = toSVG(grid, size);
   const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   cache.set(key, url);
   return url;
 }
 
-export function portraitURL(gid, general, size = 64, color = '#2b3550', style = null) {
+export function portraitURL(gid, general, size = 64, color = '#3b4f6b', style = null) {
   return portraitSVG(gid, general, size, color, style);
 }

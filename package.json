@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "삼국 한 턴 — 다크 슬레이트·골드 보드 스타일 웹 전략 게임",
+  "description": "삼국 한 턴 — 다크 우드·금빛 HD-2D 스타일 웹 전략 게임",
   "scripts": {
     "test": "node --test tests/",
     "serve": "python3 -m http.server 4173"
