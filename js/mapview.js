@@ -1040,7 +1040,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       const cy = list.reduce((n, city) => n + city.y, 0) / list.length;
       const p = toScreen(cx, cy);
       const fs = Math.max(10, Math.min(15, 9 + cam.zoom * 5));
-      c.font = `600 ${fs}px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+      c.font = `600 ${fs}px "Gmarket Sans", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
       c.fillStyle = 'rgba(255, 220, 160, 0.13)';
       c.fillText(region, p.x, p.y);
       const tw = c.measureText(region).width;
@@ -1110,7 +1110,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
 
     // 이름표 — 금빛 테를 두른 어두운 나무 패
     const fs = Math.max(9.5, Math.min(14.5, 8.5 + cam.zoom * 2 + Math.max(0, sc - 8) * 0.5));
-    c.font = `600 ${fs}px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+    c.font = `600 ${fs}px "Gmarket Sans", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     const placed = [];

@@ -78,6 +78,7 @@ python3 tests/verify_battle_v5.py http://127.0.0.1:4173/index.html local  # 진�
 python3 tests/verify_move_talk.py http://127.0.0.1:4173/index.html local  # 도시간 장수 이동·장수 대화·한자 0자 검증
 python3 tests/verify_save_v5_live.py https://dotsamguk.vercel.app      # 옛 v5 저장 이어하기 호환 검증
 python3 tests/verify_strategy.py https://dotsamguk.vercel.app live    # 외교·계략·관직 승급·달의 소식·원군 라이브 검증
+python3 tests/verify_font.py http://127.0.0.1:4173/index.html local   # Gmarket Sans self-host 적용·공백 대체·넘침/잘림 0 검증
 ```
 
 ### ☁ 로그인 · 클라우드 저장

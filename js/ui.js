@@ -1558,7 +1558,7 @@ function sidePalette(side) {
 }
 
 function pixelText(ctx, text, x, y, size, fill, align = 'center') {
-  ctx.font = `600 ${size}px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+  ctx.font = `600 ${size}px "Gmarket Sans", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
   ctx.textAlign = align; ctx.textBaseline = 'middle';
   ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgba(6, 5, 3, 0.9)';
   ctx.strokeText(text, x, y);
@@ -1681,7 +1681,7 @@ function drawAttackHint(ctx, t, tile) {
   const extra = e.relation === 'advantage' ? '진형↑' : e.relation === 'disadvantage' ? '진형↓' : '';
   const cx = t.x * tile + tile / 2;
   const top = t.y * tile;
-  ctx.font = `600 7px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+  ctx.font = `600 7px "Gmarket Sans", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
   const w = Math.max(ctx.measureText(label).width, ctx.measureText(extra).width) + 6;
   const h = extra ? 15 : 9;
   const bx = Math.max(1, Math.min(battle.w * tile - w - 1, cx - w / 2));
@@ -2756,6 +2756,20 @@ export function boot() {
   });
   setTimeout(drawTitleArt, 100);
   setTimeout(() => { if (!$('#scr-title').classList.contains('hidden')) drawTitleArt(); }, 500);
+
+  // Gmarket Sans 는 self-host 라도 첫 페인트 전에 도착하지 않을 수 있다.
+  // 캔버스 글자가 대체 폰트로 굳지 않도록, 폰트가 준비되면 한 번 더 그린다.
+  if (document.fonts) {
+    const refreshFonts = () => {
+      if (mapView && mapView.render) mapView.render();
+      if (!$('#scr-title').classList.contains('hidden')) drawTitleArt();
+    };
+    Promise.all([
+      document.fonts.load('500 16px "Gmarket Sans"'),
+      document.fonts.load('700 16px "Gmarket Sans"'),
+    ]).then(refreshFonts).catch(() => {});
+    if (document.fonts.ready) document.fonts.ready.then(refreshFonts).catch(() => {});
+  }
 }
 
 export { game };
