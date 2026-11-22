@@ -218,9 +218,9 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     g.addColorStop(1, P.landLo);
     // 2.5D — 육지가 바다 위로 살짝 떠 보이게 그림자를 깔고 채운다
     c.save();
-    c.shadowColor = 'rgba(2, 8, 10, 0.7)';
-    c.shadowBlur = Math.max(10, scale() * 4);
-    c.shadowOffsetY = Math.max(4, scale() * 1.2);
+    c.shadowColor = 'rgba(2, 8, 10, 0.8)';
+    c.shadowBlur = Math.max(14, scale() * 5);
+    c.shadowOffsetY = Math.max(5, scale() * 1.6);
     c.fillStyle = g;
     c.fill();
     c.restore();
@@ -240,10 +240,12 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     c.strokeStyle = 'rgba(12, 10, 5, 0.55)';
     c.lineWidth = 2.4;
     c.stroke();
-    landPath(c);
-    c.strokeStyle = 'rgba(206, 178, 118, 0.34)';
-    c.lineWidth = 1.2;
-    c.stroke();
+    if (cam.zoom > 1.35) {
+      landPath(c);
+      c.strokeStyle = 'rgba(206, 178, 118, 0.3)';
+      c.lineWidth = 1.1;
+      c.stroke();
+    }
     landPath(c);
     c.save();
     c.shadowColor = 'rgba(150, 220, 225, 0.45)';
@@ -418,7 +420,48 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     }
   }
 
+  /* 줌이 낮을 때: 뾰족한 봉우리 대신 부드러운 둔덕 — 지도가 가시밭처럼 보이지 않게 */
+  function drawMountainMounds(c) {
+    const s = scale();
+    for (let i = 0; i < MOUNTAINS.length; i++) {
+      const [wx, wy] = MOUNTAINS[i];
+      const p = toScreen(wx, wy);
+      if (p.x < -50 || p.y < -50 || p.x > cssW + 50 || p.y > cssH + 50) continue;
+      const far = Math.max(0, Math.min(1, 1 - (wy - 3) / 42));
+      const h = Math.max(3.6, s * (1.15 + rnd(i, 3) * 0.5));
+      const w = h * (1.5 + rnd(i, 7) * 0.4);
+      const lit = mix(mix('#9c8c62', '#756a4a', rnd(i, 9)), P.haze, 0.4 * far);
+      const dark = mix('#1d1c12', P.haze, 0.36 * far);
+      // 그림자
+      const shg = c.createRadialGradient(p.x + w * 0.35, p.y + h * 0.2, 0, p.x + w * 0.35, p.y + h * 0.2, w * 0.9);
+      shg.addColorStop(0, 'rgba(10, 9, 5, 0.28)');
+      shg.addColorStop(1, 'rgba(10, 9, 5, 0)');
+      c.fillStyle = shg;
+      c.beginPath(); c.ellipse(p.x + w * 0.35, p.y + h * 0.2, w * 0.9, h * 0.4, 0, 0, Math.PI * 2); c.fill();
+      // 둔덕
+      c.beginPath();
+      c.moveTo(p.x - w, p.y + h * 0.24);
+      c.quadraticCurveTo(p.x - w * 0.45, p.y - h * 1.05, p.x + w * 0.05, p.y - h * 0.95);
+      c.quadraticCurveTo(p.x + w * 0.7, p.y - h * 0.7, p.x + w, p.y + h * 0.24);
+      c.closePath();
+      const g = c.createLinearGradient(p.x - w * 0.6, p.y - h, p.x + w, p.y + h * 0.2);
+      g.addColorStop(0, lit);
+      g.addColorStop(0.55, mix(lit, dark, 0.55));
+      g.addColorStop(1, dark);
+      c.fillStyle = g;
+      c.fill();
+      // 빛 받는 등성이
+      c.beginPath();
+      c.moveTo(p.x - w * 0.82, p.y + h * 0.2);
+      c.quadraticCurveTo(p.x - w * 0.42, p.y - h * 0.95, p.x + w * 0.02, p.y - h * 0.86);
+      c.strokeStyle = `rgba(255, 234, 186, ${0.24 * (1 - far)})`;
+      c.lineWidth = Math.max(0.5, h * 0.1);
+      c.stroke();
+    }
+  }
+
   function drawMountains(c) {
+    if (cam.zoom < 1.5) { drawMountainMounds(c); return; }
     const s = scale();
     for (let i = 0; i < MOUNTAINS.length; i++) {
       const [wx, wy] = MOUNTAINS[i];

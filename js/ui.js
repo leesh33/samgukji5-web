@@ -299,10 +299,35 @@ function drawTitleArt() {
   ctx.fill();
 
   /* --- 앞쪽 능선과 소나무 --- */
-  ridge(ctx, w, h * 0.8, h * 0.1, '#120c07', 18, 7.3, 'rgba(255, 170, 100, 0.1)');
-  for (let i = 0; i < 26; i++) {
+  // 아래쪽 빛무리 — 숲 실루엣 뒤로 따뜻한 기운
+  const bottomGlow = ctx.createRadialGradient(w * 0.5, h * 1.02, 0, w * 0.5, h * 1.02, h * 0.45);
+  bottomGlow.addColorStop(0, 'rgba(255, 150, 70, 0.22)');
+  bottomGlow.addColorStop(0.6, 'rgba(200, 100, 40, 0.07)');
+  bottomGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = bottomGlow;
+  ctx.fillRect(0, h * 0.7, w, h * 0.3);
+  ridge(ctx, w, h * 0.86, h * 0.055, '#150e08', 20, 7.3, 'rgba(255, 170, 100, 0.16)');
+  // 앞 능선의 소나무
+  for (let i = 0; i < 22; i++) {
+    const tx = titleRand(i, 41) * w;
+    const ty = h * (0.9 + titleRand(i, 43) * 0.1);
+    const th = h * (0.03 + titleRand(i, 45) * 0.035);
+    ctx.fillStyle = '#0a0705';
+    ctx.fillRect(tx - 0.8, ty - th * 0.2, 1.6, th * 0.25);
+    for (let k = 0; k < 3; k++) {
+      const yy = ty - th * (0.18 + k * 0.26);
+      const ww = th * (0.34 - k * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(tx, yy - th * 0.42);
+      ctx.lineTo(tx + ww, yy);
+      ctx.lineTo(tx - ww, yy);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  for (let i = 0; i < 14; i++) {
     const tx = titleRand(i, 21) * w;
-    const ty = h * (0.84 + titleRand(i, 23) * 0.12);
+    const ty = h * (0.79 + titleRand(i, 23) * 0.05);
     const th = h * (0.03 + titleRand(i, 25) * 0.03);
     ctx.fillStyle = '#0b0805';
     for (let k = 0; k < 3; k++) {
@@ -332,8 +357,8 @@ function drawTitleArt() {
   /* --- 가독성: 아래로 짙어지는 그늘 --- */
   const shade = ctx.createLinearGradient(0, h * 0.34, 0, h);
   shade.addColorStop(0, 'rgba(8, 6, 4, 0)');
-  shade.addColorStop(0.5, 'rgba(8, 6, 4, 0.18)');
-  shade.addColorStop(1, 'rgba(8, 6, 4, 0.55)');
+  shade.addColorStop(0.5, 'rgba(8, 6, 4, 0.16)');
+  shade.addColorStop(1, 'rgba(8, 6, 4, 0.42)');
   ctx.fillStyle = shade;
   ctx.fillRect(0, 0, w, h);
 }
