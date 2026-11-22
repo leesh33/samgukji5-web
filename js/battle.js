@@ -62,10 +62,53 @@ export const TERRAIN = {
 
 export const TACTICS = {
   fire: { ko: '화계', stat: 'int', desc: '불을 질러 병력과 사기를 태운다.' },
-  confuse: { ko: '혼란', stat: 'int', desc: '적 부대를 혼란시켜 사기를 꺾는다.' },
-  rally: { ko: '고무', stat: 'cha', desc: '아군 부대의 사기를 올린다.' },
+  confuse: { ko: '혼란', stat: 'int', desc: '적 부대를 혼란시켜 한 턴 움직이지 못하게 하고 방어를 흔든다.' },
+  rally: { ko: '고무', stat: 'cha', desc: '아군 부대의 사기를 크게 올린다(+15~20).' },
   heal: { ko: '치료', stat: 'int', desc: '아군 부대의 병력을 회복한다.' },
+  flood: { ko: '수계', stat: 'int', desc: '강물을 끌어들여 적을 쓸어버린다. 물에 닿은 적에게만 쓴다.' },
+  rock: { ko: '낙석', stat: 'int', desc: '산에서 돌을 굴려 적을 깔아뭉갠다. 산에 닿은 적에게만 쓴다.' },
 };
+
+/* 지형을 타는 계략 — 수계는 물, 낙석은 산이 대상 부대 근처에 있어야 한다 */
+export const TACTIC_TERRAIN = { flood: 'water', rock: 'hill' };
+export const TACTIC_RANGE = 3;
+/* 계략마다의 기본 성공률 — 지력으로 보정한다 */
+export function tacticRate(b, u, kind) {
+  const g = unitSpec(u);
+  const tc = TACTICS[kind];
+  if (!tc) return 0;
+  let rate = 0.35 + g.int / 260;
+  if (g.skill === 'sinsan') rate += 0.3;
+  if (kind === 'rally') rate += g.cha / 400;
+  if (kind === 'heal') rate += g.cha / 500;
+  if (kind === 'flood' || kind === 'rock') rate -= 0.12; // 큰 피해를 주는 만큼 어렵다
+  return clamp(rate, 0.12, 0.95);
+}
+/* 대상 부대가 계략 지형에 닿아 있는가 — 발밑과 상하좌우를 본다 */
+export function terrainOpenFor(b, t, kind) {
+  const want = TACTIC_TERRAIN[kind];
+  if (!want) return true;
+  if (!t) return false;
+  const spots = [[t.x, t.y], [t.x + 1, t.y], [t.x - 1, t.y], [t.x, t.y + 1], [t.x, t.y - 1]];
+  for (const [x, y] of spots) {
+    const tile = tileAt(b, x, y);
+    if (tile && tile.t === want) return true;
+  }
+  return false;
+}
+/* 이 부대가 지금 쓸 수 있는 계략 목록 — 성공률까지 */
+export function tacticOptions(b, u, target = null) {
+  if (!u || !u.alive) return [];
+  return Object.keys(TACTICS).map((kind) => {
+    const ally = kind === 'rally' || kind === 'heal';
+    const t = target && (ally ? target.side === u.side : target.side !== u.side) ? target : null;
+    let why = '';
+    if (TACTIC_TERRAIN[kind] && t && !terrainOpenFor(b, t, kind)) {
+      why = TACTIC_TERRAIN[kind] === 'water' ? '물에 닿은 적에게만' : '산에 닿은 적에게만';
+    }
+    return { kind, ko: TACTICS[kind].ko, desc: TACTICS[kind].desc, rate: tacticRate(b, u, kind), ally, terrain: TACTIC_TERRAIN[kind] || null, blocked: why };
+  });
+}
 
 const WATER_CITIES = new Set(['jianye', 'wu', 'kuaiji', 'yuzhang', 'jiangxia', 'jiangling', 'shouchun', 'lujiang', 'guangling', 'changsha', 'nanhai', 'jiaozhi', 'jiangzhou', 'xiangyang']);
 
@@ -147,7 +190,7 @@ export function createBattle(opts) {
         x: clamp(x, 0, BW - 1), y,
         // 아군은 적 쪽을, 적은 아군 쪽을 바라보고 전장에 선다
         dir: side === 'atk' ? 'E' : 'W',
-        acted: false, moved: false, alive: true,
+        acted: false, moved: false, alive: true, confused: 0, defDown: 0,
       });
     });
   };
@@ -189,7 +232,7 @@ export function addReinforcement(b, side, r) {
     formation: (spec.formations && spec.formations[0]) || 'eorin',
     x: pos.x, y: pos.y,
     dir: side === 'atk' ? 'E' : 'W',
-    acted: false, moved: false, alive: true, reinforcement: true,
+    acted: false, moved: false, alive: true, confused: 0, defDown: 0, reinforcement: true,
   };
   b.units.push(unit);
   b.initial[side] += unit.troops;
@@ -272,6 +315,7 @@ export function reachable(b, u) {
 
 export function moveUnit(b, u, x, y) {
   if (u.acted || !u.alive) return { ok: false, msg: '이미 행동을 마쳤습니다.' };
+  if (u.confused > 0) return { ok: false, msg: '혼란에 빠져 움직이지 못합니다.' };
   const reach = reachable(b, u);
   const k = y * b.w + x;
   if (!reach.has(k)) return { ok: false, msg: '이동할 수 없는 타일입니다.' };
@@ -297,6 +341,7 @@ export function targetsFor(b, u) {
 
 export function attack(b, u, t, rngSeed = 1) {
   if (u.acted) return { ok: false, msg: '이미 행동했습니다.' };
+  if (u.confused > 0) return { ok: false, msg: '혼란에 빠져 공격하지 못합니다.' };
   if (!canAttack(b, u, t)) return { ok: false, msg: '사정거리 밖입니다.' };
   const rng = mulberry32(rngSeed + b.round * 31 + u.troops);
   const res = resolveAttack(b, u, t, rng);
@@ -322,6 +367,7 @@ export function resolveAttack(b, u, t, rng) {
   let def = (1 + (gd.lead + gd.war) / 420) * fd.def * ter.def;
   if (gd.skill === 'cheolbyeok') def *= 1.2;
   if (gd.skill === 'gyeonsu') def *= 1.1;
+  if (t.defDown > 0) def *= 0.85;   // 혼란·낙석으로 방어진이 흐트러진 상태
   let dmg = Math.round((atk / def) * (0.85 + rng() * 0.3));
   dmg = Math.max(30, dmg);
   t.troops -= dmg;
@@ -366,6 +412,7 @@ export function resolveAttack(b, u, t, rng) {
 /* 계략 */
 export function tactic(b, u, t, kind, rngSeed = 1) {
   if (u.acted) return { ok: false, msg: '이미 행동했습니다.' };
+  if (u.confused > 0) return { ok: false, msg: '혼란에 빠져 계략을 쓸 수 없습니다.' };
   const tc = TACTICS[kind];
   if (!tc) return { ok: false, msg: '없는 계략입니다.' };
   const g = unitSpec(u);
@@ -374,38 +421,55 @@ export function tactic(b, u, t, kind, rngSeed = 1) {
   } else if (!t || t.side === u.side) {
     return { ok: false, msg: '적 부대를 대상으로 하세요.' };
   }
-  if (dist(u, t) > 3) return { ok: false, msg: '계략 사거리(3) 밖입니다.' };
+  if (dist(u, t) > TACTIC_RANGE) return { ok: false, msg: `계략 사거리(${TACTIC_RANGE}) 밖입니다.` };
+  if (TACTIC_TERRAIN[kind] && !terrainOpenFor(b, t, kind)) {
+    return { ok: false, msg: `${tc.ko}는 ${TACTIC_TERRAIN[kind] === 'water' ? '물' : '산'}에 닿은 적에게만 쓸 수 있습니다.` };
+  }
   const rng = mulberry32(rngSeed + b.round * 17 + u.troops + kind.length);
-  let rate = 0.35 + g.int / 260;
-  if (g.skill === 'sinsan') rate += 0.3;
-  if (kind === 'rally' || kind === 'heal') rate += g.cha / 400;
-  rate = clamp(rate, 0.15, 0.95);
+  const rate = tacticRate(b, u, kind);
   const ok = rng() < rate;
   const lines = [];
+  const chance = Math.round(rate * 100);
   if (!ok) {
-    lines.push(`${u.name}의 ${tc.ko}가 실패했습니다.`);
+    lines.push(`${u.name}의 ${tc.ko}가 실패했습니다. (성공률 ${chance}%)`);
     u.acted = true; u.moved = true;
     b.log.push(...lines);
-    return { ok: true, success: false, lines };
+    return { ok: true, success: false, chance, lines };
   }
   let dmg = 0;
   if (kind === 'fire') {
-    dmg = Math.round(t.troops * (0.06 + g.int / 1600) * (g.skill === 'sinsan' ? 1.2 : 1) * (0.8 + rng() * 0.4));
+    const woody = tileAt(b, t.x, t.y).t === 'forest' ? 1.25 : 1; // 숲에서는 불이 크게 번진다
+    dmg = Math.round(t.troops * (0.06 + g.int / 1600) * (g.skill === 'sinsan' ? 1.2 : 1) * woody * (0.8 + rng() * 0.4));
     t.troops -= dmg;
     t.morale = clamp(t.morale - 14, 0, 100);
-    lines.push(`${u.name}의 화계! ${t.name} 부대에 불길이 번져 ${dmg.toLocaleString()} 피해, 사기 급락.`);
+    lines.push(`${u.name}의 화계! ${t.name} 부대에 불길이 번져 ${dmg.toLocaleString()} 피해, 사기 급락. (성공률 ${chance}%)`);
   } else if (kind === 'confuse') {
     dmg = Math.round(t.troops * 0.03);
     t.troops -= dmg;
-    t.morale = clamp(t.morale - 20, 0, 100);
-    lines.push(`${u.name}의 혼란! ${t.name} 부대가 진형을 흐트러뜨렸습니다. (사기 -20)`);
+    t.morale = clamp(t.morale - 12, 0, 100);
+    t.confused = Math.max(t.confused || 0, 1);   // 다음 자기 차례를 거른다
+    t.defDown = Math.max(t.defDown || 0, 2);     // 방어가 흐트러진다
+    lines.push(`${u.name}의 혼란! ${t.name} 부대가 진형을 잃었습니다. 다음 차례에 움직이지 못하고 방어가 흔들립니다. (성공률 ${chance}%)`);
   } else if (kind === 'rally') {
-    t.morale = clamp(t.morale + 22, 0, 100);
-    lines.push(`${u.name}의 고무! ${t.name} 부대의 사기가 올랐습니다. (사기 ${t.morale})`);
+    const up = 15 + Math.round(rng() * 5);       // +15~20
+    t.morale = clamp(t.morale + up, 0, 100);
+    t.confused = 0;
+    lines.push(`${u.name}의 고무! ${t.name} 부대의 사기가 ${up} 올랐습니다. (사기 ${Math.round(t.morale)})`);
   } else if (kind === 'heal') {
     const heal = Math.round(t.troops * 0.05 + 200);
     t.troops += heal;
     lines.push(`${u.name}의 치료! ${t.name} 부대가 ${heal.toLocaleString()}명을 되찾았습니다.`);
+  } else if (kind === 'flood') {
+    dmg = Math.round(t.troops * (0.12 + g.int / 1400) * (g.skill === 'sinsan' ? 1.2 : 1) * (0.9 + rng() * 0.3));
+    t.troops -= dmg;
+    t.morale = clamp(t.morale - 16, 0, 100);
+    lines.push(`${u.name}의 수계! 강물이 ${t.name} 부대를 덮쳤습니다. ${dmg.toLocaleString()} 피해, 사기 급락. (성공률 ${chance}%)`);
+  } else if (kind === 'rock') {
+    dmg = Math.round(t.troops * (0.14 + g.int / 1400) * (0.9 + rng() * 0.3));
+    t.troops -= dmg;
+    t.morale = clamp(t.morale - 14, 0, 100);
+    t.defDown = Math.max(t.defDown || 0, 1);
+    lines.push(`${u.name}의 낙석! 산에서 돌이 쏟아져 ${t.name} 부대에 ${dmg.toLocaleString()} 피해. (성공률 ${chance}%)`);
   }
   for (const unit of [u, t]) {
     if (unit.alive && (unit.troops <= 0 || unit.morale <= 0)) {
@@ -415,7 +479,7 @@ export function tactic(b, u, t, kind, rngSeed = 1) {
   }
   u.acted = true; u.moved = true;
   b.log.push(...lines);
-  return { ok: true, success: true, damage: dmg, lines };
+  return { ok: true, success: true, chance, damage: dmg, lines };
 }
 
 export function endUnit(u) { u.acted = true; u.moved = true; }
@@ -424,17 +488,32 @@ export function sideDone(b, side) {
   return unitsOf(b, side).every((u) => u.acted);
 }
 
+/* 한 쪽의 차례를 열어 준다 — 혼란에 빠진 부대는 이번 차례를 거른다 */
+function startSide(b, side) {
+  for (const u of unitsOf(b, side)) {
+    u.acted = false;
+    u.moved = false;
+    if (u.confused > 0) {
+      u.confused -= 1;
+      u.acted = true;
+      u.moved = true;
+      b.log.push(`${u.name} 부대가 혼란에 빠져 움직이지 못했습니다.`);
+    }
+    if (u.defDown > 0) u.defDown -= 1;
+  }
+}
+
 export function nextPhase(b) {
   if (b.over) return b;
   if (b.phase === 'atk') {
     if (unitsOf(b, 'atk').length === 0) { b.over = 'def'; return b; }
     b.phase = 'def';
-    for (const u of unitsOf(b, 'def')) { u.acted = false; u.moved = false; }
+    startSide(b, 'def');
   } else {
     if (unitsOf(b, 'def').length === 0) { b.over = 'atk'; return b; }
     b.phase = 'atk';
     b.round++;
-    for (const u of b.units) { u.acted = false; u.moved = false; }
+    startSide(b, 'atk');
     // 2라운드부터 예약된 원군이 들어온다
     arriveReinforcements(b);
   }
@@ -466,8 +545,11 @@ export function aiUnitAct(b, u, rng) {
   if (inRange.length) {
     inRange.sort((a, c) => hitScore(c) - hitScore(a));
     if (g.int > 75 && rng() < 0.28) {
-      const kind = g.skill === 'hwagye' ? 'fire' : g.skill === 'hollan' ? 'confuse' : (g.int > 85 ? 'confuse' : 'fire');
-      const r = tactic(b, u, inRange[0], kind, Math.floor(rng() * 9999));
+      let kind = g.skill === 'hwagye' ? 'fire' : g.skill === 'hollan' ? 'confuse' : (g.int > 85 ? 'confuse' : 'fire');
+      const first = inRange[0];
+      if (g.int >= 70 && terrainOpenFor(b, first, 'flood') && rng() < 0.5) kind = 'flood';
+      else if (g.int >= 70 && terrainOpenFor(b, first, 'rock') && rng() < 0.45) kind = 'rock';
+      const r = tactic(b, u, first, kind, Math.floor(rng() * 9999));
       if (r.ok) return;
     }
     attack(b, u, inRange[0], Math.floor(rng() * 9999));

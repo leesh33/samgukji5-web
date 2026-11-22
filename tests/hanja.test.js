@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CITIES, CITY_BY_ID, GENERALS, SCENARIOS, FORMATIONS, FORMATION_GROUPS, SKILLS, REGIONS, CUSTOM_MARKS, CUSTOM_COLORS, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS } from '../js/data.js';
+import { CITIES, CITY_BY_ID, GENERALS, SCENARIOS, FORMATIONS, FORMATION_GROUPS, SKILLS, REGIONS, CUSTOM_MARKS, CUSTOM_COLORS, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS, TREASURES, TREASURE_OWNERS } from '../js/data.js';
 import { TALK_LINES, TALK_STYLES } from '../js/talk.js';
 import * as E from '../js/engine.js';
 
@@ -26,10 +26,11 @@ test('소스(index.html·js·css)에 한자가 한 자도 없다', () => {
   }
 });
 
-test('정적 데이터(성·장수·시나리오·진형·특기·권역·신군주 프리셋)에 한자가 없다', () => {
+test('정적 데이터(성·장수·시나리오·진형·특기·권역·보물·신군주 프리셋)에 한자가 없다', () => {
   const blob = JSON.stringify({
     CITIES, GENERALS, SCENARIOS, FORMATIONS, FORMATION_GROUPS, SKILLS, REGIONS,
     CUSTOM_MARKS, CUSTOM_COLORS, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS,
+    TREASURES, TREASURE_OWNERS,
   });
   assert.equal(CJK.test(blob), false, (blob.match(CJK) || [])[0] || '');
 });

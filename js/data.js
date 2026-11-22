@@ -418,6 +418,35 @@ export const GENERAL_BY_ID = Object.fromEntries(GENERALS.map((g) => [g.id, g]));
 
 export const ARMS = ['보병', '궁병', '기병', '수군'];
 
+/* 보물 14종 — 능력치 보정과 매력·충성 보너스. 탐색·순찰·포로 처분·세력 멸망으로 얻는다 */
+export const TREASURES = [
+  { id: 'jeoktoma', ko: '적토마', kind: '말', bonus: { lead: 4, cha: 1 }, desc: '하루에 천 리를 달린다는 붉은 명마. 통솔이 오르고 군이 빨라진다.' },
+  { id: 'jeokro', ko: '적로', kind: '말', bonus: { lead: 3, cha: 2 }, desc: '주인에게 복을 부른다는 명마. 사람을 끄는 힘이 있다.' },
+  { id: 'uicheon', ko: '의천검', kind: '무기', bonus: { war: 5, cha: 1 }, desc: '조조가 늘 곁에 두던 보검. 무력과 위엄이 오른다.' },
+  { id: 'cheongryong', ko: '청룡언월도', kind: '무기', bonus: { war: 7 }, desc: '관우의 큰 도. 한 번 휘두르면 앞을 막는 자가 없다.' },
+  { id: 'jangpal', ko: '장팔사모', kind: '무기', bonus: { war: 7 }, desc: '장비의 긴 창. 성벽을 넘길 만큼 길다.' },
+  { id: 'bangcheon', ko: '방천화극', kind: '무기', bonus: { war: 8 }, desc: '여포의 극. 천하에 견줄 자가 없다.' },
+  { id: 'chilseong', ko: '칠성도', kind: '무기', bonus: { war: 5, lead: 1 }, desc: '북두칠성의 빛을 담았다는 칼. 기세가 오른다.' },
+  { id: 'sonja', ko: '손자병법', kind: '서적', bonus: { int: 6, lead: 2 }, desc: '병법의 정수를 담은 책. 지력과 통솔이 오른다.' },
+  { id: 'taepyeong', ko: '태평요술서', kind: '서적', bonus: { int: 5, cha: 2 }, desc: '태평도의 비술이 적힌 책. 사람을 홀리는 힘이 있다.' },
+  { id: 'maengdeok', ko: '맹덕신서', kind: '서적', bonus: { int: 5, pol: 2 }, desc: '조조가 지었다는 병서. 지력과 정치가 오른다.' },
+  { id: 'cheongnang', ko: '청낭서', kind: '서적', bonus: { int: 4, cha: 3 }, desc: '명의가 남긴 의서. 병을 돌보는 이름이 퍼진다.' },
+  { id: 'okse', ko: '옥새', kind: '보물', bonus: { cha: 6 }, loyal: 4, desc: '천자의 인장. 지닌 자의 위엄이 오르고 충성이 붙는다.' },
+  { id: 'yongrin', ko: '용린갑', kind: '갑옷', bonus: { lead: 3, war: 3 }, desc: '용의 비늘을 엮은 갑옷. 지휘와 무력이 오른다.' },
+  { id: 'myeonggwang', ko: '명광개', kind: '갑옷', bonus: { lead: 4, war: 2 }, desc: '빛을 되쏘는 투구와 갑옷. 군의 사기가 오른다.' },
+];
+
+export const TREASURE_BY_ID = Object.fromEntries(TREASURES.map((t) => [t.id, t]));
+
+/* 처음부터 이름난 장수가 지니고 시작하는 보물 — 그 장수가 없는 시나리오에서는 행방을 찾아야 한다 */
+export const TREASURE_OWNERS = {
+  jeoktoma: 'lu_bu', bangcheon: 'lu_bu', cheongryong: 'guan_yu', jangpal: 'zhang_fei',
+  uicheon: 'cao_cao', sonja: 'sun_jian', taepyeong: 'zhang_jue', maengdeok: 'cao_pi',
+  okse: 'dong_zhuo', jeokro: 'liu_bei', chilseong: 'ma_chao', yongrin: 'zhao_yun', myeonggwang: 'dian_wei',
+};
+
+export const TREASURE_STAT_KO = { lead: '통솔', war: '무력', int: '지력', pol: '정치', cha: '매력' };
+
 /* 세력 색상 */
 export const FACTION_COLORS = {
   jojo: '#3f6fb5', // 위 - 청

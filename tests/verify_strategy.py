@@ -396,7 +396,7 @@ with sync_playwright() as p:
     # 이간계 · 유언비어 — 실행 여부
     plot_done = []
     for kind in ("sow", "rumor"):
-        for attempt in range(3):
+        for attempt in range(5):
             if not ensure_ap(page, 1):
                 break
             open_mine(page)

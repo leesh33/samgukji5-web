@@ -12,7 +12,7 @@ from playwright.sync_api import sync_playwright
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 OUT = os.path.abspath("downloads/samguk5")
-CHROME = os.path.abspath(".cache/ms-playwright/chromium-1134/chrome-linux/chrome")
+CHROME = os.environ.get("CHROME") or os.path.abspath("/workspace/.cache/ms-playwright/chromium-1134/chrome-linux/chrome")
 UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
       "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
 os.makedirs(OUT, exist_ok=True)
@@ -102,7 +102,7 @@ with sync_playwright() as p:
     puts.clear()
     page.click('[data-act="new"]')
     page.wait_for_timeout(400)
-    page.click('#scenario-list .sc-card >> nth=0')
+    page.click('#scenario-list .sc-card[data-id] >> nth=0')
     page.wait_for_timeout(300)
     page.click('#lord-list .lord-card >> nth=0')
     page.wait_for_timeout(2600)

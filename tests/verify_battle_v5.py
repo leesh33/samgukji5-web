@@ -224,18 +224,19 @@ with sync_playwright() as p:
 
     # ---------- 포로 처분 ----------
     prisoner_flow = False
-    for attempt in range(2):
+    targets = ["xiaopei", "runan", "chenliu", "puyang"]
+    for attempt in range(4):
         if not won:
             break
         page.click('[data-act="bt-close"]')
         page.wait_for_timeout(800)
         if page.locator('[data-act="prisoner-recruit"]').count():
             break
-        # 포로가 없으면 다음 성을 공격해 다시 시도
+        # 포로가 없으면 다음 성을 공격해 다시 시도(포획은 확률이라 몇 번 더 시도한다)
         page.wait_for_timeout(400)
         if not go_city(page, "허창"):
             break
-        target = "xiaopei" if attempt == 0 else "runan"
+        target = targets[attempt % len(targets)]
         if not march(page, target):
             break
         page.click('[data-act="march-go"]')
@@ -296,7 +297,7 @@ with sync_playwright() as p:
     # ---------- 저장/불러오기(사망·등용 상태 유지) ----------
     page.wait_for_timeout(400)
     saved = page.evaluate("() => { const raw = localStorage.getItem('samguk5.auto'); if (!raw) return null; const s = JSON.parse(raw); return { v: s.version, dead: Object.values(s.generals).filter(g => g.dead).length, pris: (s.pendingPrisoners||[]).length }; }")
-    step("저장 양식 최신(v7) · 죽음 상태 기록", saved and saved["v"] == 7, saved)
+    step("저장 양식 최신(v9) · 죽음 상태 기록", saved and saved["v"] == 9, saved)
 
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)

@@ -6,7 +6,7 @@
 """
 
 GROUPS = {
-    'agri': 'civil', 'comm': 'civil', 'order': 'civil', 'water': 'civil', 'transport': 'civil',
+    'agri': 'civil', 'comm': 'civil', 'order': 'civil', 'water': 'civil', 'trade': 'civil', 'transport': 'civil',
     'move': 'people', 'talk': 'people', 'search': 'people', 'hire': 'people', 'reward': 'people',
     'draft': 'army', 'train': 'army', 'march': 'army',
 }

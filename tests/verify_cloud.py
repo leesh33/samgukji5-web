@@ -55,7 +55,7 @@ with sync_playwright() as p:
     page.screenshot(path=os.path.join(OUT, "cloud-local-02-scenario.png"))
 
     # 게임 메뉴의 로그인 자리
-    page.click('#scenario-list .sc-card >> nth=0')
+    page.click('#scenario-list .sc-card[data-id] >> nth=0')
     page.wait_for_timeout(300)
     page.click('#lord-list .lord-card >> nth=0')
     page.wait_for_timeout(900)

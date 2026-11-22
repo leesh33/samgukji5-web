@@ -816,8 +816,8 @@ function bindCityPanelSwipe() {
 
 /* ---------- 성 명령 카테고리 (내정 · 인사 · 군사) ---------- */
 const CITY_CMD_GROUPS = [
-  { id: 'civil', ko: '내정', hint: '개발·상업', subs: [
-    ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'], ['transport', '수송'],
+  { id: 'civil', ko: '내정', hint: '개발·교역', subs: [
+    ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'], ['trade', '교역'], ['transport', '수송'],
   ] },
   { id: 'people', ko: '인사', hint: '등용·이동', subs: [
     ['move', '이동'], ['talk', '대화'], ['search', '탐색'], ['hire', '등용'], ['reward', '포상'],
@@ -873,8 +873,9 @@ function renderCityPanel(dir = 0) {
         }
         const off = k === 'move' ? !moveReady
           : k === 'talk' ? (!partners.length || !talkLeft || game.actionPoints < 1)
+          : k === 'trade' ? game.actionPoints < 1
           : false;
-        const note = k === 'move' ? moveSub : k === 'talk' ? talkSub : hint;
+        const note = k === 'move' ? moveSub : k === 'talk' ? talkSub : k === 'trade' ? `쌀 ${E.ricePriceOf(game)}` : hint;
         return `<button class="btn ${k === 'move' || k === 'talk' ? k : ''}" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}" ${off ? 'disabled' : ''}>${ko}${note ? `<small>${note}</small>` : ''}</button>`;
       }).join('');
       cmdHTML += `<div class="cp-subcmds" role="group" aria-label="${group.ko} 명령">${subs}</div>`;
@@ -924,6 +925,14 @@ function renderCityPanel(dir = 0) {
   panel.classList.toggle('open', cityPanelOpen);
   panel.dataset.city = selectedCity;
   panel.style.transform = '';
+  const deleg = mine ? E.delegationOf(game, selectedCity) : 'none';
+  const delegHTML = mine
+    ? `<div class="cs-deleg" role="group" aria-label="담당">
+        <span class="dlg-label">담당</span>
+        ${Object.entries(E.DELEGATIONS).map(([k, d]) => `<button class="dlg-chip ${deleg === k ? 'on' : ''}" data-act="deleg" data-mode="${k}" aria-pressed="${deleg === k}">${d.ko}</button>`).join('')}
+        <small>위임하면 턴이 바뀔 때 스스로 일합니다</small>
+      </div>`
+    : '';
   panel.innerHTML = `
     <div class="cs-head">
       <div class="cs-row">
@@ -953,6 +962,7 @@ function renderCityPanel(dir = 0) {
         <div class="stat"><i>식량</i><b>${fmt(c.food)}</b></div>
       </div>
       ${gens.length ? `<div class="cp-gens">${genHTML}</div>` : '<div class="cp-gens"><span class="none">주둔 장수 없음</span></div>'}
+      ${delegHTML}
       ${scoutHTML}
       <div class="cp-cmds-wrap">${cmdHTML}</div>
     </div>
@@ -1756,7 +1766,7 @@ function unitCardHTML(u, selected) {
   return `<button class="pick-chip bt-card ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}">
     ${formationSVG(u.formation, u.dir || 'E', 20, isPlayer ? {} : { body: '#f0b3a3', shade: '#3c1310' })}
     <span class="bc-main">
-      <span class="bc-name">${u.name}</span>
+      <span class="bc-name">${u.name}${u.confused > 0 ? ' <i class="bu-chaos">혼란</i>' : ''}</span>
       <b class="bc-troop">${fmt(u.troops)}</b>
       <span class="bc-morale">사기 ${Math.round(u.morale)}</span>
     </span>
@@ -1772,7 +1782,7 @@ function unitInfoHTML(u) {
   return `<div class="bt-unitinfo">
     ${formationSVG(u.formation, u.dir || 'E', 34)}
     <div class="bu-main">
-      <div class="bu-name"><b>${u.name}</b> <span>${fmt(u.troops)} · 사기 ${Math.round(u.morale)}</span>${u.acted ? ' <i class="bu-done">행동 완료</i>' : ''}</div>
+      <div class="bu-name"><b>${u.name}</b> <span>${fmt(u.troops)} · 사기 ${Math.round(u.morale)}</span>${u.acted ? ' <i class="bu-done">행동 완료</i>' : ''}${u.confused > 0 ? ' <i class="bu-chaos">혼란</i>' : ''}</div>
       <div class="bu-form">${f.ko} <em class="fg-${grp ? grp.id : 'none'}">${grp ? grp.ko + '진' : ''}</em> · ${dirKo}쪽을 바라봄</div>
       <div class="bu-ct">${rel}</div>
     </div>
@@ -2364,6 +2374,263 @@ function doPlot() {
   autoSave();
 }
 
+/* ---------- 교역 (쌀 시세) ---------- */
+/* 성의 금으로 식량을 사거나, 식량을 팔아 금을 얻는다 — 행동력 1 */
+function openTradeSheet(cityId) {
+  if (!cityId || !game.cities[cityId] || game.cities[cityId].owner !== game.playerId) {
+    toast('아군 성을 고르세요.'); sfx.fail(); return;
+  }
+  sheetCityId = cityId;
+  renderTradeSheet();
+  sfx.click();
+}
+
+function renderTradeSheet() {
+  const cityId = sheetCityId;
+  const c = game.cities[cityId];
+  const price = E.ricePriceOf(game);
+  const buys = [300, 600, 1000].map((g) => {
+    const q = E.tradeQuote(game, 'buy', g);
+    const off = c.gold < q.gold || game.actionPoints < 1;
+    return `<button class="tr-chip" data-act="trade" data-kind="buy" data-amount="${g}" ${off ? 'disabled' : ''}>
+      <b>금 ${fmt(q.gold)}</b><span>→ 식량 ${fmt(q.food)}</span></button>`;
+  }).join('');
+  const sells = [500, 1000, 2000].map((f) => {
+    const q = E.tradeQuote(game, 'sell', f);
+    const off = c.food < q.food || game.actionPoints < 1;
+    return `<button class="tr-chip sell" data-act="trade" data-kind="sell" data-amount="${f}" ${off ? 'disabled' : ''}>
+      <b>식량 ${fmt(q.food)}</b><span>→ 금 ${fmt(q.gold)}</span></button>`;
+  }).join('');
+  openSheet(`${CITY_BY_ID[cityId].ko} — 교역`, `
+    <div class="tr-price">
+      <div class="tr-big">쌀 시세 <b>${price}</b></div>
+      <div class="tr-sub">금 100으로 식량 ${price} · ${E.riceLabel(game)}</div>
+    </div>
+    <p class="note">행동력 1을 써서 이 성의 금과 식량을 맞바꿉니다. 시세는 달마다 흔들리고, 풍작이 들면 쌀이 싸지고 가뭄이 들면 비싸집니다.</p>
+    <p class="note">이 성의 금 <b>${fmt(c.gold)}</b> · 식량 <b>${fmt(c.food)}</b> · 행동력 <b>${game.actionPoints}</b></p>
+    <p class="note" style="margin-top:10px">사들인다 — 금으로 식량을 산다</p>
+    <div class="tr-grid">${buys}</div>
+    <p class="note" style="margin-top:10px">판다 — 식량을 팔아 금을 얻는다</p>
+    <div class="tr-grid">${sells}</div>`);
+}
+
+function doTrade(kind, amount) {
+  const res = E.trade(game, sheetCityId, kind, amount);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2400); return; }
+  sfx.coin();
+  toast(res.msg, 2600);
+  renderGame();
+  autoSave();
+  if (!$('#sheet').classList.contains('hidden') && $('#sheet-title').textContent.includes('교역')) renderTradeSheet();
+}
+
+/* ---------- 특수 (순찰 · 연회 · 징세 · 구휼 · 보물) ---------- */
+let specialCity = null;
+
+function openSpecialSheet(cityId = null) {
+  const mine = E.factionCities(game, game.playerId);
+  if (!mine.length) { toast('성이 없습니다.'); sfx.fail(); return; }
+  const pick = cityId || (selectedCity && game.cities[selectedCity] && game.cities[selectedCity].owner === game.playerId ? selectedCity : mine[0].id);
+  specialCity = pick;
+  renderSpecialSheet();
+  sfx.click();
+}
+
+function renderSpecialSheet() {
+  const mine = E.factionCities(game, game.playerId);
+  if (!specialCity || !game.cities[specialCity] || game.cities[specialCity].owner !== game.playerId) specialCity = mine[0].id;
+  const c = game.cities[specialCity];
+  const price = E.ricePriceOf(game);
+  const adv = E.advisorOf(game);
+  const owned = E.infoTreasures(game).filter((t) => t.owned);
+  const equipped = owned.filter((t) => t.holder && t.holderMine).length;
+  const rows = Object.entries(E.SPECIALS).map(([k, sp]) => {
+    const chk = E.specialCheck(game, k, specialCity);
+    const cost = [sp.gold ? `금 ${fmt(sp.gold)}` : '', sp.food ? `식량 ${fmt(sp.food)}` : ''].filter(Boolean).join(' · ') || '값 들지 않음';
+    const effect = k === 'patrol' ? `치안 +4~7 · 명성 +2 · 가끔 보물/소문`
+      : k === 'banquet' ? `이 성 장수 전원 충성 +4~7 · 친밀 +4~7`
+      : k === 'levy' ? `금 +600~1,000 · 치안 -10~15 · 명성 -3`
+      : `치안 +8~14 · 명성 +4`;
+    return `<button class="sp-row" data-act="special" data-kind="${k}" ${chk.ok ? '' : 'disabled'}>
+      <span class="sp-name">${sp.ko}<em>${cost} · 행동력 ${sp.ap}</em></span>
+      <span class="sp-eff">${effect}</span>
+      <span class="sp-go">${chk.ok ? '실행' : (chk.why || '불가')}</span>
+    </button>`;
+  }).join('');
+  openSheet('특수', `
+    <div class="chip-row">${mine.map((x) => `<button class="pick-chip ${x.id === specialCity ? 'on' : ''}" data-act="special-city" data-city="${x.id}">${CITY_BY_ID[x.id].ko}</button>`).join('')}</div>
+    <div class="sp-head">
+      <div><b>${CITY_BY_ID[specialCity].ko}</b> 치안 <b>${c.order}</b> · 명성 <b>${Math.round(game.factions[game.playerId].fame)}</b> · 행동력 <b>${game.actionPoints}</b></div>
+      <div class="sp-price" data-act="trade-open" role="button">쌀 시세 <b>${price}</b> · 교역 ▶</div>
+    </div>
+    ${rows}
+    <div class="sp-block">
+      <div class="sp-block-head">보물 <span>${owned.length}/${E.TREASURES.length}종 · 장착 ${equipped}</span></div>
+      <p class="note">탐색·순찰·포로 처분·세력 멸망으로 얻습니다. 장수에게 수여하면 능력치가 오릅니다.</p>
+      <button class="btn big" data-act="treasures">보물 관리 ▶</button>
+    </div>
+    <div class="sp-block">
+      <div class="sp-block-head">참모 ${adv ? `<span>${adv.ko} · 지력 ${adv.int} · 계략·등용·외교 +${Math.round(E.advisorBonus(game) * 100)}%</span>` : '<span>아직 없습니다</span>'}</div>
+      <p class="note adv-line">${esc(E.advisorAdvice(game))}</p>
+      <button class="btn big ghost" data-act="advisor">참모 임명·변경 ▶</button>
+    </div>`);
+}
+
+function doSpecial(kind) {
+  const res = E.runSpecial(game, kind, specialCity);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2400); return; }
+  sfx.ok();
+  toast(res.msg, 3200);
+  renderGame();
+  autoSave();
+  if (!$('#sheet').classList.contains('hidden') && $('#sheet-title').textContent === '특수') renderSpecialSheet();
+}
+
+/* ---------- 보물 ---------- */
+function openTreasureSheet() {
+  const list = E.infoTreasures(game);
+  const rows = list.map((t) => {
+    const status = t.holder
+      ? (t.holderMine ? `<span class="ts-holder mine">${t.holderName}</span>` : `<span class="ts-holder">${t.holderFaction && t.holderFaction !== t.holderName ? t.holderFaction + ' ' : ''}${t.holderName}</span>`)
+      : '<span class="ts-holder lost">행방 모름</span>';
+    const btns = t.owned
+      ? (t.holderMine
+        ? `<button class="mini" data-act="treasure-revoke" data-tid="${t.id}">회수</button>`
+        : `<button class="mini" data-act="treasure-pick" data-tid="${t.id}">수여</button>`)
+      : '';
+    return `<div class="ts-row ${t.owned ? 'own' : ''}">
+      <div class="ts-main">
+        <div class="ts-name">${t.ko} <em>${t.kind}</em></div>
+        <div class="ts-bonus">${t.bonusText}</div>
+      </div>
+      <div class="ts-side">${status}${btns}</div>
+    </div>`;
+  }).join('');
+  openSheet('보물', `<p class="note">보물은 지닌 장수의 능력치를 올립니다. 우리가 손에 넣은 보물은 장수에게 수여하거나 창고로 회수할 수 있습니다.</p>${rows}`);
+}
+
+function openTreasurePick(tid) {
+  const tr = (E.TREASURES || []).find((x) => x.id === tid);
+  const gens = E.factionGenerals(game, game.playerId).map((g) => ({ g, t: gd(g.id) }));
+  gens.sort((a, b) => (b.t.war + b.t.lead) - (a.t.war + a.t.lead));
+  const rows = gens.map(({ g, t }) => {
+    const now = E.treasureOf(game, g.id);
+    return `<button class="officer-row" data-act="treasure-award" data-tid="${tid}" data-gid="${g.id}">
+      <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
+      <div class="or-main">
+        <div class="or-name">${t.ko} <span class="or-tag">${now ? '지닌 보물 ' + now.ko : '빈손'}</span></div>
+        <div class="or-stats"><span>통<b>${t.lead}</b></span><span>무<b>${t.war}</b></span><span>지<b>${t.int}</b></span><span>정<b>${t.pol}</b></span><span>매<b>${t.cha}</b></span></div>
+      </div>
+      <div class="or-go">수여</div>
+    </button>`;
+  }).join('');
+  openSheet(`${tr ? tr.ko : '보물'} 수여`, `<p class="note">${tr ? tr.desc + ' (' + E.treasureBonusText(tr) + ')' : ''} 이미 다른 보물을 지닌 장수에게 주면 그것은 창고로 돌아갑니다.</p>${rows || '<p class="note">수여할 장수가 없습니다.</p>'}`);
+}
+
+function doTreasureAward(tid, gid) {
+  const res = E.awardTreasure(game, tid, gid);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2400); return; }
+  sfx.ok(); toast(res.msg, 2800);
+  renderGame(); autoSave();
+  openTreasureSheet();
+}
+
+function doTreasureRevoke(tid) {
+  const res = E.revokeTreasure(game, tid);
+  if (!res.ok) { sfx.fail(); toast(res.msg); return; }
+  sfx.select(); toast(res.msg);
+  renderGame(); autoSave();
+  openTreasureSheet();
+}
+
+/* ---------- 참모 ---------- */
+function openAdvisorSheet() {
+  const gens = E.factionGenerals(game, game.playerId).map((g) => ({ g, t: gd(g.id) }));
+  gens.sort((a, b) => b.t.int - a.t.int);
+  const cur = game.advisorId;
+  const rows = gens.map(({ g, t }) => `
+    <button class="officer-row ${g.id === cur ? 'picked' : ''}" data-act="advisor-pick" data-gid="${g.id}">
+      <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
+      <div class="or-main">
+        <div class="or-name">${t.ko} ${g.id === cur ? '<i class="mv-lord">참모</i>' : ''} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
+        <div class="or-stats"><span>지력 <b>${t.int}</b></span><span>정치 <b>${t.pol}</b></span><span>충성 <b>${g.loyalty}</b></span></div>
+      </div>
+      <div class="or-go">${g.id === cur ? '재임 중' : `+${Math.max(2, Math.min(8, Math.round((t.int - 55) / 6)))}%`}</div>
+    </button>`).join('');
+  openSheet('참모 임명', `<p class="note">참모의 지력에 따라 계략·등용·외교 성공률이 <b>2~8%</b> 오릅니다. 기본은 지력이 가장 높은 장수가 앉습니다.</p>
+    <p class="note adv-line">${esc(E.advisorAdvice(game))}</p>${rows}`);
+}
+
+function doAdvisorPick(gid) {
+  const res = E.appointAdvisor(game, gid);
+  if (!res.ok) { sfx.fail(); toast(res.msg); return; }
+  sfx.ok(); toast(res.msg, 2800);
+  renderGame(); autoSave();
+  openAdvisorSheet();
+}
+
+/* ---------- 정보 일람 ---------- */
+let infoTab = 'rank';
+let infoScope = 'mine';
+
+function openInfoSheet(tab = null) {
+  if (tab) infoTab = tab;
+  renderInfoSheet();
+  sfx.click();
+}
+
+function renderInfoSheet() {
+  const tabs = [['rank', '세력 순위'], ['cities', '아군 도시'], ['generals', '무장 일람'], ['treasures', '보물 도감']];
+  const adv = E.advisorOf(game);
+  const head = `<div class="adv-box">
+      <div class="adv-head">참모 ${adv ? `<b>${adv.ko}</b> <span>지력 ${adv.int} · 계략·등용·외교 +${Math.round(E.advisorBonus(game) * 100)}%</span>` : '<span>아직 없습니다</span>'}</div>
+      <p class="adv-line">${esc(E.advisorAdvice(game))}</p>
+    </div>`;
+  const tabHTML = `<div class="info-tabs">${tabs.map(([k, ko]) => `<button class="pick-chip ${infoTab === k ? 'on' : ''}" data-act="info-tab" data-tab="${k}">${ko}</button>`).join('')}</div>`;
+  openSheet('정보', head + tabHTML + infoTabHTML());
+}
+
+function infoTabHTML() {
+  if (infoTab === 'cities') {
+    const rows = E.infoCities(game).map((c) => `
+      <button class="info-row city" data-act="info-city" data-city="${c.cityId}">
+        <span class="ir-name">${c.ko}<em>${c.region}</em></span>
+        <span class="ir-deleg ${c.delegation !== 'none' ? 'on' : ''}">${c.delegationKo}</span>
+        <span class="ir-na">농업 ${c.agri} · 상업 ${c.comm} · 치안 ${c.order} · 수리 ${c.water}</span>
+        <span class="ir-nb">병 ${fmt(c.troops)} · 장수 ${c.generals}명 · 금 ${fmt(c.gold)} · 량 ${fmt(c.food)}</span>
+      </button>`).join('');
+    return `<p class="note">성 이름을 누르면 지도에서 그 성을 고릅니다. 위임한 성은 턴이 바뀔 때 스스로 내정·군사를 돌봅니다.</p>${rows}`;
+  }
+  if (infoTab === 'generals') {
+    const scope = `<div class="chip-row" style="margin:6px 0"><button class="pick-chip ${infoScope === 'mine' ? 'on' : ''}" data-act="info-scope" data-scope="mine">아군</button><button class="pick-chip ${infoScope === 'all' ? 'on' : ''}" data-act="info-scope" data-scope="all">전체</button></div>`;
+    const list = E.infoGenerals(game, infoScope).slice(0, 60);
+    const rows = list.map((g) => `
+      <div class="info-gen">
+        <img src="${portraitURL(g.gid, gd(g.gid), 34, g.faction ? colorOf(g.faction) : '#6b6b6b')}" alt="${g.ko}" />
+        <div class="ig-main">
+          <div class="ig-name">${g.ko}${g.isAdvisor ? ' <i class="mv-lord">참모</i>' : ''}${g.treasure ? ` <i class="ig-tr">${g.treasure}</i>` : ''}<em>${infoScope === 'all' ? g.factionName + ' · ' + g.city : g.city}</em></div>
+          <div class="ig-stats"><span>통 ${g.lead}</span><span>무 ${g.war}</span><span>지 ${g.int}</span><span>정 ${g.pol}</span><span>매 ${g.cha}</span>${infoScope === 'mine' ? `<span>충 ${g.loyalty}</span><span>친 ${g.affinity}</span>` : ''}</div>
+        </div>
+      </div>`).join('');
+    return `${scope}${rows || '<p class="note">장수가 없습니다.</p>'}<p class="note">보물을 지닌 장수는 능력치가 보정된 값으로 보입니다.${E.infoGenerals(game, infoScope).length > 60 ? ' (상위 60명만)' : ''}</p>`;
+  }
+  if (infoTab === 'treasures') {
+    const rows = E.infoTreasures(game).map((t) => `
+      <div class="ts-row ${t.owned ? 'own' : ''}">
+        <div class="ts-main"><div class="ts-name">${t.ko} <em>${t.kind}</em></div><div class="ts-bonus">${t.bonusText}</div></div>
+        <div class="ts-side">${t.holder ? (t.holderMine ? `<span class="ts-holder mine">${t.holderName}</span>` : `<span class="ts-holder">${t.holderFaction && t.holderFaction !== t.holderName ? t.holderFaction + ' ' : ''}${t.holderName}</span>`) : '<span class="ts-holder lost">행방 모름</span>'}</div>
+      </div>`).join('');
+    return `<p class="note">보물 ${E.infoTreasures(game).filter((t) => t.owned).length}종을 손에 넣었습니다. 수여와 회수는 <b>특수 › 보물</b>에서 합니다.</p>${rows}`;
+  }
+  const rows = E.infoFactions(game).map((f, i) => `
+    <div class="info-row fac ${f.mine ? 'mine' : ''}">
+      <span class="ir-name" style="color:${f.color}">${i + 1}. ${f.name}${f.lordName && f.lordName !== f.name ? `<em>${f.lordName}</em>` : ''}</span>
+      <span class="ir-rel ${f.relation === '동맹' ? 'ally' : f.relation === '정전' ? 'truce' : f.relation === '적대' ? 'bad' : ''}">${f.relation}${f.allyMonths ? ` ${f.allyMonths}개월` : f.truceMonths ? ` ${f.truceMonths}개월` : ''}</span>
+      <span class="ir-nums">성 <b>${f.cities}</b> · 병 ${fmt(f.troops)} · 금 ${fmt(f.gold)} · 량 ${fmt(f.food)} · 명성 ${f.fame}</span>
+    </div>`).join('');
+  return `<p class="note">전력(성·병력) 순입니다. 우리와의 관계는 동맹 · 정전 · 우호 · 중립 · 적대입니다.</p>${rows}`;
+}
+
 /* ---------- 월간 이벤트 ---------- */
 function openEventSheet() {
   const ev = game && game.pendingEvent;
@@ -2520,7 +2787,13 @@ function openHelp() {
     <b style="color:#e6d9b3">13. 관직</b> — 성 수와 명성에 따라 현령→자사→주목→대장군→승상→왕→황제로 오르며 행동력·세금이 늘어납니다.<br>
     <b style="color:#e6d9b3">14. 원군</b> — 출진할 때 인접한 아군·동맹 성에서 원군을 고르면 2라운드에 전장 가장자리로 들어옵니다. 방어전에서는 자동으로 합류합니다.<br>
     <b style="color:#e6d9b3">15. 달의 소식</b> — 새 달에 풍작·도적·역병·가뭄·유랑 무장 같은 일이 생깁니다. 선택에 따라 결과가 달라집니다.<br>
-    <b style="color:#e6d9b3">16. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.
+    <b style="color:#e6d9b3">16. 교역</b> — 성 시트의 내정 → 교역. 금 100으로 사는 식량(쌀 시세)이 달마다 흔들립니다. 풍작이면 싸지고 가뭄이면 비싸집니다. 행동력 1로 금과 식량을 맞바꿉니다.<br>
+    <b style="color:#e6d9b3">17. 특수</b> — 지도 위 특수에서 순찰(치안·명성, 가끔 보물)·연회(장수 충성·친밀)·징세(금, 대신 치안·명성 손해)·구휼(식량으로 치안·명성)을 씁니다.<br>
+    <b style="color:#e6d9b3">18. 보물</b> — 적토마·청룡언월도·손자병법 같은 보물 14종. 탐색·순찰·포로 처분·세력 멸망으로 얻고, 장수에게 수여하면 능력치가 오릅니다(정보 → 보물 도감).<br>
+    <b style="color:#e6d9b3">19. 참모</b> — 지력이 가장 높은 장수가 참모로 앉아 계략·등용·외교 성공률을 2~8% 올리고 조언을 합니다(정보에서 변경).<br>
+    <b style="color:#e6d9b3">20. 담당</b> — 성마다 직할·내정 위임·군사 위임을 정합니다. 위임한 성은 턴이 바뀔 때 행동력 없이 스스로 개발·징병·훈련을 합니다.<br>
+    <b style="color:#e6d9b3">21. 전술 계략</b> — 화계·혼란·고무·치료에 수계(물가)·낙석(산기슭)이 더해집니다. 계략마다 지력·매력으로 정해지는 성공률이 표시됩니다.<br>
+    <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.
     </p>`);
 }
 
@@ -2637,7 +2910,40 @@ function onClick(e) {
       if (cmd === 'move') openMoveSheet(el.dataset.city);
       else if (cmd === 'talk') openTalkSheet(el.dataset.city);
       else if (cmd === 'plot') openPlotSheet(null, el.dataset.city);
+      else if (cmd === 'trade') openTradeSheet(el.dataset.city);
       else openCommandSheet(cmd, el.dataset.city);
+      break;
+    }
+    /* 교역 · 특수 · 보물 · 참모 · 정보 */
+    case 'trade': doTrade(el.dataset.kind, Number(el.dataset.amount)); break;
+    case 'trade-open': openTradeSheet(specialCity || selectedCity); break;
+    case 'special-menu': openSpecialSheet(); break;
+    case 'special': doSpecial(el.dataset.kind); break;
+    case 'special-city': specialCity = el.dataset.city; renderSpecialSheet(); sfx.click(); break;
+    case 'treasures': openTreasureSheet(); break;
+    case 'treasure-pick': openTreasurePick(el.dataset.tid); break;
+    case 'treasure-award': doTreasureAward(el.dataset.tid, el.dataset.gid); break;
+    case 'treasure-revoke': doTreasureRevoke(el.dataset.tid); break;
+    case 'advisor': openAdvisorSheet(); break;
+    case 'advisor-pick': doAdvisorPick(el.dataset.gid); break;
+    case 'info': openInfoSheet(); break;
+    case 'info-tab': infoTab = el.dataset.tab; renderInfoSheet(); sfx.click(); break;
+    case 'info-scope': infoScope = el.dataset.scope; renderInfoSheet(); sfx.click(); break;
+    case 'info-city': {
+      const cid = el.dataset.city;
+      closeSheet();
+      cityPanelOpen = true;
+      selectedCity = cid;
+      if (mapView) { mapView.setSelected(cid); mapView.focusCity(cid); }
+      renderCityPanel();
+      sfx.select();
+      break;
+    }
+    case 'deleg': {
+      const res = E.setDelegation(game, selectedCity, el.dataset.mode);
+      if (!res.ok) { sfx.fail(); toast(res.msg); break; }
+      sfx.ok(); toast(res.msg, 2000);
+      renderGame(); autoSave();
       break;
     }
     case 'mv-gen': toggleMoveGeneral(el.dataset.officer); break;
@@ -2711,13 +3017,11 @@ function onClick(e) {
     case 'bt-move': battleMode = 'move'; renderBattle(); break;
     case 'bt-attack': battleMode = 'attack'; renderBattle(); break;
     case 'bt-tactic': {
-      const g = B.unitSpec(battleSel);
-      const can = [];
-      if (g.skill === 'hwagye' || g.int >= 70) can.push(['fire', '화계']);
-      if (g.skill === 'hollan' || g.int >= 75) can.push(['confuse', '혼란']);
-      can.push(['rally', '고무']);
-      if (g.skill === 'chiryo' || g.int >= 60) can.push(['heal', '치료']);
-      openSheet('계략 선택', `<div class="tactic-grid">${can.map(([k, ko]) => `<button class="btn" data-act="bt-tactic-kind" data-kind="${k}">${ko}</button>`).join('')}</div>`);
+      const opts = B.tacticOptions(battle, battleSel);
+      openSheet('계략 선택', `<p class="note">지력·매력에 따라 성공률이 달라집니다. 수계는 물, 낙석은 산에 닿은 적에게만 통합니다.</p>
+        <div class="tactic-grid">${opts.map((o) => `<button class="btn tc-btn" data-act="bt-tactic-kind" data-kind="${o.kind}" ${o.blocked ? 'disabled' : ''}>
+          <b>${o.ko}</b><em>성공률 ${Math.round(o.rate * 100)}%</em><small>${o.blocked || (o.terrain ? (o.terrain === 'water' ? '물에 닿은 적' : '산에 닿은 적') : o.ally ? '아군 부대' : '적 부대')}</small>
+        </button>`).join('')}</div>`);
       break;
     }
     case 'bt-tactic-kind': {
