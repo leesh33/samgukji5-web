@@ -40,6 +40,8 @@ node --test 'tests/*.test.js'     # 엔진·전투·일기토·데이터·클라
 python3 tests/verify_live.py http://127.0.0.1:4173/index.html local   # Playwright 390×844 검증
 python3 tests/verify_sheet.py http://127.0.0.1:4173/index.html local  # 하단 시트 펼침·스와이프 도시 전환 검증
 python3 tests/verify_cloud.py http://127.0.0.1:4173/index.html        # 로그인 버튼·메뉴 자리 확인
+python3 tests/verify_sync_e2e.py http://127.0.0.1:4173/index.html    # 로그인 후 동기화(가짜 Supabase 응답)
+python3 tests/verify_login_live.py https://samgukji5-web.vercel.app  # 라이브: 구글·카카오 OAuth 이동·만료 세션
 ```
 
 ### ☁ 로그인 · 클라우드 저장
