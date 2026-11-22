@@ -113,7 +113,36 @@ with sync_playwright() as p:
     page.click('[data-act="endturn"]')
     page.wait_for_timeout(1200)
     step("③ 비로그인 턴 진행 정상", not page.locator("#scr-game").is_hidden())
-    step("③ 콘솔 오류 0", len(errors) == 0, " / ".join(errors[:3]))
+    step("③ 콘솔 0", len(errors) == 0, " / ".join(errors[:3]))
+
+    # ④ 만료된 세션이 남아 있을 때 — 스스로 정리하고 다시 로그인할 수 있게 안내
+    page2 = ctx.new_page()
+    page2.goto(BASE, wait_until="networkidle")
+    page2.evaluate("""() => {
+      localStorage.setItem('samguk5.auth.session.v1', JSON.stringify({
+        access_token: 'expired-token', refresh_token: 'dead-refresh',
+        expires_at: Date.now() - 1000,
+        user: { id: '00000000-0000-0000-0000-000000000000', email: 'expired@example.com' }
+      }));
+    }""")
+    errs2 = []
+    page2.on("console", lambda m: errs2.append(m.text) if m.type == "error" else None)
+    page2.on("pageerror", lambda e: errs2.append("pageerror: " + str(e)))
+    page2.reload(wait_until="networkidle")
+    page2.wait_for_timeout(2500)
+    txt = page2.inner_text("#title-account")
+    step("④ 만료 세션: 다시 로그인 버튼 노출",
+         page2.locator('#title-account [data-cloud="in-google"]').count() == 1)
+    step("④ 만료 세션: 만료 안내 표시", "만료" in txt, txt.replace("\n", " | ")[:120])
+    step("④ 만료 세션: 세션 저장소 정리",
+         page2.evaluate("() => localStorage.getItem('samguk5.auth.session.v1')") is None)
+    shot(page2, "06-expired-session")
+    # 죽은 리프레시 토큰의 400 응답은 브라우저가 자동으로 콘솔에 남기는 네트워크 기록이다
+    # (앱이 설계대로 세션을 정리하는 경로) — JS 예외만 오류로 본다
+    js_errs = [e for e in errs2 if "Failed to load resource" not in e]
+    step("④ 만료 세션: JS 오류 0", len(js_errs) == 0, " / ".join(js_errs[:3]))
+    step("④ 만료 세션: 400은 갱신 실패 1건뿐", len(errs2) - len(js_errs) <= 1, str(len(errs2)))
+    page2.close()
 
     browser.close()
 
