@@ -7,6 +7,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, click_march, cmd_locator, menu_labels
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "local"
 OUT = os.path.abspath("downloads/samguk5")
@@ -86,7 +88,7 @@ with sync_playwright() as p:
     open0 = page.locator("#citypanel").evaluate("el => el.classList.contains('open')")
     step("성 시트(기본 펼침)", page.locator("#citypanel").is_visible() and open0)
     ratio = page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100)")
-    step("지도 세로 비중 45% 이상", ratio >= 45, f"{ratio}%")
+    step("지도 세로 비중 55% 이상(하단 메뉴 1줄)", ratio >= 55, f"{ratio}%")
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)
     shot(page, "04-map")
@@ -122,9 +124,20 @@ with sync_playwright() as p:
     step("성 시트 펼침", page.locator("#citypanel").evaluate("el => el.classList.contains('open')"),
          page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100) + '%'"))
     shot(page, "06b-map-open")
+    labels = menu_labels(page)
+    step("하단 1차 메뉴 4개(내정·인사·군사·계략)",
+         [x.split("/")[0] for x in labels] == ["내정", "인사", "군사", "계략"], labels)
+    for g, ko, n in (("civil", "내정", 5), ("people", "인사", 5), ("army", "군사", 3)):
+        page.click(f'[data-act="cmd-group"][data-group="{g}"]')
+        page.wait_for_timeout(220)
+        cnt = page.locator(".cp-subcmds .btn").count()
+        step(f"{ko} 하위 명령 {n}개", cnt == n, f"{cnt}개")
+    page.click('[data-act="cmd-group"][data-group="army"]')
+    page.wait_for_timeout(220)
+    step("카테고리 다시 누르면 접힘", page.locator(".cp-subcmds").count() == 0)
     ap0 = page.locator("#res-ap").inner_text()
     gold0 = page.locator("#res-gold").inner_text()
-    page.click('[data-act="cmd"][data-cmd="agri"]')
+    click_cmd(page, "agri")
     page.wait_for_timeout(350)
     rows = page.locator(".officer-row").count()
     step("개발 장수 선택", rows > 0, page.locator("#sheet-title").inner_text())
@@ -136,7 +149,7 @@ with sync_playwright() as p:
     shot(page, "08-command-done")
 
     # 징병 (금/식량 소모 확인)
-    page.click('[data-act="cmd"][data-cmd="draft"]')
+    click_cmd(page, "draft")
     page.wait_for_timeout(350)
     if page.locator(".officer-row:not(.done)").count():
         before = page.locator("#res-troops").inner_text()
@@ -148,7 +161,7 @@ with sync_playwright() as p:
         page.click('.sheet-head [data-act="sheet-close"]')
 
     # 등용 시도
-    page.click('[data-act="cmd"][data-cmd="hire"]')
+    click_cmd(page, "hire")
     page.wait_for_timeout(400)
     if page.locator(".officer-row").count():
         step("등용 목록", True, page.locator(".officer-row").count())
@@ -173,7 +186,7 @@ with sync_playwright() as p:
             page.wait_for_timeout(700)
 
     # ---------- 출진 → 전술 전투 ----------
-    page.click('[data-act="march"]')
+    click_march(page)
     page.wait_for_timeout(400)
     step("출진 시트", "출진" in page.locator("#sheet-title").inner_text())
     shot(page, "10-march")

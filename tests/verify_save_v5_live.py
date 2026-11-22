@@ -8,6 +8,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, cmd_locator, menu_labels
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "https://dotsamguk.vercel.app"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "live"
 OUT = os.path.abspath("downloads/samguk5")
@@ -71,20 +73,21 @@ with sync_playwright() as p:
       return { n: m ? m.length : 0, sample: m ? m.slice(0, 5).join('') : '' };
     }""")
     step("불러온 화면에 한자 없음", body["n"] == 0, body)
-    step("성 시트·명령 동작", page.locator("#citypanel").is_visible() and page.locator('[data-act="cmd"][data-cmd="talk"]').count() == 1)
+    step("성 시트·명령 동작", page.locator("#citypanel").is_visible()
+         and [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "계략"], menu_labels(page))
     o = page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     step("가로 넘침 없음", o)
     page.screenshot(path=os.path.join(OUT, f"{TAG}-save-v5.png"))
     print("SHOT save-v5.png", flush=True)
 
     # 이어하기 후 저장 양식이 최신으로 올라가는지(명령 1회 → 자동 저장)
-    page.click('[data-act="cmd"][data-cmd="agri"]')
+    click_cmd(page, "agri")
     page.wait_for_timeout(350)
     if page.locator(".officer-row:not(.done)").count():
         page.locator(".officer-row:not(.done)").first.click()
         page.wait_for_timeout(450)
     v = page.evaluate("() => { const r = localStorage.getItem('samguk5.auto'); return r ? JSON.parse(r).version : null; }")
-    step("저장 뒤 최신 양식(v6)", v == 6, v)
+    step("저장 뒤 최신 양식(v7)", v == 7, v)
 
     errs = [e for e in errors if "favicon" not in str(e).lower()]
     step("콘솔 오류 0", len(errs) == 0, errs[:3])

@@ -10,6 +10,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_march, march_locator
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "local"
 OUT = os.path.abspath(os.environ.get("SHOT_DIR", "downloads/samguk5/battle-v5"))
@@ -101,7 +103,12 @@ def go_city(page, name):
 
 
 def march(page, target):
-    page.click('[data-act="march"]')
+    if not march_locator(page).count():
+        return False
+    try:
+        click_march(page)
+    except Exception:
+        return False
     page.wait_for_timeout(450)
     if page.locator(f'[data-act="march-target"][data-city="{target}"]').count():
         page.click(f'[data-act="march-target"][data-city="{target}"]')
@@ -289,7 +296,7 @@ with sync_playwright() as p:
     # ---------- 저장/불러오기(사망·등용 상태 유지) ----------
     page.wait_for_timeout(400)
     saved = page.evaluate("() => { const raw = localStorage.getItem('samguk5.auto'); if (!raw) return null; const s = JSON.parse(raw); return { v: s.version, dead: Object.values(s.generals).filter(g => g.dead).length, pris: (s.pendingPrisoners||[]).length }; }")
-    step("저장 양식 최신(v6) · 죽음 상태 기록", saved and saved["v"] == 6, saved)
+    step("저장 양식 최신(v7) · 죽음 상태 기록", saved and saved["v"] == 7, saved)
 
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)

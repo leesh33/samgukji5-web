@@ -8,6 +8,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, cmd_locator
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "local"
 OUT = os.path.abspath(os.environ.get("SHOT_DIR", "/workspace/downloads/samguk5"))
@@ -177,7 +179,7 @@ def do_cmd(page, cmd):
     """현재 성 패널에서 명령 하나를 실행(첫 가용 장수). 성공하면 True"""
     if sheet_open(page):
         return False
-    btn = page.locator(f'[data-act="cmd"][data-cmd="{cmd}"]')
+    btn = cmd_locator(page, cmd)
     if not btn.count() or btn.first.is_disabled():
         return False
     try:
@@ -326,7 +328,10 @@ with sync_playwright() as p:
         page.wait_for_timeout(700)
         # 다시 열어 정탐 정보가 보이는지 확인
         open_mine(page)
-        page.click('[data-act="cmd"][data-cmd="plot"]')
+        reopen = page.locator('[data-act="cmd"][data-cmd="plot"]')
+        if not reopen.count() or reopen.first.is_disabled():
+            break
+        reopen.first.click()
         page.wait_for_timeout(400)
         if page.locator(".sc-box").count():
             scouted = True

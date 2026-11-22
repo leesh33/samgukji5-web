@@ -15,6 +15,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, click_march, menu_labels
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4188/index.html"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "local"
 OUT = os.path.abspath("downloads/samguk5")
@@ -178,21 +180,26 @@ with sync_playwright() as p:
     step("본 게임 진입", page.locator("#scr-game").is_visible())
     scan("font-05-map", "지도")
     ratio = page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100)")
-    step("지도 세로 비중 45% 이상", ratio >= 45, f"{ratio}%")
+    step("지도 세로 비중 55% 이상(하단 메뉴 1줄)", ratio >= 55, f"{ratio}%")
 
     # 내정 시트 · 장수 선택
     if not page.locator("#citypanel").evaluate("el => el.classList.contains('open')"):
         page.click('.cs-toggle')
         page.wait_for_timeout(400)
     scan("font-06-citypanel", "성 시트")
-    page.click('[data-act="cmd"][data-cmd="agri"]')
+    step("하단 1차 메뉴 4개(내정·인사·군사·계략)",
+         [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "계략"], menu_labels(page))
+    page.click('[data-act="cmd-group"][data-group="people"]')
+    page.wait_for_timeout(300)
+    scan("font-06b-citypanel-sub", "성 시트 · 인사 하위 메뉴")
+    click_cmd(page, "agri")
     page.wait_for_timeout(400)
     scan("font-07-sheet", "모달 시트")
     page.click('.sheet-head [data-act="sheet-close"]')
     page.wait_for_timeout(300)
 
     # 전투 화면
-    page.click('[data-act="march"]')
+    click_march(page)
     page.wait_for_timeout(400)
     scan("font-08-march", "출진 시트")
     page.click('[data-act="march-go"]')

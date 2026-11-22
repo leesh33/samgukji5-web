@@ -8,6 +8,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, open_group, menu_labels
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "local"
 OUT = os.path.abspath("downloads/samguk5")
@@ -118,9 +120,12 @@ with sync_playwright() as p:
         page.wait_for_timeout(350)
 
     # ---------- 이동 버튼 ----------
+    step("하단 1차 메뉴 4개(내정·인사·군사·계략)",
+         [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "계략"], menu_labels(page))
+    open_group(page, "people")
     move_btn = page.locator('[data-act="cmd"][data-cmd="move"]')
     talk_btn = page.locator('[data-act="cmd"][data-cmd="talk"]')
-    step("성 패널에 이동·대화 버튼", move_btn.count() == 1 and talk_btn.count() == 1,
+    step("인사 메뉴에 이동·대화 버튼", move_btn.count() == 1 and talk_btn.count() == 1,
          f"{move_btn.count()} / {talk_btn.count()}")
     step("이동 버튼 활성(내 성 2곳)", move_btn.is_enabled())
     shot(page, "04-citypanel")
@@ -129,7 +134,7 @@ with sync_playwright() as p:
     from_city = page.locator("#citypanel").get_attribute("data-city")
     ap0 = st["actionPoints"]
     gens_from0 = [g for g in st["generals"].values() if g["city"] == from_city and g["faction"] == st["playerId"]]
-    page.click('[data-act="cmd"][data-cmd="move"]')
+    click_cmd(page, "move")
     page.wait_for_timeout(450)
     step("이동 시트 열림", "장수 이동" in page.locator("#sheet-title").inner_text(),
          page.locator("#sheet-title").inner_text())
@@ -185,7 +190,7 @@ with sync_playwright() as p:
                 and g["id"] != st4["factions"][st4["playerId"]]["lord"] and not g["captive"]]
     step("대화 상대 존재", len(partners) > 0, len(partners))
     ap1 = st4["actionPoints"]
-    page.click('[data-act="cmd"][data-cmd="talk"]')
+    click_cmd(page, "talk")
     page.wait_for_timeout(450)
     step("대화 시트 열림", "대화" in page.locator("#sheet-title").inner_text(), page.locator("#sheet-title").inner_text())
     rows = page.locator('[data-act="talk-go"]')

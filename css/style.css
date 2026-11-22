@@ -475,6 +475,10 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   font-size: 10px; color: #a2917a; letter-spacing: 0.4px;
   white-space: nowrap; overflow: hidden;
 }
+/* 펼친 상태에서는 아래 표와 같은 값을 중복 표시하지 않는다(접었을 때만 요약) */
+.citypanel.open .cs-brief { display: none; }
+.cs-row .cs-nav { margin-left: auto; }
+.cs-row .cs-actions { margin-left: 5px; }
 .cs-brief-main { display: flex; gap: 9px; min-width: 0; overflow: hidden; }
 .cs-brief b { color: #eddec0; font-weight: 600; }
 .cs-nav {
@@ -519,12 +523,19 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gen-chip.done { opacity: 0.45; }
 .cp-gens .none { font-size: 10.5px; color: #8f7d63; padding: 6px 0; }
 .cp-cmds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 5px; }
-.cp-cmds .btn { min-height: 42px; font-size: 12px; letter-spacing: 0.6px; padding: 4px 2px; flex-direction: column; gap: 0; }
-.cp-cmds .btn small { font-size: 8.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; }
-.cp-cmds .btn.march { grid-column: span 2; border-color: #8a4632; color: #ffcdba; background: var(--wood-grain), linear-gradient(180deg, #4a2a20, #2b1710); box-shadow: inset 0 1px 0 rgba(255, 190, 160, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(120, 30, 10, 0.25); }
-.cp-cmds .btn.move { border-color: #3f6580; color: #cfe6f8; background: var(--wood-grain), linear-gradient(180deg, #1d3342, #10202b); box-shadow: inset 0 1px 0 rgba(180, 220, 255, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(10, 40, 70, 0.3); }
-.cp-cmds .btn.talk { border-color: #7d5e2a; color: #ffe6b4; background: var(--wood-grain), linear-gradient(180deg, #3d3117, #231c0d); }
+.cp-cmds .btn, .cp-subcmds .btn { width: 100%; min-height: 42px; font-size: 12px; letter-spacing: 0.6px; padding: 4px 2px; flex-direction: column; gap: 0; }
+.cp-cmds .btn small, .cp-subcmds .btn small { font-size: 8.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
+.cp-cmds .btn.cmd-tab { color: #e2cfab; }
+.cp-cmds .btn.cmd-tab.on { border-color: var(--gold); color: #fff3d8; background: var(--wood-grain), linear-gradient(180deg, #4a3520, #2a1e12); box-shadow: inset 0 1px 0 rgba(255, 220, 160, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(232, 148, 60, 0.24); }
+.cp-cmds .btn.cmd-tab.on small { color: var(--gold-hi); }
+.cp-subcmds { display: flex; gap: 4px; margin-top: 4px; }
+.cp-subcmds .btn { flex: 1 1 0; min-width: 0; overflow: hidden; }
+.cp-cmds .btn.march, .cp-subcmds .btn.march { border-color: #8a4632; color: #ffcdba; background: var(--wood-grain), linear-gradient(180deg, #4a2a20, #2b1710); box-shadow: inset 0 1px 0 rgba(255, 190, 160, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(120, 30, 10, 0.25); }
+.cp-cmds .btn.move, .cp-subcmds .btn.move { border-color: #3f6580; color: #cfe6f8; background: var(--wood-grain), linear-gradient(180deg, #1d3342, #10202b); box-shadow: inset 0 1px 0 rgba(180, 220, 255, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(10, 40, 70, 0.3); }
+.cp-cmds .btn.move small, .cp-subcmds .btn.move small { color: #9fc2da; }
+.cp-cmds .btn.talk, .cp-subcmds .btn.talk { border-color: #7d5e2a; color: #ffe6b4; background: var(--wood-grain), linear-gradient(180deg, #3d3117, #231c0d); }
 .cp-cmds .btn:disabled { opacity: 0.42; }
+.cp-subcmds .btn:disabled { opacity: 0.42; }
 
 /* ---------- 장수 이동 / 대화 ---------- */
 .officer-row.picked { border-color: var(--gold); background: linear-gradient(180deg, #3d2e1e, #241a11); }
@@ -810,7 +821,6 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   box-shadow: inset 0 1px 0 rgba(255, 226, 176, 0.2), 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 .cp-cmds .btn.plot { border-color: #4a5d7a; color: #d0e2fa; background: var(--wood-grain), linear-gradient(180deg, #1f2c3d, #131e28); }
-
 .dp-head { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 8px; }
 .dp-cell { background: linear-gradient(180deg, #271e14, #171009); border: 1px solid #3d2c1c; border-radius: 3px; padding: 7px 4px; text-align: center; box-shadow: var(--bevel-sm); }
 .dp-cell b { display: block; font-family: var(--font-head); font-size: 15px; color: var(--gold-hi); font-weight: 600; text-shadow: 0 1px 2px #000; }
@@ -894,7 +904,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   #scr-game .citypanel::before { display: none; }
   #scr-game .cs-body { display: block; max-height: none; }
   #scr-game .cs-toggle { display: none; }
-  #scr-game .cp-cmds { grid-template-columns: repeat(3, 1fr); }
+  #scr-game .cp-cmds { grid-template-columns: repeat(4, 1fr); }
   .cp-gens { flex-wrap: wrap; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
   .scroll { max-width: 900px; margin: 0 auto; width: 100%; }
@@ -904,7 +914,8 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   body { font-size: 13.5px; }
   .citypanel { max-height: 60vh; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
-  .cp-cmds { grid-template-columns: repeat(6, 1fr); }
+  .cp-cmds { grid-template-columns: repeat(4, 1fr); }
+  .cp-subcmds .btn { min-height: 46px; }
   .bt-cmds { grid-template-columns: repeat(5, 1fr); }
   /* 넓은 화면에서는 자원 칸이 늘어나지 않게 폭을 잡고 왼쪽으로 모은다 */
   .resbar { grid-template-columns: auto repeat(5, minmax(0, 128px)); justify-content: start; }

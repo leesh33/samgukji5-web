@@ -814,6 +814,20 @@ function bindCityPanelSwipe() {
   panel.addEventListener('pointercancel', (e) => { if (e.pointerType === 'mouse') { swipeState = null; panel.style.transform = ''; } });
 }
 
+/* ---------- 성 명령 카테고리 (내정 · 인사 · 군사) ---------- */
+const CITY_CMD_GROUPS = [
+  { id: 'civil', ko: '내정', hint: '개발·상업·치안', subs: [
+    ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'], ['transport', '수송'],
+  ] },
+  { id: 'people', ko: '인사', hint: '이동·대화·등용', subs: [
+    ['move', '이동'], ['talk', '대화'], ['search', '탐색'], ['hire', '등용'], ['reward', '포상'],
+  ] },
+  { id: 'army', ko: '군사', hint: '징병·훈련·출진', subs: [
+    ['draft', '징병', '2령'], ['train', '훈련'], ['march', '출진'],
+  ] },
+];
+let cityCmdGroup = null;
+
 function renderCityPanel(dir = 0) {
   const panel = $('#citypanel');
   if (!selectedCity) { panel.classList.add('hidden'); return; }
@@ -840,19 +854,29 @@ function renderCityPanel(dir = 0) {
     const plotFoes = E.neighborFoes(game, selectedCity).filter((n) => !E.isPacified(game, game.playerId, game.cities[n].owner));
     const plotReady = plotFoes.length > 0 && E.generalsInCity(game, selectedCity).some((g) => !g.acted) && game.actionPoints >= 1;
     const plotSub = !plotFoes.length ? '적 성 없음' : (game.actionPoints >= 1 ? '행동력 1' : '행동력 부족');
-    const acts = [
-      ['move', '이동', moveSub, !moveReady],
-      ['talk', '대화', talkSub, !partners.length || !talkLeft || game.actionPoints < 1],
-      ['plot', '계략', plotSub, !plotReady],
-      ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'],
-      ['draft', '징병', '2령'], ['train', '훈련'], ['search', '탐색'], ['hire', '등용'],
-      ['reward', '포상'], ['transport', '수송'],
-    ];
-    cmdHTML = acts.map(([k, ko, sub, off]) => `<button class="btn ${k === 'move' || k === 'talk' || k === 'plot' ? k : ''}" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}" ${off ? 'disabled' : ''}>${ko}${sub ? `<small>${sub}</small>` : ''}</button>`).join('');
     const enemies = E.adjacentEnemies(game, selectedCity);
-    cmdHTML += enemies.length
-      ? `<button class="btn march" data-act="march" data-city="${selectedCity}">출진</button>`
-      : '<button class="btn" disabled>출진</button>';
+    // 1차 메뉴: 내정 · 인사 · 군사 · 계략 (계략은 세부 명령이 하나뿐이라 바로 실행)
+    const tabs = CITY_CMD_GROUPS.map((g) => {
+      const on = cityCmdGroup === g.id;
+      return `<button class="btn cmd-tab ${on ? 'on' : ''}" data-act="cmd-group" data-group="${g.id}" data-city="${selectedCity}" aria-pressed="${on}">${g.ko}<small>${g.hint}</small></button>`;
+    }).join('');
+    cmdHTML = `<div class="cp-cmds">${tabs}<button class="btn ${plotReady ? 'plot' : ''}" data-act="cmd" data-cmd="plot" data-city="${selectedCity}" ${plotReady ? '' : 'disabled'}>계략<small>${plotSub}</small></button></div>`;
+    const group = CITY_CMD_GROUPS.find((g) => g.id === cityCmdGroup);
+    if (group) {
+      const subs = group.subs.map(([k, ko, hint]) => {
+        if (k === 'march') {
+          return enemies.length
+            ? `<button class="btn march" data-act="march" data-city="${selectedCity}">${ko}<small>${enemies.length}곳</small></button>`
+            : `<button class="btn" disabled>${ko}<small>적 성 없음</small></button>`;
+        }
+        const off = k === 'move' ? !moveReady
+          : k === 'talk' ? (!partners.length || !talkLeft || game.actionPoints < 1)
+          : false;
+        const note = k === 'move' ? moveSub : k === 'talk' ? talkSub : hint;
+        return `<button class="btn ${k === 'move' || k === 'talk' ? k : ''}" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}" ${off ? 'disabled' : ''}>${ko}${note ? `<small>${note}</small>` : ''}</button>`;
+      }).join('');
+      cmdHTML += `<div class="cp-subcmds" role="group" aria-label="${group.ko} 명령">${subs}</div>`;
+    }
   } else {
     const pacified = !!c.owner && E.isPacified(game, game.playerId, c.owner);
     const src = pacified ? [] : E.adjacentFriends(game, selectedCity).filter((id) => E.generalsInCity(game, id).length);
@@ -867,6 +891,7 @@ function renderCityPanel(dir = 0) {
     } else {
       cmdHTML = '<button class="btn" disabled style="grid-column:span 2">공격 불가</button>';
     }
+    cmdHTML = `<div class="cp-cmds">${cmdHTML}</div>`;
   }
 
   const own = ownCityIds();
@@ -902,6 +927,7 @@ function renderCityPanel(dir = 0) {
       <div class="cs-row">
         <div class="cs-id"><span class="region-tag">${base.region}</span><b class="cs-name">${base.ko}</b></div>
         <span class="cs-owner" style="color:${colorOf(c.owner)}">${ownerName}</span>
+        ${navHTML}
         <div class="cs-actions">
           <button class="cs-toggle" data-act="city-toggle">${cityPanelOpen ? '접기 ▾' : '명령 ▴'}</button>
           <button class="cs-close" data-act="close-city" aria-label="닫기">✕</button>
@@ -911,7 +937,6 @@ function renderCityPanel(dir = 0) {
         <div class="cs-brief-main">
           <span>병 <b>${fmt(c.troops)}</b></span><span>금 <b>${fmt(c.gold)}</b></span><span>량 <b>${fmt(c.food)}</b></span><span>방 <b>${c.def}</b></span>
         </div>
-        ${navHTML}
       </div>
     </div>
     <div class="cs-body">
@@ -927,7 +952,7 @@ function renderCityPanel(dir = 0) {
       </div>
       ${gens.length ? `<div class="cp-gens">${genHTML}</div>` : '<div class="cp-gens"><span class="none">주둔 장수 없음</span></div>'}
       ${scoutHTML}
-      <div class="cp-cmds">${cmdHTML}</div>
+      <div class="cp-cmds-wrap">${cmdHTML}</div>
     </div>
   `;
   if (dir) {
@@ -2562,6 +2587,13 @@ function onClick(e) {
     case 'open-event': openEventSheet(); break;
     case 'open-reports': sfx.click(); openReports(); break;
     case 'city-toggle': cityPanelOpen = !cityPanelOpen; sfx.click(); renderCityPanel(); break;
+    case 'cmd-group': {
+      const g = el.dataset.group;
+      cityCmdGroup = cityCmdGroup === g ? null : g;
+      sfx.click();
+      renderCityPanel();
+      break;
+    }
     case 'city-prev': stepCity(-1); break;
     case 'city-next': stepCity(1); break;
     case 'zoom-in': mapView.zoomBy(1.25); break;

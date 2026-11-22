@@ -8,6 +8,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, cmd_locator, march_locator
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "local"
 OUT = os.path.abspath(os.environ.get("SHOT_DIR", "/workspace/downloads/samguk5"))
@@ -177,7 +179,7 @@ def do_cmd(page, cmd):
     """현재 성 패널에서 명령 하나를 실행(첫 가용 장수). 성공하면 True"""
     if sheet_open(page):
         return False
-    btn = page.locator(f'[data-act="cmd"][data-cmd="{cmd}"]')
+    btn = cmd_locator(page, cmd)
     if not btn.count() or btn.first.is_disabled():
         return False
     try:
@@ -281,8 +283,9 @@ with sync_playwright() as p:
     open_mine(page)
     ensure_ap(page, 1)
     reinforced = False
-    if page.locator('[data-act="march"]').count():
-        page.locator('[data-act="march"]').first.click()
+    march = march_locator(page)
+    if march.count():
+        march.first.click()
         page.wait_for_timeout(450)
         chips = page.locator('[data-act="march-reinforce"]')
         step("출진 시트 원군 후보", chips.count() >= 1, f"{chips.count()}부대")

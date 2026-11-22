@@ -7,6 +7,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, click_march, menu_labels
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "https://dotsamguk.vercel.app"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "live"
 OUT = os.path.abspath("downloads/samguk5")
@@ -40,6 +42,7 @@ with sync_playwright() as p:
     pg.click('.lord-card[data-id="liubei"]'); pg.wait_for_timeout(900)
     if not pg.locator("#citypanel").evaluate("el => el.classList.contains('open')"):
         pg.click('.cs-toggle'); pg.wait_for_timeout(400)
+    pg.click('[data-act="cmd-group"][data-group="civil"]'); pg.wait_for_timeout(220)
     pg.click('[data-act="cmd"][data-cmd="agri"]'); pg.wait_for_timeout(300)
     if pg.locator(".officer-row:not(.done)").count():
         pg.locator(".officer-row:not(.done)").first.click()

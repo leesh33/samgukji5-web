@@ -14,6 +14,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "https://dotsamguk.vercel.app/"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "live"
 OUT = os.path.abspath("downloads/samguk5")
@@ -240,7 +242,7 @@ with sync_playwright() as p:
 
     # ---------- 내정 한 번(실제 진행 확인) ----------
     ap0 = page.locator("#res-ap").inner_text()
-    page.click('[data-act="cmd"][data-cmd="agri"]')
+    click_cmd(page, "agri")
     page.wait_for_timeout(500)
     rows = page.locator(".officer-row:not(.done)")
     if rows.count():

@@ -7,6 +7,8 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
+from _cmdmenu import click_cmd, march_locator, menu_labels
+
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 TAG = sys.argv[2] if len(sys.argv) > 2 else "local"
 OUT = os.path.abspath("downloads/samguk5")
@@ -51,6 +53,26 @@ def overflow(page):
       });
       return {docW: document.documentElement.scrollWidth, winW: w, bad: bad.slice(0, 6)};
     }""")
+
+
+def dismiss_sheets(page):
+    """월초 알림·관직 승급·포로 처분 시트가 떠 있으면 정리한다(턴 종료 버튼이 가려지는 것을 막음)."""
+    for _ in range(8):
+        if page.locator("#sheet").evaluate("el => el.classList.contains('hidden')"):
+            return
+        if page.locator('[data-act="prisoner-release"]').count():
+            page.locator('[data-act="prisoner-release"]').first.click()
+        elif page.locator('[data-act="promo-ok"]').count():
+            page.click('[data-act="promo-ok"]')
+        elif page.locator('[data-act="event-go"]').count():
+            page.locator('[data-act="event-go"]').first.click()
+        elif page.locator('[data-act="prisoner-done"]').count():
+            page.click('[data-act="prisoner-done"]')
+        elif page.locator('.sheet-head [data-act="sheet-close"]').count():
+            page.click('.sheet-head [data-act="sheet-close"]')
+        else:
+            return
+        page.wait_for_timeout(400)
 
 
 def finish_battles(page):
@@ -166,7 +188,7 @@ with sync_playwright() as p:
 
     # 내정 한 번
     ap0 = page.locator("#res-ap").inner_text()
-    page.click('[data-act="cmd"][data-cmd="agri"]')
+    click_cmd(page, "agri")
     page.wait_for_timeout(350)
     page.locator(".officer-row:not(.done)").first.click()
     page.wait_for_timeout(450)
@@ -175,8 +197,9 @@ with sync_playwright() as p:
     shot(page, "c04-custom-command")
 
     # ---------- 신군주 부대로 출진 → 전투 ----------
-    if page.locator('[data-act="march"]').count():
-        page.click('[data-act="march"]')
+    march = march_locator(page)
+    if march.count():
+        march.first.click()
         page.wait_for_timeout(400)
         step("신군주 출진 시트", "출진" in page.locator("#sheet-title").inner_text(), page.locator("#sheet-title").inner_text())
         page.click('[data-act="march-go"]')
@@ -240,6 +263,7 @@ with sync_playwright() as p:
     step("184 화면 가로 넘침 없음", len(o["bad"]) == 0, o)
     shot(page, "c07-s184")
     for i in range(2):
+        dismiss_sheets(page)
         if page.locator('[data-act="endturn"]').is_visible():
             page.click('[data-act="endturn"]')
         page.wait_for_timeout(1400)
@@ -251,6 +275,7 @@ with sync_playwright() as p:
     shot(page, "c08-s184-turn")
 
     # ---------- 다른 시나리오도 열리는지 ----------
+    dismiss_sheets(page)
     page.click('[data-act="menu"]')
     page.wait_for_timeout(300)
     page.click('[data-act="to-title"]')
