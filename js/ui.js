@@ -883,7 +883,8 @@ function cmdSubHTML(group, ctx) {
     }
     if (k === 'advisor') {
       const adv = E.advisorOf(game);
-      return `<button class="btn" role="menuitem" data-act="advisor">${ko}<small>${adv ? adv.ko : '지력 최고'}</small></button>`;
+      const label = adv ? adv.ko : (E.advisorCandidates(game).length ? '미임명' : '부하 없음');
+      return `<button class="btn" role="menuitem" data-act="advisor">${ko}<small>${label}</small></button>`;
     }
     if (k === 'learn') {
       const n = ctx.learnCount || 0;
@@ -2743,9 +2744,15 @@ function doTreasureRevoke(tid) {
 
 /* ---------- 참모 ---------- */
 function openAdvisorSheet() {
-  const gens = E.factionGenerals(game, game.playerId).map((g) => ({ g, t: gd(g.id) }));
+  const gens = E.advisorCandidates(game).map((g) => ({ g, t: gd(g.id) }));
   gens.sort((a, b) => b.t.int - a.t.int);
   const cur = game.advisorId;
+  if (!gens.length) {
+    openSheet('참모 임명', `<p class="note">참모의 지력에 따라 계략·등용·외교 성공률이 <b>2~8%</b> 오릅니다. 군주는 참모를 겸할 수 없습니다.</p>
+      <p class="note adv-line">참모로 임명할 부하 장수가 없습니다.</p>
+      <p class="note">등용으로 부하 장수를 먼저 들이면 그중 지력이 가장 높은 장수가 참모로 앉습니다.</p>`);
+    return;
+  }
   const rows = gens.map(({ g, t }) => `
     <button class="officer-row ${g.id === cur ? 'picked' : ''}" data-act="advisor-pick" data-gid="${g.id}">
       <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
@@ -2755,7 +2762,7 @@ function openAdvisorSheet() {
       </div>
       <div class="or-go">${g.id === cur ? '재임 중' : `+${Math.max(2, Math.min(8, Math.round((t.int - 55) / 6)))}%`}</div>
     </button>`).join('');
-  openSheet('참모 임명', `<p class="note">참모의 지력에 따라 계략·등용·외교 성공률이 <b>2~8%</b> 오릅니다. 기본은 지력이 가장 높은 장수가 앉습니다.</p>
+  openSheet('참모 임명', `<p class="note">참모의 지력에 따라 계략·등용·외교 성공률이 <b>2~8%</b> 오릅니다. 군주는 참모를 겸할 수 없고, 기본은 지력이 가장 높은 부하 장수가 앉습니다.</p>
     <p class="note adv-line">${esc(E.advisorAdvice(game))}</p>${rows}`);
 }
 
@@ -3118,7 +3125,7 @@ function openHelp() {
     <b style="color:#e6d9b3">16. 교역</b> — 성 시트의 내정 → 교역. 금 100으로 사는 식량(쌀 시세)이 달마다 흔들립니다. 풍작이면 싸지고 가뭄이면 비싸집니다. 행동력 1로 금과 식량을 맞바꿉니다.<br>
     <b style="color:#e6d9b3">17. 특수</b> — 지도 위 특수에서 순찰(치안·명성, 가끔 보물)·연회(장수 충성·친밀)·징세(금, 대신 치안·명성 손해)·구휼(식량으로 치안·명성)을 씁니다.<br>
     <b style="color:#e6d9b3">18. 보물</b> — 적토마·청룡언월도·손자병법 같은 보물 14종. 탐색·순찰·포로 처분·세력 멸망으로 얻고, 장수에게 수여하면 능력치가 오릅니다(정보 → 보물 도감).<br>
-    <b style="color:#e6d9b3">19. 참모</b> — 지력이 가장 높은 장수가 참모로 앉아 계략·등용·외교 성공률을 2~8% 올리고 조언을 합니다(정보에서 변경).<br>
+    <b style="color:#e6d9b3">19. 참모</b> — 군주를 뺀 부하 장수 중 지력이 가장 높은 장수가 참모로 앉아 계략·등용·외교 성공률을 2~8% 올리고 조언을 합니다(정보에서 변경).<br>
     <b style="color:#e6d9b3">20. 담당</b> — 성마다 직할·내정 위임·군사 위임을 정합니다. 위임한 성은 턴이 바뀔 때 행동력 없이 스스로 개발·징병·훈련을 합니다.<br>
     <b style="color:#e6d9b3">21. 전술 계략</b> — 화계·혼란·고무·치료에 수계(물가)·낙석(산기슭)이 더해집니다. 계략마다 지력·매력으로 정해지는 성공률이 표시됩니다.<br>
     <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.

@@ -649,9 +649,19 @@ export function takeTreasuresOf(state, gid, reason = '') {
 /* 지력 최고의 아군 장수가 참모로 앉으면 계략·등용·외교 성공률이 2~8% 오른다 */
 export const ADVISOR_MIN = 2;
 export const ADVISOR_MAX = 8;
+/* 군주는 자기 세력의 참모가 될 수 없다 — 참모 후보에서 언제나 뺀다 */
+function lordIdOf(state, fid) {
+  const f = state.factions && state.factions[fid];
+  return f && f.lord ? f.lord : null;
+}
+export function advisorCandidates(state) {
+  const lord = lordIdOf(state, state.playerId);
+  return factionGenerals(state, state.playerId).filter((g) => g.id !== lord);
+}
 export function advisorOf(state) {
   const gid = state.advisorId;
   if (!gid) return null;
+  if (gid === lordIdOf(state, state.playerId)) return null;
   const g = state.generals[gid];
   if (!g || g.dead || g.captive || g.faction !== state.playerId) return null;
   return generalOf(state, gid);
@@ -662,12 +672,12 @@ export function advisorBonus(state) {
   return clamp(Math.round((a.int - 55) / 6), ADVISOR_MIN, ADVISOR_MAX) / 100;
 }
 export function recommendAdvisor(state) {
-  const gens = factionGenerals(state, state.playerId);
+  const gens = advisorCandidates(state);
   if (!gens.length) return null;
   gens.sort((a, b) => (generalOf(state, b.id).int || 0) - (generalOf(state, a.id).int || 0));
   return gens[0].id;
 }
-/* 참모가 없거나 잃으면 지력 최고 장수를 다시 앉힌다 */
+/* 참모가 없거나 잃으면 지력 최고의 부하 장수를 다시 앉힌다. 군주는 앉히지 않는다 */
 export function autoAdvisor(state) {
   if (advisorOf(state)) return state.advisorId;
   const gid = recommendAdvisor(state);
@@ -675,6 +685,7 @@ export function autoAdvisor(state) {
   return state.advisorId;
 }
 export function appointAdvisor(state, gid) {
+  if (gid === lordIdOf(state, state.playerId)) return { ok: false, msg: '군주는 참모로 임명할 수 없습니다.' };
   const g = state.generals[gid];
   const t = generalOf(state, gid);
   if (!g || g.dead || g.captive) return { ok: false, msg: '임명할 수 없는 장수입니다.' };
@@ -687,7 +698,11 @@ export function appointAdvisor(state, gid) {
 /* 참모의 한마디 — 지금 형편에서 가장 급한 곳을 짚어 준다 */
 export function advisorAdvice(state) {
   const a = advisorOf(state);
-  if (!a) return '참모가 없습니다. 정보에서 지력 높은 장수를 참모로 앉히세요.';
+  if (!a) {
+    return advisorCandidates(state).length
+      ? '참모가 없습니다. 정보에서 지력 높은 장수를 참모로 앉히세요.'
+      : '참모로 앉힐 부하 장수가 없습니다. 먼저 등용으로 사람을 들이십시오.';
+  }
   const me = state.playerId;
   const cs = factionCities(state, me);
   if (!cs.length) return '성이 없습니다. 한 곳이라도 되찾아야 합니다.';
@@ -988,7 +1003,7 @@ export function infoGenerals(state, scope = 'mine') {
       faction: g.faction, factionName: g.faction ? (state.factions[g.faction] || {}).name || '' : '재야',
       city: g.city ? cityName(g.city) : '',
       captive: !!g.captive, treasure: t.treasure || '',
-      isAdvisor: state.advisorId === g.id, arms: t.arms, skill: t.skill,
+      isAdvisor: state.advisorId === g.id && g.id !== lordIdOf(state, state.playerId), arms: t.arms, skill: t.skill,
       total: t.lead + t.war + t.int + t.pol + t.cha,
     });
   }
