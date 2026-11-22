@@ -2688,7 +2688,12 @@ function infoTabHTML() {
   }
   if (infoTab === 'generals') {
     const scope = `<div class="chip-row" style="margin:6px 0"><button class="pick-chip ${infoScope === 'mine' ? 'on' : ''}" data-act="info-scope" data-scope="mine">아군</button><button class="pick-chip ${infoScope === 'all' ? 'on' : ''}" data-act="info-scope" data-scope="all">전체</button></div>`;
-    const list = E.infoGenerals(game, infoScope).slice(0, 60);
+    const all = E.infoGenerals(game, infoScope);
+    const pool = infoScope === 'all' ? all : E.infoGenerals(game, 'all');
+    const mine = pool.filter((g) => g.faction === game.playerId).length;
+    const freeN = pool.filter((g) => !g.faction).length;
+    const count = `<p class="note ig-count">전체 장수 <b>${pool.length}</b>명 — 아군 ${mine} · 재야 ${freeN} · 그 외 ${pool.length - mine - freeN}</p>`;
+    const list = all.slice(0, 60);
     const rows = list.map((g) => `
       <div class="info-gen">
         <img src="${portraitURL(g.gid, gd(g.gid), 34, g.faction ? colorOf(g.faction) : '#6b6b6b')}" alt="${g.ko}" />
@@ -2697,7 +2702,7 @@ function infoTabHTML() {
           <div class="ig-stats"><span>통 ${g.lead}</span><span>무 ${g.war}</span><span>지 ${g.int}</span><span>정 ${g.pol}</span><span>매 ${g.cha}</span>${infoScope === 'mine' ? `<span>충 ${g.loyalty}</span><span>친 ${g.affinity}</span>` : ''}</div>
         </div>
       </div>`).join('');
-    return `${scope}${rows || '<p class="note">장수가 없습니다.</p>'}<p class="note">보물을 지닌 장수는 능력치가 보정된 값으로 보입니다.${E.infoGenerals(game, infoScope).length > 60 ? ' (상위 60명만)' : ''}</p>`;
+    return `${scope}${count}${rows || '<p class="note">장수가 없습니다.</p>'}<p class="note">보물을 지닌 장수는 능력치가 보정된 값으로 보입니다.${all.length > 60 ? ' (상위 60명만)' : ''}</p>`;
   }
   if (infoTab === 'treasures') {
     const rows = E.infoTreasures(game).map((t) => `

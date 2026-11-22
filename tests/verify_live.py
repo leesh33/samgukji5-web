@@ -207,6 +207,28 @@ with sync_playwright() as p:
     else:
         step("등용 목록(재야 없음)", True, "재야 장수 없음")
 
+    # ---------- 정보 > 무장 일람 (장수 372명) ----------
+    if page.locator("#scr-game").is_visible():
+        page.click('[data-act="info"]')
+        page.wait_for_timeout(450)
+        page.click('[data-act="info-tab"][data-tab="generals"]')
+        page.wait_for_timeout(320)
+        page.click('[data-act="info-scope"][data-scope="all"]')
+        page.wait_for_timeout(360)
+        cnt = page.locator(".ig-count b").first.inner_text()
+        rows_g = page.locator(".info-gen").count()
+        step("무장 일람 — 전체 장수 350명 이상", int(cnt) >= 350, f"{cnt}명 · 목록 {rows_g}행")
+        o = overflow(page)
+        step("무장 일람 가로 넘침 없음", len(o["bad"]) == 0, o)
+        roster_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "downloads", "samguk5", "live-generals-350.png")
+        roster_path = os.path.abspath(roster_path)
+        os.makedirs(os.path.dirname(roster_path), exist_ok=True)
+        page.screenshot(path=roster_path)
+        print("SHOT " + roster_path, flush=True)
+        notes["roster"] = {"count": int(cnt), "shot": roster_path}
+        page.click('.sheet-head [data-act="sheet-close"]')
+        page.wait_for_timeout(300)
+
 
     def clear_prisoners():
         """승전 뒤 포로 처분 창이 뜨면 해방으로 정리한다(새 전투 흐름)"""

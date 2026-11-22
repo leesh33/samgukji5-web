@@ -174,9 +174,12 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
       g.loyalty = 0;
     }
   }
-  // 어디에도 속하지 않은 장수는 재야로 낙양에 (죽은 장수 제외)
+  // 어디에도 속하지 않은 장수는 재야로 — 고향 성(데이터의 home)이 있으면 그곳에, 없으면 낙양에
   for (const g of Object.values(state.generals)) {
-    if (!g.dead && !g.faction && !g.city) { g.city = 'luoyang'; }
+    if (!g.dead && !g.faction && !g.city) {
+      const home = (GENERAL_BY_ID[g.id] || {}).home;
+      g.city = home && CITY_BY_ID[home] ? home : 'luoyang';
+    }
   }
 
   initDiplomacy(state);
@@ -2688,6 +2691,18 @@ export function applyBattleResult(state, result, rng = null) {
 }
 
 /* ---------- 저장/불러오기 ---------- */
+/* 옛 저장(v3~v9)에 없던 새 장수를 재야로 채워 넣는다 — 이어하기에서도 보강분을 만날 수 있다 */
+function ensureStaticGenerals(s) {
+  if (!s.generals) s.generals = {};
+  for (const g of GENERALS) {
+    if (s.generals[g.id]) continue;
+    s.generals[g.id] = {
+      id: g.id, faction: null, city: g.home && CITY_BY_ID[g.home] ? g.home : 'luoyang',
+      loyalty: 0, acted: false, captive: false, dead: false, hidden: false, movedThisTurn: false,
+    };
+  }
+}
+
 export function serialize(state) {
   const copy = { ...state };
   delete copy.__rng;
@@ -2719,6 +2734,7 @@ export function deserialize(json) {
     if (g.captive === undefined) g.captive = false;
     if (g.movedThisTurn === undefined) g.movedThisTurn = false;
   }
+  ensureStaticGenerals(s);
   ensureDiplomacy(s);
   ensureAffinity(s);
   ensureTreasures(s);

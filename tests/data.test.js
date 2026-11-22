@@ -38,8 +38,8 @@ test('도로망: 양방향 · 유효 id · 전 성 연결', () => {
   for (const c of CITIES) assert.ok(c.roads.length >= 1, `${c.id} 도로`);
 });
 
-test('장수 200명 이상 · 능력치 범위 · 진형/특기/병과 유효', () => {
-  assert.ok(GENERALS.length >= 200, `장수 ${GENERALS.length}명`);
+test('장수 350명 이상 · 능력치 범위 · 진형/특기/병과 유효', () => {
+  assert.ok(GENERALS.length >= 350, `장수 ${GENERALS.length}명`);
   assert.equal(new Set(GENERALS.map((g) => g.id)).size, GENERALS.length);
   assert.equal(new Set(GENERALS.map((g) => g.ko)).size, GENERALS.length, '한글 이름 중복 없음');
   for (const g of GENERALS) {
