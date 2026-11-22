@@ -38,8 +38,8 @@ test('도로망: 양방향 · 유효 id · 전 성 연결', () => {
   for (const c of CITIES) assert.ok(c.roads.length >= 1, `${c.id} 도로`);
 });
 
-test('장수 80명 이상 · 능력치 범위 · 진형/특기/병과 유효', () => {
-  assert.ok(GENERALS.length >= 80, `장수 ${GENERALS.length}명`);
+test('장수 200명 이상 · 능력치 범위 · 진형/특기/병과 유효', () => {
+  assert.ok(GENERALS.length >= 200, `장수 ${GENERALS.length}명`);
   assert.equal(new Set(GENERALS.map((g) => g.id)).size, GENERALS.length);
   assert.equal(new Set(GENERALS.map((g) => g.ko)).size, GENERALS.length, '한글 이름 중복 없음');
   for (const g of GENERALS) {
@@ -54,6 +54,10 @@ test('장수 80명 이상 · 능력치 범위 · 진형/특기/병과 유효', (
   const famous = ['조조', '유비', '손권', '여포', '원소', '유표', '유장', '마등', '관우', '장비', '제갈량', '주유', '여몽', '사마의'];
   const names = GENERALS.map((g) => g.ko);
   for (const n of famous) assert.ok(names.includes(n), `${n} 포함`);
+  // 황건·한말과 삼국 후기 보강 인물
+  const added = ['장각', '장보', '장량', '황보숭', '노식', '주준', '하진', '정원', '동탁', '왕윤', '화웅', '이유', '우보', '서영',
+    '조비', '조진', '등애', '종회', '양호', '두예', '강유', '장완', '비의', '곽준', '마충', '관흥', '장포', '육항', '주연', '제갈각', '맹획', '축융'];
+  for (const n of added) assert.ok(names.includes(n), `${n} 포함`);
 });
 
 test('진형 9종: 공격/방어/기동/사거리 정의', () => {
@@ -70,16 +74,19 @@ test('진형 9종: 공격/방어/기동/사거리 정의', () => {
   assert.ok(Math.max(...def) !== Math.min(...def), '방어 계수 차이');
 });
 
-test('시나리오 3종 · 성 중복 배정 없음 · 장수 중복 없음', () => {
-  assert.equal(SCENARIOS.length, 3);
-  assert.deepEqual(SCENARIOS.map((s) => s.year), [194, 200, 208]);
+test('시나리오 7종 · 성 중복 배정 없음 · 장수 중복 없음', () => {
+  assert.equal(SCENARIOS.length, 7);
+  assert.deepEqual(SCENARIOS.map((s) => s.year), [184, 189, 194, 200, 208, 219, 225]);
+  assert.equal(new Set(SCENARIOS.map((s) => s.id)).size, SCENARIOS.length);
+  const allCityIds = CITIES.map((c) => c.id);
   for (const sc of SCENARIOS) {
     const cityOwner = new Map();
     const genOwner = new Map();
     for (const f of sc.factions) {
       assert.ok(GENERAL_BY_ID[f.lord], `${sc.id} ${f.name} 군주`);
       assert.ok(f.generals.includes(f.lord), `${sc.id} ${f.name} 군주가 소속 장수에 포함`);
-      assert.ok(f.cities.length >= 1);
+      assert.ok(f.cities.length >= 1, `${sc.id} ${f.name} 성`);
+      assert.ok(f.generals.length >= 1, `${sc.id} ${f.name} 장수`);
       for (const c of f.cities) {
         assert.ok(CITY_BY_ID[c], `${sc.id} 성 ${c}`);
         assert.ok(!cityOwner.has(c), `${sc.id} ${c} 중복 소유 (${cityOwner.get(c)} / ${f.id})`);
@@ -91,12 +98,28 @@ test('시나리오 3종 · 성 중복 배정 없음 · 장수 중복 없음', ()
         genOwner.set(g, f.id);
       }
     }
+    // 성 42곳이 빈틈없이 한 세력씩 차지해야 한다(전 시나리오 공통)
+    assert.equal(cityOwner.size, allCityIds.length, `${sc.id}: 소유자 없는 성 ${allCityIds.filter((c) => !cityOwner.has(c)).join(',')}`);
+    // 세력 id 유일
+    assert.equal(new Set(sc.factions.map((f) => f.id)).size, sc.factions.length, `${sc.id} 세력 id`);
     // 재야 장수는 소속과 겹치지 않아야 함
     for (const [city, list] of Object.entries(sc.free || {})) {
       assert.ok(CITY_BY_ID[city], `${sc.id} 재야 위치 ${city}`);
-      for (const g of list) assert.ok(!genOwner.has(g), `${sc.id} 재야 ${g} 중복`);
+      for (const g of list) {
+        assert.ok(GENERAL_BY_ID[g], `${sc.id} 재야 장수 ${g}`);
+        assert.ok(!genOwner.has(g), `${sc.id} 재야 ${g} 중복`);
+      }
     }
-    // 194년에는 16세력
     if (sc.id === 's194') assert.ok(sc.factions.length >= 12);
+    if (sc.id === 's184') {
+      const names = sc.factions.map((f) => f.name);
+      assert.ok(names.includes('황건적') && names.includes('한실'), '184 황건적·한실');
+    }
+    if (sc.id === 's189') assert.ok(sc.factions.some((f) => f.id === 'dongzhuo'), '189 동탁');
+    if (sc.id === 's219' || sc.id === 's225') {
+      const ids = sc.factions.map((f) => f.id);
+      assert.ok(ids.includes('jojo') && ids.includes('liubei') && ids.includes('sunquan'), `${sc.id} 위·촉·오`);
+    }
+    if (sc.id === 's225') assert.ok(sc.factions.some((f) => f.id === 'nanman'), '225 남만');
   }
 });

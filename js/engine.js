@@ -1,9 +1,24 @@
 /* 도트삼국 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
-import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS } from './data.js';
+import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS } from './data.js';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
+
+/* ---------- 장수 조회 (정적 + 신군주가 만든 장수) ---------- */
+export function generalOf(state, gid) {
+  if (!gid) return null;
+  if (state && state.customGenerals && state.customGenerals[gid]) return state.customGenerals[gid];
+  return GENERAL_BY_ID[gid] || null;
+}
+export function generalMap(state) {
+  const map = { ...GENERAL_BY_ID };
+  if (state && state.customGenerals) Object.assign(map, state.customGenerals);
+  return map;
+}
+export function allGeneralsOf(state) {
+  return [...GENERALS, ...Object.values((state && state.customGenerals) || {})];
+}
 
 /* ---------- 난수 ---------- */
 export function mulberry32(seed) {
@@ -21,11 +36,12 @@ export const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 /* ---------- 게임 생성 ---------- */
-export function createGame(scenarioId, factionId, seed = Date.now() % 100000) {
+export function createGame(scenarioId, factionId, seed = Date.now() % 100000, options = {}) {
   const sc = SCENARIOS.find((s) => s.id === scenarioId);
   if (!sc) throw new Error('unknown scenario: ' + scenarioId);
-  const fac = sc.factions.find((f) => f.id === factionId);
-  if (!fac) throw new Error('unknown faction: ' + factionId);
+  const custom = options.custom || null;
+  const fac = custom ? null : sc.factions.find((f) => f.id === factionId);
+  if (!custom && !fac) throw new Error('unknown faction: ' + factionId);
 
   const state = {
     version: SAVE_VERSION,
@@ -42,11 +58,20 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000) {
     factions: {},
     cities: {},
     generals: {},
+    customGenerals: {},
     log: [],
     pendingBattles: [],
     gameOver: null,
     stats: { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0 },
   };
+
+  // 신군주가 만든 장수는 상태 안에 함께 보관한다(저장·복원·이어하기에 그대로 따라간다)
+  if (custom) {
+    for (const g of [custom.lord, ...(custom.retinue || [])]) {
+      if (!g || !g.id) continue;
+      state.customGenerals[g.id] = normalizeGeneral(g);
+    }
+  }
 
   for (const c of CITIES) {
     state.cities[c.id] = {
@@ -59,21 +84,42 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000) {
     };
   }
 
-  for (const g of GENERALS) {
+  for (const g of allGeneralsOf(state)) {
     state.generals[g.id] = { id: g.id, faction: null, city: null, loyalty: 0, acted: false, captive: false, hidden: false };
   }
 
-  for (const f of sc.factions) {
+  // 신군주는 기존 소세력의 성 하나를 떼어내 시작한다
+  let defs = sc.factions.map((f) => ({ ...f }));
+  let takenCity = null;
+  if (custom) {
+    takenCity = custom.cityId;
+    if (!CITY_BY_ID[takenCity]) throw new Error('unknown city: ' + takenCity);
+    defs = defs.map((f) => (f.cities.includes(takenCity) ? { ...f, cities: f.cities.filter((c) => c !== takenCity) } : f))
+      .filter((f) => f.cities.length > 0);
+    defs.push({
+      id: factionId,
+      name: custom.faction.name || '신군주',
+      hanja: custom.faction.hanja || '新',
+      lord: custom.lord.id,
+      cities: [takenCity],
+      generals: [custom.lord.id, ...(custom.retinue || []).map((g) => g.id)],
+      color: custom.faction.color,
+      custom: true,
+    });
+  }
+
+  for (const f of defs) {
     state.factions[f.id] = {
       id: f.id,
       name: f.name,
       hanja: f.hanja,
       lord: f.lord,
-      color: FACTION_COLORS[f.id] || '#888',
+      color: f.color || FACTION_COLORS[f.id] || '#888',
       fame: 45,
       alive: true,
       isPlayer: f.id === factionId,
       gold: 0,
+      custom: !!f.custom,
     };
     for (const cid of f.cities) {
       const city = state.cities[cid];
@@ -91,6 +137,14 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000) {
       g.city = f.cities[i % f.cities.length];
       g.loyalty = gid === f.lord ? 100 : clamp(randInt(mulberry32(seed + i * 37), 70, 95), 55, 100);
     });
+  }
+
+  // 신군주 휘하 장수는 군주 성에 모아 두고 충성을 높게
+  if (custom) {
+    for (const g of custom.retinue || []) {
+      const st = state.generals[g.id];
+      if (st) { st.city = custom.cityId; st.loyalty = 88; }
+    }
   }
 
   // 재야 장수
@@ -112,8 +166,111 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000) {
 
   state.maxActionPoints = calcActionPoints(state, factionId);
   state.actionPoints = state.maxActionPoints;
-  log(state, `${sc.year}년 ${sc.name} — ${fac.name}${fac.hanja} 세력으로 천하에 나서다.`);
+  const playerFac = state.factions[factionId];
+  log(state, `${sc.year}년 ${sc.name} — ${playerFac.name}${playerFac.hanja} 세력으로 천하에 나서다.`);
   return state;
+}
+
+export const CUSTOM_STAT_MIN = 20;
+export const CUSTOM_STAT_MAX = 96;
+export const CUSTOM_STAT_BUDGET = 225; // 5능력치 평균 45 — 총합 고정, 분배만 자유
+export const CUSTOM_NAME_MIN = 2;
+export const CUSTOM_NAME_MAX = 6;
+export const CUSTOM_RETINUE_PRESETS = [
+  { ko: '한석', hanja: '韓錫', skill: 'cheolbyeok', arms: '보병' },
+  { ko: '위담', hanja: '魏談', skill: 'dolgyeok', arms: '기병' },
+];
+const STAT_KEYS = ['lead', 'war', 'int', 'pol', 'cha'];
+
+/* 주사위: 총합 예산을 다섯 능력치에 무작위로 나눈다 */
+export function rollCustomStats(rand = Math.random) {
+  const stats = {};
+  let left = CUSTOM_STAT_BUDGET;
+  STAT_KEYS.forEach((k, i) => {
+    const rest = STAT_KEYS.length - i - 1;
+    if (rest === 0) { stats[k] = clamp(left, CUSTOM_STAT_MIN, CUSTOM_STAT_MAX); return; }
+    const avg = left / (rest + 1);
+    const hi = Math.min(CUSTOM_STAT_MAX, left - rest * CUSTOM_STAT_MIN);
+    const v = clamp(Math.round(avg + (rand() - 0.5) * 30), CUSTOM_STAT_MIN, hi);
+    stats[k] = v;
+    left -= v;
+  });
+  const sum = STAT_KEYS.reduce((n, k) => n + stats[k], 0);
+  stats.cha = clamp(stats.cha + (CUSTOM_STAT_BUDGET - sum), CUSTOM_STAT_MIN, CUSTOM_STAT_MAX);
+  return stats;
+}
+
+/* 입력을 실제 지휘 가능한 장수 정의로 다듬는다 */
+export function normalizeGeneral(g) {
+  const stats = {};
+  for (const k of STAT_KEYS) stats[k] = clamp(Math.round(Number(g[k]) || 40), 1, 100);
+  const forms = (Array.isArray(g.formations) ? g.formations : []).filter((f) => FORMATIONS[f]);
+  return {
+    id: g.id,
+    ko: String(g.ko || '무명').slice(0, 8),
+    hanja: String(g.hanja || ''),
+    lead: stats.lead, war: stats.war, int: stats.int, pol: stats.pol, cha: stats.cha,
+    arms: ARMS.includes(g.arms) ? g.arms : '보병',
+    skill: SKILLS[g.skill] ? g.skill : 'tongsol',
+    formations: forms.length ? forms.slice(0, 5) : ['eorin'],
+    style: g.style || null,
+    custom: true,
+  };
+}
+
+/* 신군주 생성 입력을 게임 생성 옵션으로 바꾼다 */
+export function buildCustomLord(opts) {
+  const name = String(opts.name || '').trim();
+  if (name.length < CUSTOM_NAME_MIN || name.length > CUSTOM_NAME_MAX) throw new Error('군주 이름은 2~6자로 지어 주세요.');
+  const hanja = String(opts.hanja || '').trim().slice(0, 1) || name[0];
+  const palette = CUSTOM_COLORS.find((c) => c.hex === opts.color) || CUSTOM_COLORS[0];
+  const retinueN = clamp(Number(opts.retinue) || 0, 0, 2);
+  const formations = [opts.formation || 'eorin', 'bangwon', 'hakyik'].filter((f, i, a) => FORMATIONS[f] && a.indexOf(f) === i);
+  const lord = normalizeGeneral({
+    ...opts.stats,
+    id: 'cl_lord',
+    ko: name,
+    hanja,
+    arms: opts.arms,
+    skill: opts.skill,
+    formations,
+    style: opts.style,
+  });
+  const retinue = [];
+  for (let i = 0; i < retinueN; i++) {
+    const p = CUSTOM_RETINUE_PRESETS[i];
+    retinue.push(normalizeGeneral({
+      id: `cl_mate${i + 1}`,
+      ko: p.ko,
+      hanja: p.hanja,
+      lead: lord.lead - 8, war: lord.war - 6, int: lord.int - 10, pol: lord.pol - 8, cha: lord.cha - 6,
+      arms: p.arms,
+      skill: p.skill,
+      formations: ['eorin', 'bangwon'],
+      style: { hat: (i + 2) % 5, beard: (i + 1) % 4, skin: (i + 1) % 4 },
+    }));
+  }
+  return {
+    faction: { id: opts.factionId || 'custom', name, hanja, color: palette.hex },
+    lord,
+    retinue,
+    cityId: opts.cityId,
+  };
+}
+
+/* 신군주가 깃발을 꽂을 수 있는 성 — 성이 둘 이상인 세력에서 하나를 떼어낸다(원 세력이 멸망하지 않게) */
+export function customStartCities(scenarioId) {
+  const sc = SCENARIOS.find((s) => s.id === scenarioId);
+  if (!sc) return [];
+  const rows = [];
+  for (const f of sc.factions) {
+    if (f.cities.length < 2) continue;
+    for (const cid of f.cities) {
+      const c = CITY_BY_ID[cid];
+      rows.push({ cityId: cid, ko: c.ko, hanja: c.hanja, region: c.region, from: f.id, fromName: f.name, fromCities: f.cities.length, troops: c.troops });
+    }
+  }
+  return rows.sort((a, b) => a.fromCities - b.fromCities || b.troops - a.troops);
 }
 
 export function rngOf(state) {
@@ -152,7 +309,7 @@ export function isAdjacent(a, b) { return CITY_BY_ID[a].roads.includes(b); }
 export function lordOf(state, fid) {
   const f = state.factions[fid];
   if (!f || !f.lord) return null;
-  return GENERAL_BY_ID[f.lord];
+  return generalOf(state, f.lord);
 }
 export function factionStrength(state, fid) {
   const cs = factionCities(state, fid);
@@ -161,7 +318,7 @@ export function factionStrength(state, fid) {
 export function cityPower(state, cityId, defensive = true) {
   const c = state.cities[cityId];
   const gens = generalsInCity(state, cityId);
-  const best = gens.reduce((m, g) => Math.max(m, (GENERAL_BY_ID[g.id].lead + GENERAL_BY_ID[g.id].war) / 2), 40);
+  const best = gens.reduce((m, g) => { const t = generalOf(state, g.id); return Math.max(m, (t.lead + t.war) / 2); }, 40);
   let p = c.troops * (0.7 + c.train / 180) * (0.72 + best / 260);
   if (defensive) p *= 1 + c.def / 420 + c.order / 700;
   return Math.round(p);
@@ -183,8 +340,8 @@ export function calcActionPoints(state, fid) {
 export function bestOfficer(state, cityId, key, exclude = []) {
   const gens = generalsInCity(state, cityId).filter((g) => !g.acted && !exclude.includes(g.id));
   if (!gens.length) return null;
-  gens.sort((a, b) => (GENERAL_BY_ID[b.id][key] || 0) - (GENERAL_BY_ID[a.id][key] || 0));
-  return GENERAL_BY_ID[gens[0].id];
+  gens.sort((a, b) => ((generalOf(state, b.id) || {})[key] || 0) - ((generalOf(state, a.id) || {})[key] || 0));
+  return generalOf(state, gens[0].id);
 }
 
 /* ---------- 내정 명령 ---------- */
@@ -233,7 +390,7 @@ export function runCommand(state, type, opts) {
   if (!check.ok) return { ok: false, msg: check.why };
   const c = state.cities[opts.cityId];
   const g = state.generals[opts.officerId];
-  const t = GENERAL_BY_ID[opts.officerId];
+  const t = generalOf(state, opts.officerId);
   const rng = rngOf(state);
   let msg = '';
   let gain = 0;
@@ -282,7 +439,7 @@ export function runCommand(state, type, opts) {
       const r = rng();
       if (r < 0.35) {
         const free = freeGeneralsInCity(state, c.id);
-        if (free.length) msg = `${t.ko}의 탐색으로 ${cityName(c.id)}에서 인재를 찾았습니다: ${GENERAL_BY_ID[free[0].id].ko}`;
+        if (free.length) msg = `${t.ko}의 탐색으로 ${cityName(c.id)}에서 인재를 찾았습니다: ${generalOf(state, free[0].id).ko}`;
         else { c.gold += 200; msg = `${t.ko}이(가) 숨은 재물 200금을 찾았습니다.`; }
       } else if (r < 0.7) {
         const f = 400 + randInt(rng, 0, 400);
@@ -299,7 +456,7 @@ export function runCommand(state, type, opts) {
       const free = freeGeneralsInCity(state, c.id);
       let target = opts.hireId ? state.generals[opts.hireId] : free[0];
       if (!target || target.faction || target.city !== c.id) return { ok: false, msg: '등용할 수 없는 대상입니다.' };
-      const tg = GENERAL_BY_ID[target.id];
+      const tg = generalOf(state, target.id);
       const f = state.factions[state.playerId];
       const chance = clamp(0.34 + t.cha / 320 + f.fame / 320 - tg.war / 900 - tg.int / 900, 0.12, 0.92);
       if (rng() < chance) {
@@ -322,7 +479,7 @@ export function runCommand(state, type, opts) {
       c.gold -= 120;
       const inc = 8 + Math.floor(t.cha / 10) + randInt(rng, 0, 5);
       target.loyalty = clamp(target.loyalty + inc, 0, 100);
-      msg = `${GENERAL_BY_ID[target.id].ko}의 충성도가 ${inc} 올랐습니다. (충성 ${target.loyalty})`;
+      msg = `${generalOf(state, target.id).ko}의 충성도가 ${inc} 올랐습니다. (충성 ${target.loyalty})`;
       break;
     }
     case 'transport': {
@@ -437,9 +594,9 @@ function aiEconomy(state, fid, rng) {
       // 새 성으로 이동 (인접 아군 성에 장수가 없으면)
       break;
     }
-    gens.sort((a, b) => GENERAL_BY_ID[b.id].pol - GENERAL_BY_ID[a.id].pol);
+    gens.sort((a, b) => generalOf(state, b.id).pol - generalOf(state, a.id).pol);
     const g = gens[0];
-    const t = GENERAL_BY_ID[g.id];
+    const t = generalOf(state, g.id);
     const needFood = c.food < c.troops / 12;
     const stat = needFood ? 'agri' : (c.agri < c.comm ? 'agri' : 'comm');
     if (c.troops < 9000 && c.gold > 1600 && c.food > 2500) {
@@ -469,8 +626,8 @@ function aiEconomy(state, fid, rng) {
       if (!free.length) continue;
       const gens = generalsInCity(state, c.id);
       if (!gens.length) continue;
-      const t = GENERAL_BY_ID[gens[0].id];
-      const tg = GENERAL_BY_ID[free[0].id];
+      const t = generalOf(state, gens[0].id);
+      const tg = generalOf(state, free[0].id);
       if (rng() < clamp(0.2 + t.cha / 400, 0.05, 0.6)) {
         const g = state.generals[free[0].id];
         g.faction = fid; g.loyalty = 70;
@@ -525,7 +682,7 @@ export function moveGeneralsOnCapture(state, cityId, defFid, atkFid, rng) {
     } else if (r < 0.3 && atkFid === state.playerId) {
       g.faction = state.playerId; g.loyalty = 45; g.city = cityId;
       state.stats.captured++;
-      log(state, `${GENERAL_BY_ID[g.id].ko}이(가) 포로가 되어 항복했습니다.`);
+      log(state, `${generalOf(state, g.id).ko}이(가) 포로가 되어 항복했습니다.`);
     } else if (refuge.length) {
       g.city = refuge[Math.floor(rng() * refuge.length)].id;
     } else {
@@ -645,7 +802,7 @@ export function applyBattleResult(state, result) {
       if (atkFid === state.playerId) {
         g.faction = state.playerId; g.city = to.id; g.loyalty = 50;
         state.stats.captured++;
-        log(state, `${GENERAL_BY_ID[gid].ko}을(를) 사로잡아 부하로 삼았습니다.`);
+        log(state, `${generalOf(state, gid).ko}을(를) 사로잡아 부하로 삼았습니다.`);
       } else {
         g.faction = null; g.city = to.id; g.loyalty = 0;
       }
@@ -669,8 +826,10 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  if (!s || s.version !== SAVE_VERSION) throw new Error('저장 파일 형식이 다릅니다.');
-  // 누락 필드 보정
+  // 3 = 신군주 이전 양식. 열어서 새 양식으로 옮긴다.
+  if (!s || (s.version !== SAVE_VERSION && s.version !== 3)) throw new Error('저장 파일 형식이 다릅니다.');
+  s.version = SAVE_VERSION;
+  s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];
   s.log = s.log || [];
   s.stats = s.stats || { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0 };
@@ -698,8 +857,8 @@ export function ranking(state) {
 export function formationOf(general) {
   return general.formations && general.formations.length ? general.formations : ['eorin'];
 }
-export function formationOptions(gid) {
-  const g = GENERAL_BY_ID[gid];
-  return formationOf(g).map((fid) => FORMATIONS[fid]).filter(Boolean);
+export function formationOptions(gid, state = null) {
+  const g = generalOf(state, gid);
+  return formationOf(g || {}).map((fid) => FORMATIONS[fid]).filter(Boolean);
 }
-export { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS };
+export { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS };

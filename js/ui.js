@@ -1,5 +1,5 @@
 /* UI — 화면 전환 · 지도 · 내정 · 전술전투 · 일기토 */
-import { CITIES, CITY_BY_ID, GENERAL_BY_ID, SCENARIOS, FORMATIONS, REGIONS } from './data.js';
+import { CITIES, CITY_BY_ID, GENERAL_BY_ID, SCENARIOS, FORMATIONS, REGIONS, FACTION_COLORS, CUSTOM_COLORS, CUSTOM_HANJA, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS, SKILLS } from './data.js';
 import * as E from './engine.js';
 import * as B from './battle.js';
 import { createDuel, duelRound, DUEL_ACTIONS } from './duel.js';
@@ -11,6 +11,9 @@ import * as Cloud from './sync.js';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const fmt = (n) => Math.round(n).toLocaleString('ko-KR');
+const FALLBACK_SPEC = { ko: '무명', hanja: '', lead: 50, war: 50, int: 50, pol: 50, cha: 50, arms: '보병', skill: 'tongsol', formations: ['eorin'] };
+/* 신군주가 만든 장수까지 포함해 장수 데이터를 찾는다 */
+const gd = (id) => E.generalOf(game, id) || GENERAL_BY_ID[id] || FALLBACK_SPEC;
 
 const KEYS = { auto: 'samguk5.auto', slot: (i) => `samguk5.slot${i}`, muted: 'samguk5.muted' };
 
@@ -120,7 +123,12 @@ function drawTitleArt() {
 
 /* ---------- 시나리오 / 군주 ---------- */
 function renderScenarios() {
-  $('#scenario-list').innerHTML = SCENARIOS.map((s) => {
+  const entry = `<button class="sc-card sc-custom" data-act="open-custom" data-sc="${SCENARIOS[0].id}">
+      <div class="sc-year">신세력</div>
+      <div class="sc-name">★ 신군주 생성</div>
+      <div class="sc-meta"><span>이름·깃발·색·초상화·능력을 정해 새 세력으로 시작</span></div>
+    </button>`;
+  $('#scenario-list').innerHTML = entry + SCENARIOS.map((s) => {
     const facs = s.factions.length;
     const gens = new Set();
     s.factions.forEach((f) => f.generals.forEach((g) => gens.add(g)));
@@ -137,8 +145,8 @@ function renderLords(scenarioId) {
   currentScenario = sc;
   $('#lord-title').textContent = `${sc.year}년 ${sc.name} — 군주 선택`;
   $('#lord-list').innerHTML = sc.factions.map((f) => {
-    const lord = GENERAL_BY_ID[f.lord];
-    const color = (game && game.factions[f.id]) ? game.factions[f.id].color : (SCENARIO_COLORS[f.id] || '#888');
+    const lord = gd(f.lord);
+    const color = (game && game.factions[f.id]) ? game.factions[f.id].color : (FACTION_COLORS[f.id] || SCENARIO_COLORS[f.id] || '#888');
     return `<button class="lord-card" data-act="pick-lord" data-id="${f.id}" data-sc="${sc.id}">
       <img src="${portraitURL(lord.id, lord, 56, color)}" alt="${lord.ko}" />
       <div class="lc-name">${f.name}</div>
@@ -146,7 +154,7 @@ function renderLords(scenarioId) {
       <div class="lc-meta"><span>성 <b>${f.cities.length}</b></span><span>장수 <b>${f.generals.length}</b></span></div>
       <div class="lc-meta lc-stats"><span>통 <b>${lord.lead}</b></span><span>무 <b>${lord.war}</b></span><span>지 <b>${lord.int}</b></span></div>
     </button>`;
-  }).join('');
+  }).join('') + `<button class="btn big cst-lord-entry" data-act="open-custom" data-sc="${sc.id}" style="grid-column:1/-1;margin-top:4px">★ 이 시나리오에서 신군주로 시작</button>`;
 }
 const SCENARIO_COLORS = {
   jojo: '#3f6fb5', liubei: '#3f9b6b', sunquan: '#c2453f', lubu: '#8a5cc4', yuanshao: '#c08a3e',
@@ -154,6 +162,193 @@ const SCENARIO_COLORS = {
   liuyao: '#6a8ab0', yuan_shu: '#b04a8a', zhanglu: '#9a7a5a', taoqian: '#c0a05a', hansui: '#a06a30',
   gongsundu: '#5a8f9a', shixie: '#5a9a6a', free: '#6b6b6b',
 };
+
+/* ---------- 신군주(신세력) 생성 ---------- */
+let customDraft = null;
+const STAT_LABELS = [['lead', '통솔'], ['war', '무력'], ['int', '지력'], ['pol', '정치'], ['cha', '매력']];
+const CUSTOM_SKILLS = ['tongsol', 'yongmaeng', 'cheolbyeok', 'dolgyeok', 'sinsan', 'indeok', 'wieom', 'gyeonsu'];
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function openCustomScreen(scenarioId) {
+  const sc = SCENARIOS.find((s) => s.id === scenarioId) || SCENARIOS[0];
+  const cities = E.customStartCities(sc.id);
+  customDraft = {
+    scenarioId: sc.id,
+    name: '',
+    hanja: CUSTOM_HANJA[0],
+    color: CUSTOM_COLORS[0].hex,
+    style: { hat: 0, beard: 1, skin: 1 },
+    stats: E.rollCustomStats(),
+    skill: 'tongsol',
+    arms: '보병',
+    retinue: 0,
+    cityId: cities.length ? cities[0].cityId : null,
+  };
+  renderCustomBody();
+  show('scr-custom');
+  sfx.click();
+}
+
+const customSum = () => STAT_LABELS.reduce((n, [k]) => n + (customDraft.stats[k] || 0), 0);
+
+function renderCustomBody() {
+  const d = customDraft;
+  const sc = SCENARIOS.find((s) => s.id === d.scenarioId);
+  const cities = E.customStartCities(d.scenarioId);
+  if (!cities.some((c) => c.cityId === d.cityId)) d.cityId = cities.length ? cities[0].cityId : null;
+  const owner = cities.find((c) => c.cityId === d.cityId);
+  const preview = { ...d.stats, style: d.style };
+  const left = E.CUSTOM_STAT_BUDGET - customSum();
+  const leftHTML = left > 0 ? `<b style="color:#8ed18e">+${left}</b>` : left < 0 ? `<b style="color:#e08a7a">${left}</b>` : '<b>0</b>';
+  const groups = {};
+  for (const c of cities) (groups[c.region] = groups[c.region] || []).push(c);
+
+  $('#custom-body').innerHTML = `
+    <div class="cst-preview" style="border-color:${d.color}">
+      <img class="cst-face" src="${portraitURL('cl_lord', preview, 104, d.color, d.style)}" alt="신군주 초상화" />
+      <div class="cst-who">
+        <div class="cst-flag" style="background:${d.color}">${esc(d.hanja)}</div>
+        <div class="cst-name" data-live="name">${esc(d.name || '새 군주')}</div>
+        <div class="cst-sub">${sc.year}년 ${sc.name}${owner ? ` · ${owner.ko}에서 기상` : ''}</div>
+      </div>
+    </div>
+
+    <div class="cst-sec">
+      <label>시나리오</label>
+      <div class="chip-row">${SCENARIOS.map((s) => `<button class="pick-chip ${s.id === d.scenarioId ? 'on' : ''}" data-act="cst-scenario" data-v="${s.id}">${s.year} ${s.name}</button>`).join('')}</div>
+    </div>
+
+    <div class="cst-sec">
+      <label>군주 이름 <small>2~6자</small></label>
+      <input id="cst-name" class="cst-input" maxlength="6" value="${esc(d.name)}" placeholder="예: 한호" autocomplete="off" />
+    </div>
+
+    <div class="cst-sec">
+      <label>깃발 한자</label>
+      <div class="chip-row">${CUSTOM_HANJA.map((h) => `<button class="pick-chip ${h === d.hanja ? 'on' : ''}" data-act="cst-hanja" data-v="${h}" style="min-width:44px;font-size:15px">${h}</button>`).join('')}</div>
+      <input id="cst-hanja" class="cst-input" maxlength="1" value="${esc(d.hanja)}" placeholder="한자 1자 직접 입력" autocomplete="off" />
+    </div>
+
+    <div class="cst-sec">
+      <label>세력 색</label>
+      <div class="cst-colors">${CUSTOM_COLORS.map((c) => `<button class="cst-color ${c.hex === d.color ? 'on' : ''}" data-act="cst-color" data-v="${c.hex}" style="background:${c.hex}" aria-label="${c.ko}" title="${c.ko}"></button>`).join('')}</div>
+    </div>
+
+    <div class="cst-sec">
+      <label>초상화</label>
+      <div class="cst-row"><span class="cst-key">머리</span><div class="chip-row">${PORTRAIT_HATS.map((h) => `<button class="pick-chip ${d.style.hat === h.id ? 'on' : ''}" data-act="cst-style" data-k="hat" data-v="${h.id}">${h.ko}</button>`).join('')}</div></div>
+      <div class="cst-row"><span class="cst-key">수염</span><div class="chip-row">${PORTRAIT_BEARDS.map((b) => `<button class="pick-chip ${d.style.beard === b.id ? 'on' : ''}" data-act="cst-style" data-k="beard" data-v="${b.id}">${b.ko}</button>`).join('')}</div></div>
+      <div class="cst-row"><span class="cst-key">피부</span><div class="chip-row">${PORTRAIT_SKINS.map((s) => `<button class="pick-chip ${d.style.skin === s.id ? 'on' : ''}" data-act="cst-style" data-k="skin" data-v="${s.id}">${s.ko}</button>`).join('')}</div></div>
+    </div>
+
+    <div class="cst-sec">
+      <label>능력치 <small>총 ${E.CUSTOM_STAT_BUDGET} · 남은 <span id="cst-left">${leftHTML}</span></small></label>
+      <div class="cst-stats">
+        ${STAT_LABELS.map(([k, ko]) => `<div class="cst-stat"><span>${ko}</span>
+          <button data-act="cst-stat" data-k="${k}" data-d="-1" aria-label="${ko} 줄이기">－</button>
+          <b data-stat="${k}">${d.stats[k]}</b>
+          <button data-act="cst-stat" data-k="${k}" data-d="1" aria-label="${ko} 늘리기">＋</button></div>`).join('')}
+      </div>
+      <button class="btn ghost cst-dice" data-act="cst-dice">🎲 주사위로 다시 굴리기</button>
+    </div>
+
+    <div class="cst-sec">
+      <label>특기</label>
+      <div class="chip-row">${CUSTOM_SKILLS.map((k) => `<button class="pick-chip ${d.skill === k ? 'on' : ''}" data-act="cst-skill" data-v="${k}">${SKILLS[k].ko}</button>`).join('')}</div>
+    </div>
+
+    <div class="cst-sec">
+      <label>주력 병과</label>
+      <div class="chip-row">${['보병', '궁병', '기병', '수군'].map((a) => `<button class="pick-chip ${d.arms === a ? 'on' : ''}" data-act="cst-arms" data-v="${a}">${a}</button>`).join('')}</div>
+    </div>
+
+    <div class="cst-sec">
+      <label>시작 성 <small>소세력의 성 하나를 받습니다</small></label>
+      <select id="cst-city" class="cst-input">
+        ${Object.entries(groups).map(([r, list]) => `<optgroup label="${r}">${list.map((c) => `<option value="${c.cityId}" ${c.cityId === d.cityId ? 'selected' : ''}>${c.ko} · ${c.fromName}군 (성 ${c.fromCities}곳·병 ${fmt(c.troops)})</option>`).join('')}</optgroup>`).join('')}
+      </select>
+      ${owner ? `<p class="note">${owner.ko}은(는) ${owner.fromName}군에서 떨어져 나옵니다. ${owner.fromName}군은 나머지 ${owner.fromCities - 1}성을 지킵니다.</p>` : ''}
+    </div>
+
+    <div class="cst-sec">
+      <label>휘하 장수 <small>함께 시작하는 신무장</small></label>
+      <div class="chip-row">${[0, 1, 2].map((n) => `<button class="pick-chip ${d.retinue === n ? 'on' : ''}" data-act="cst-retinue" data-v="${n}">${n === 0 ? '혼자' : `${n}명 동반`}</button>`).join('')}</div>
+    </div>
+
+    <button class="btn big" data-act="cst-start" style="margin:6px 0 20px">「${esc(d.name || '새 군주')}」 세력으로 시작</button>
+  `;
+  if (mapView) requestAnimationFrame(() => mapView.resize());
+}
+
+function adjustCustomStat(k, delta) {
+  const cur = customDraft.stats[k] || 0;
+  const next = Math.max(E.CUSTOM_STAT_MIN, Math.min(E.CUSTOM_STAT_MAX, cur + delta));
+  if (next === cur) return;
+  if (delta > 0 && customSum() + (next - cur) > E.CUSTOM_STAT_BUDGET) {
+    toast('배분할 수 있는 능력치를 모두 썼습니다. 다른 항목을 줄이세요.');
+    sfx.fail();
+    return;
+  }
+  customDraft.stats[k] = next;
+  const cell = $(`[data-stat="${k}"]`);
+  if (cell) cell.textContent = next;
+  const left = E.CUSTOM_STAT_BUDGET - customSum();
+  const lab = $('#cst-left');
+  if (lab) lab.innerHTML = left > 0 ? `<b style="color:#8ed18e">+${left}</b>` : left < 0 ? `<b style="color:#e08a7a">${left}</b>` : '<b>0</b>';
+  sfx.click();
+}
+
+function startCustomGame() {
+  const d = customDraft;
+  const name = String($('#cst-name') ? $('#cst-name').value : d.name).trim();
+  d.name = name;
+  if (name.length < E.CUSTOM_NAME_MIN || name.length > E.CUSTOM_NAME_MAX) {
+    toast('군주 이름은 2~6자로 지어 주세요.');
+    sfx.fail();
+    const inp = $('#cst-name');
+    if (inp) inp.focus();
+    return;
+  }
+  const hanja = String($('#cst-hanja') ? $('#cst-hanja').value : d.hanja).trim();
+  d.hanja = hanja.slice(0, 1) || name[0];
+  const cities = E.customStartCities(d.scenarioId);
+  const cityId = d.cityId || (cities[0] && cities[0].cityId);
+  if (!cityId) { toast('시작 성을 골라 주세요.'); sfx.fail(); return; }
+  let custom;
+  try {
+    custom = E.buildCustomLord({
+      name, hanja: d.hanja, color: d.color, cityId,
+      stats: d.stats, skill: d.skill, arms: d.arms,
+      retinue: d.retinue, style: d.style,
+    });
+  } catch (err) {
+    toast(err.message);
+    sfx.fail();
+    return;
+  }
+  game = E.createGame(d.scenarioId, custom.faction.id, 1 + (Date.now() % 99991), { custom });
+  currentScenario = SCENARIOS.find((s) => s.id === d.scenarioId);
+  sfx.ok();
+  afterGameInit();
+  toast(`${custom.faction.name} 세력이 ${CITY_BY_ID[cityId].ko}에서 불기를 올렸습니다!`, 2600);
+}
+
+function onCustomInput(e) {
+  if (!customDraft) return;
+  const t = e.target;
+  if (t.id === 'cst-name') {
+    customDraft.name = t.value;
+    const live = $('[data-live="name"]');
+    if (live) live.textContent = t.value || '새 군주';
+  } else if (t.id === 'cst-hanja') {
+    customDraft.hanja = t.value.slice(0, 1);
+    const flag = $('.cst-flag');
+    if (flag) flag.textContent = customDraft.hanja || (customDraft.name || '新')[0];
+  } else if (t.id === 'cst-city' && e.type === 'change') {
+    customDraft.cityId = t.value;
+    renderCustomBody();
+  }
+}
 
 /* ---------- 게임 시작 ---------- */
 function startGame(scenarioId, factionId) {
@@ -184,6 +379,13 @@ function autoSave() {
   if (!game) return;
   try { localStorage.setItem(KEYS.auto, E.serialize(game)); } catch (e) { /* 저장 공간 부족 */ }
   Cloud.noteSaved('auto');
+  refreshContinue();
+}
+
+/* 이어하기 버튼은 자동 저장 유무로 켜고 끈다 */
+function refreshContinue() {
+  const b = $('#btn-continue');
+  if (b) b.disabled = !localStorage.getItem(KEYS.auto);
 }
 
 /* ---------- HUD ---------- */
@@ -204,7 +406,7 @@ function renderGame() {
   if (!game.gameOver) E.checkVictory(game);
   const f = game.factions[game.playerId];
   const sum = E.factionSummary(game, game.playerId);
-  const lord = GENERAL_BY_ID[f.lord];
+  const lord = gd(f.lord);
   $('#hud-crest').textContent = f.hanja ? f.hanja[0] : f.name[0];
   $('#hud-crest').style.background = f.color;
   $('#hud-crest').style.color = '#10131a';
@@ -354,7 +556,7 @@ function renderCityPanel(dir = 0) {
   const ownerName = c.owner ? fname(c.owner) : '재야';
   const gens = mine ? E.generalsInCity(game, selectedCity) : Object.values(game.generals).filter((g) => g.city === selectedCity && g.faction === c.owner && !g.captive);
   const genHTML = gens.slice(0, 12).map((g) => {
-    const t = GENERAL_BY_ID[g.id];
+    const t = gd(g.id);
     return `<div class="gen-chip ${g.acted ? 'done' : ''}" title="${t.ko}">
       <img src="${portraitURL(g.id, t, 32, colorOf(g.faction))}" alt="${t.ko}" />
       <span>${t.ko}</span></div>`;
@@ -442,7 +644,7 @@ function openSheet(title, html) {
 function closeSheet() { $('#sheet').classList.add('hidden'); }
 
 function officerRowHTML(g, actionAct, extra = '', disabledHint = '') {
-  const t = GENERAL_BY_ID[g.id];
+  const t = gd(g.id);
   const done = g.acted || g.captive;
   return `<button class="officer-row ${done ? 'done' : ''}" data-act="${actionAct}" data-officer="${g.id}" ${done ? 'disabled' : ''}>
     <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
@@ -472,7 +674,7 @@ function openCommandSheet(type, cityId) {
     const free = E.freeGeneralsInCity(game, cityId);
     if (!free.length) { toast('이 성에 재야 장수가 없습니다.'); sfx.fail(); return; }
     const rows = free.map((g) => {
-      const t = GENERAL_BY_ID[g.id];
+      const t = gd(g.id);
       return `<button class="officer-row" data-act="do-hire" data-officer="${g.id}" data-city="${cityId}">
         <img src="${portraitURL(g.id, t, 40, '#444')}" alt="${t.ko}" />
         <div class="or-main"><div class="or-name">${t.ko}<small>${t.hanja}</small> <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
@@ -489,7 +691,7 @@ function openCommandSheet(type, cityId) {
   if (type === 'reward') {
     const targets = gens.filter((g) => g.id !== game.factions[game.playerId].lord);
     const rows = targets.sort((a, b) => a.loyalty - b.loyalty).map((g) => {
-      const t = GENERAL_BY_ID[g.id];
+      const t = gd(g.id);
       return `<button class="officer-row" data-act="do-reward" data-officer="${g.id}" data-city="${cityId}">
         <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
         <div class="or-main"><div class="or-name">${t.ko}<small>${t.hanja}</small></div>
@@ -583,7 +785,7 @@ function marchSheetHTML() {
       <div class="stepper"><button data-act="march-ratio-" >－</button><input id="march-ratio" type="number" value="${Math.round(p.ratio * 100)}" min="20" max="100" />%<button data-act="march-ratio+">＋</button></div></div>
     <p class="note">출진 장수 (최대 5명)</p>
     <div class="chip-row">${gens.map((g) => {
-      const t = GENERAL_BY_ID[g.id];
+      const t = gd(g.id);
       const on = p.generals.includes(g.id);
       return `<button class="pick-chip ${on ? 'on' : ''}" data-act="march-gen" data-officer="${g.id}">${t.ko} <b style="color:#9c9270">무${t.war}</b></button>`;
     }).join('')}</div>
@@ -596,7 +798,7 @@ function openAttackEnemySheet(enemyCityId) {
   if (!sources.length) { toast('공격할 수 있는 인접 아군 성이 없습니다.'); sfx.fail(); return; }
   openSheet(`${CITY_BY_ID[enemyCityId].ko} 공격`, `<p class="note">어느 성에서 출진할지 고르세요.</p>
     ${sources.map((s) => `<button class="officer-row" data-act="march-from" data-city="${s}" data-to="${enemyCityId}">
-      <img src="${portraitURL(Object.values(game.generals).find((g) => g.city === s && g.faction === game.playerId)?.id || game.factions[game.playerId].lord, GENERAL_BY_ID[game.factions[game.playerId].lord], 40, colorOf(game.playerId))}" alt="" />
+      <img src="${portraitURL(Object.values(game.generals).find((g) => g.city === s && g.faction === game.playerId)?.id || game.factions[game.playerId].lord, gd(game.factions[game.playerId].lord), 40, colorOf(game.playerId))}" alt="" />
       <div class="or-main"><div class="or-name">${CITY_BY_ID[s].ko}</div><div class="or-stats"><span>병력 <b>${fmt(game.cities[s].troops)}</b></span><span>장수 <b>${E.generalsInCity(game, s).length}</b></span></div></div>
       <div class="or-go">출진</div></button>`).join('')}`);
 }
@@ -618,7 +820,7 @@ function startPlayerBattle() {
 
 /* ---------- 전투 ---------- */
 function beginBattle(setup, playerSide) {
-  battle = B.createBattle({ ...setup, seed: (battleSeedCounter++), playerSide });
+  battle = B.createBattle({ ...setup, seed: (battleSeedCounter++), playerSide, generals: E.generalMap(game) });
   battleSel = null; battleMode = null; battleBusy = false;
   lastBattleResult = null;
   show('scr-battle');
@@ -745,7 +947,7 @@ function drawBattle() {
 }
 
 function unitCardHTML(u, selected) {
-  const t = GENERAL_BY_ID[u.gid];
+  const t = gd(u.gid);
   return `<button class="pick-chip ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" style="opacity:${u.acted ? 0.5 : 1};padding:5px 7px">
     <span style="display:block;white-space:nowrap">${u.name}</span>
     <b style="font-size:10px;color:#9fd0a0;white-space:nowrap">${fmt(u.troops)}</b>
@@ -924,7 +1126,7 @@ function finishBattle() {
   const summary = iAmAttacker
     ? `아군 손실 ${fmt(res.atkLoss)} · 적 손실 ${fmt(res.defLoss)}`
     : `아군 손실 ${fmt(res.defLoss)} · 적 손실 ${fmt(res.atkLoss)}`;
-  const captured = res.capturedGenerals.map((g) => GENERAL_BY_ID[g].ko).join(', ');
+  const captured = res.capturedGenerals.map((g) => gd(g).ko).join(', ');
   if (win) sfx.win(); else sfx.lose();
 
   // 엔진 반영
@@ -969,8 +1171,8 @@ function closeBattle() {
 function openDuel(target) {
   const mine = battleSel;
   if (!mine || !target) return;
-  const gA = GENERAL_BY_ID[mine.gid];
-  const gB = GENERAL_BY_ID[target.gid];
+  const gA = gd(mine.gid);
+  const gB = gd(target.gid);
   duelCtx = { d: createDuel(gA, gB, Math.floor(Math.random() * 99999), { a: '아군', b: '적군' }), mine, target };
   $('#duel').classList.remove('hidden');
   sfx.duel();
@@ -979,7 +1181,7 @@ function openDuel(target) {
 
 function renderDuel() {
   const { d, mine, target } = duelCtx;
-  const img = (gid, color) => `<img src="${portraitURL(gid, GENERAL_BY_ID[gid], 62, color)}" alt="" />`;
+  const img = (gid, color) => `<img src="${portraitURL(gid, gd(gid), 62, color)}" alt="" />`;
   const sideColor = (isMine) => (isMine ? colorOf(game.playerId) : '#8c2f24');
   $('#duel-a').className = 'fighter a';
   $('#duel-a').innerHTML = `${img(d.a.gid, sideColor(true))}
@@ -1205,10 +1407,21 @@ function onClick(e) {
       $$('[data-act="mute"]').forEach((b) => { b.textContent = sfx.isMuted() ? '✕' : '♪'; });
       break;
     }
-    case 'back-title': show('scr-title'); drawTitleArt(); break;
+    case 'back-title': refreshContinue(); show('scr-title'); drawTitleArt(); break;
     case 'back-scenario': renderScenarios(); show('scr-scenario'); break;
     case 'pick-scenario': renderLords(el.dataset.id); show('scr-lord'); break;
     case 'pick-lord': startGame(el.dataset.sc, el.dataset.id); break;
+    case 'open-custom': openCustomScreen(el.dataset.sc || (currentScenario && currentScenario.id) || SCENARIOS[0].id); break;
+    case 'cst-scenario': customDraft.scenarioId = el.dataset.v; renderCustomBody(); break;
+    case 'cst-hanja': customDraft.hanja = el.dataset.v; renderCustomBody(); break;
+    case 'cst-color': customDraft.color = el.dataset.v; renderCustomBody(); break;
+    case 'cst-style': customDraft.style[el.dataset.k] = Number(el.dataset.v); renderCustomBody(); break;
+    case 'cst-stat': adjustCustomStat(el.dataset.k, Number(el.dataset.d)); break;
+    case 'cst-dice': customDraft.stats = E.rollCustomStats(); renderCustomBody(); sfx.click(); break;
+    case 'cst-skill': customDraft.skill = el.dataset.v; renderCustomBody(); break;
+    case 'cst-arms': customDraft.arms = el.dataset.v; renderCustomBody(); break;
+    case 'cst-retinue': customDraft.retinue = Number(el.dataset.v); renderCustomBody(); break;
+    case 'cst-start': startCustomGame(); break;
     case 'jump-region': {
       closeSheet();
       if (el.dataset.region === '__mine') {
@@ -1277,7 +1490,7 @@ function onClick(e) {
       break;
     }
     case 'do-load': doLoad(el.dataset.slot); break;
-    case 'to-title': closeSheet(); $('#duel').classList.add('hidden'); show('scr-title'); drawTitleArt(); break;
+    case 'to-title': closeSheet(); $('#duel').classList.add('hidden'); refreshContinue(); show('scr-title'); drawTitleArt(); break;
     case 'new-game': break;
     /* 전투 */
     case 'bt-select': {
@@ -1307,7 +1520,7 @@ function onClick(e) {
     case 'bt-duel': {
       const opts = B.duelOptions(battle, battleSel);
       openSheet('일기토 상대', opts.map((u) => {
-        const t = GENERAL_BY_ID[u.gid];
+        const t = gd(u.gid);
         return `<button class="officer-row" data-act="bt-duel-go" data-unit="${u.id}">
           <img src="${portraitURL(u.gid, t, 40, '#8c2f24')}" alt="" />
           <div class="or-main"><div class="or-name">${t.ko}<small>${t.hanja}</small></div>
@@ -1358,8 +1571,10 @@ function doTransport(officerId) {
 export function boot() {
   $$('[data-act="mute"]').forEach((b) => { b.textContent = sfx.isMuted() ? '✕' : '♪'; });
   document.addEventListener('click', onClick);
+  document.addEventListener('input', onCustomInput);
+  document.addEventListener('change', onCustomInput);
   bindCityPanelSwipe();
-  $('#btn-continue').disabled = !localStorage.getItem(KEYS.auto);
+  refreshContinue();
   $('#map') && $('#map').addEventListener('pointerdown', () => sfx.unlock(), { once: true });
   const bc = $('#battle-canvas');
   bc && bc.addEventListener('click', (e) => { if (battle) battleTap(e.clientX, e.clientY); });

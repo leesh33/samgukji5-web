@@ -317,6 +317,56 @@ export const GENERALS = [
   // 사섭군
   G('shi_xie', '사섭', '士燮', 56, 40, 62, 74, 80, '보병', 'gyeonsu', '방원'),
   G('shi_yi', '사의', '士壹', 50, 40, 54, 62, 60, '보병', 'gyeonsu', '어린'),
+
+  // ── 184 황건·한말 ──
+  G('zhang_jue', '장각', '張角', 78, 30, 88, 70, 92, '궁병', 'sinsan', '방원학익'),
+  G('zhang_bao', '장보', '張寶', 72, 66, 62, 44, 60, '보병', 'hollan', '어린방원'),
+  G('zhang_liang', '장량', '張梁', 74, 74, 48, 34, 52, '보병', 'dolgyeok', '봉시어린'),
+  G('bo_cai', '파재', '波才', 70, 72, 40, 34, 50, '보병', 'dolgyeok', '어린'),
+  G('zhang_mancheng', '장만성', '張曼成', 66, 68, 36, 30, 44, '보병', 'dolgyeok', '어린'),
+  G('guan_hai', '관해', '管亥', 74, 84, 30, 26, 44, '기병', 'dolgyeok', '봉시'),
+  G('huangfu_song', '황보숭', '皇甫嵩', 92, 80, 84, 78, 84, '보병', 'tongsol', '방원어린학익'),
+  G('lu_zhi', '노식', '盧植', 88, 68, 90, 86, 82, '보병', 'cheolbyeok', '방원학익'),
+  G('zhu_jun', '주준', '朱儁', 86, 78, 76, 72, 74, '보병', 'gyeonsu', '방원'),
+  G('he_jin', '하진', '何進', 74, 70, 40, 62, 58, '보병', 'gyeonsu', '어린'),
+  G('ding_yuan', '정원', '丁原', 78, 78, 60, 62, 66, '기병', 'dolgyeok', '봉시'),
+  G('dong_zhuo', '동탁', '董卓', 88, 86, 72, 50, 42, '기병', 'wieom', '봉시방원'),
+  G('wang_yun', '왕윤', '王允', 56, 30, 86, 88, 74, '궁병', 'hollan', '방원'),
+  G('hua_xiong', '화웅', '華雄', 80, 90, 46, 40, 52, '기병', 'dolgyeok', '봉시'),
+  G('li_ru', '이유', '李儒', 70, 26, 94, 80, 50, '궁병', 'hwagye', '방원'),
+  G('niu_fu', '우보', '牛輔', 68, 74, 40, 34, 40, '기병', 'dolgyeok', '어린'),
+  G('xu_rong', '서영', '徐榮', 84, 82, 72, 60, 62, '기병', 'cheolbyeok', '봉시방원'),
+  G('zhang_yang', '장양', '張楊', 68, 66, 58, 60, 56, '보병', 'gyeonsu', '방원'),
+
+  // ── 삼국정립·후기 ──
+  G('cao_pi', '조비', '曹丕', 78, 62, 82, 88, 86, '보병', 'tongsol', '방원학익'),
+  G('cao_rui', '조예', '曹叡', 72, 50, 78, 82, 76, '보병', 'gyeonsu', '방원'),
+  G('cao_zhen', '조진', '曹眞', 82, 78, 66, 68, 66, '기병', 'cheolbyeok', '방원'),
+  G('deng_ai', '등애', '鄧艾', 94, 82, 90, 80, 70, '보병', 'cheolbyeok', '방원어린'),
+  G('zhong_hui', '종회', '鍾會', 82, 52, 92, 84, 62, '궁병', 'sinsan', '방원'),
+  G('yang_hu', '양호', '羊祜', 90, 60, 92, 94, 88, '보병', 'gyeonsu', '방원'),
+  G('du_yu', '두예', '杜預', 88, 54, 92, 90, 76, '보병', 'sinsan', '방원학익'),
+  G('guo_huai', '곽회', '郭淮', 86, 74, 80, 78, 66, '보병', 'gyeonsu', '방원'),
+  G('xiahou_ba', '하후패', '夏侯霸', 78, 82, 64, 58, 62, '기병', 'dolgyeok', '봉시'),
+  G('sima_shi', '사마사', '司馬師', 84, 72, 90, 90, 64, '보병', 'gyeonsu', '방원'),
+  G('sima_zhao', '사마소', '司馬昭', 82, 70, 88, 92, 62, '보병', 'sinsan', '방원'),
+  G('jiang_wei', '강유', '姜維', 92, 88, 90, 74, 78, '기병', 'sinsan', '봉시학익'),
+  G('zhang_wan', '장완', '蔣琬', 78, 40, 88, 92, 78, '궁병', 'gyeonsu', '방원'),
+  G('fei_yi', '비의', '費禕', 74, 36, 86, 92, 84, '궁병', 'gyeonsu', '방원'),
+  G('guo_jun', '곽준', '霍峻', 84, 78, 70, 66, 68, '보병', 'cheolbyeok', '방원'),
+  G('ma_zhong', '마충', '馬忠', 80, 78, 72, 74, 66, '보병', 'gyeonsu', '방원'),
+  G('guan_xing', '관흥', '關興', 76, 82, 58, 52, 62, '기병', 'dolgyeok', '봉시'),
+  G('guan_ping', '관평', '關平', 78, 80, 62, 56, 66, '보병', 'gyeonsu', '방원'),
+  G('zhang_bao_zi', '장포', '張苞', 76, 84, 50, 44, 58, '기병', 'dolgyeok', '봉시'),
+  G('wang_ping', '왕평', '王平', 86, 76, 70, 64, 62, '보병', 'cheolbyeok', '방원'),
+  G('ma_su', '마속', '馬謖', 66, 62, 84, 68, 70, '궁병', 'sinsan', '방원'),
+  G('lu_kang', '육항', '陸抗', 94, 64, 94, 90, 78, '수군', 'gyeonsu', '방원학익'),
+  G('zhu_ran', '주연', '朱然', 84, 80, 70, 68, 66, '수군', 'sujeon', '방원'),
+  G('zhuge_ke', '제갈각', '諸葛恪', 80, 60, 88, 80, 66, '보병', 'sinsan', '방원'),
+  G('meng_huo', '맹획', '孟獲', 82, 88, 48, 40, 76, '보병', 'dolgyeok', '장사어린'),
+  G('zhurong', '축융', '祝融', 78, 86, 50, 42, 80, '궁병', 'jeogyeok', '학익'),
+  G('wutugu', '올돌골', '兀突骨', 86, 90, 40, 24, 66, '보병', 'cheolbyeok', '방원'),
+  G('liu_yan', '유언', '劉焉', 70, 50, 74, 84, 80, '보병', 'indeok', '방원'),
 ];
 
 export const GENERAL_BY_ID = Object.fromEntries(GENERALS.map((g) => [g.id, g]));
@@ -343,11 +393,115 @@ export const FACTION_COLORS = {
   shixie: '#5a9a6a',
   kong_rong: '#7a9a6a',
   li_jue: '#8a4a3a',
+  han: '#c9b26a',
+  hwanggeon: '#d8a028',
+  dongzhuo: '#8a3a4a',
+  sunjian: '#c2453f',
+  liuyan: '#8a9a5a',
+  nanman: '#4f8a5a',
   free: '#6b6b6b',
 };
 
+/* 신군주(신세력) 세력 색 팔레트 — 기존 세력과 겹치지 않는 선명한 8색 */
+export const CUSTOM_COLORS = [
+  { id: 'crimson', ko: '주홍', hex: '#d1495b' },
+  { id: 'azure', ko: '청람', hex: '#2f7fd0' },
+  { id: 'jade', ko: '비취', hex: '#2fa46a' },
+  { id: 'violet', ko: '자주', hex: '#8a5cc4' },
+  { id: 'amber', ko: '호박', hex: '#d59b2a' },
+  { id: 'teal', ko: '청록', hex: '#2aa0a0' },
+  { id: 'rose', ko: '장미', hex: '#c8548f' },
+  { id: 'slate', ko: '흑철', hex: '#6b7f9a' },
+];
+
+/* 깃발 한자 프리셋 */
+export const CUSTOM_HANJA = ['韓', '李', '龍', '星', '天', '虎', '風', '月', '劍', '雲'];
+
+/* 신군주 초상화 프리셋 — 도트 초상화 생성기의 스타일 값 */
+export const PORTRAIT_HATS = [
+  { id: 0, ko: '투구' }, { id: 1, ko: '관모' }, { id: 2, ko: '두건' },
+  { id: 3, ko: '상투' }, { id: 4, ko: '전립' },
+];
+export const PORTRAIT_BEARDS = [
+  { id: 0, ko: '없음' }, { id: 1, ko: '수염' }, { id: 2, ko: '구레나룻' }, { id: 3, ko: '장수염' },
+];
+export const PORTRAIT_SKINS = [
+  { id: 0, ko: '밝음' }, { id: 1, ko: '보통' }, { id: 2, ko: '구릿빛' }, { id: 3, ko: '거무스름' },
+];
+
 /* 시나리오 */
 export const SCENARIOS = [
+  {
+    id: 's184',
+    year: 184,
+    name: '황건의 난',
+    hanja: '黃巾之亂',
+    desc: '태평도 장각이 “창천이 죽고 황천이 선다”며 봉기했다. 삿갓 쓴 백성이 기주·연주를 뒤덮고, 한실은 하진과 황보숭을 내세워 막아선다.',
+    factions: [
+      { id: 'hwanggeon', name: '황건적', hanja: '黃巾', lord: 'zhang_jue', cities: ['julu', 'ye', 'pingyuan', 'puyang', 'chenliu', 'nanpi', 'linzi'],
+        generals: ['zhang_jue', 'zhang_bao', 'zhang_liang', 'bo_cai', 'zhang_mancheng', 'guan_hai'] },
+      { id: 'han', name: '한실', hanja: '漢', lord: 'he_jin', cities: ['luoyang', 'hongnong', 'changan', 'xuchang', 'runan'],
+        generals: ['he_jin', 'huangfu_song', 'lu_zhi', 'zhu_jun', 'wang_yun', 'liu_ye', 'mao_jie', 'xun_yu', 'zhu_ling'] },
+      { id: 'dongzhuo', name: '동탁', hanja: '董卓', lord: 'dong_zhuo', cities: ['jinyang', 'tianshui', 'longxi', 'wuwei'],
+        generals: ['dong_zhuo', 'li_ru', 'hua_xiong', 'niu_fu', 'xu_rong', 'li_jue', 'guo_si', 'zhang_ji', 'fan_chou'] },
+      { id: 'yuanshao', name: '원소', hanja: '袁紹', lord: 'yuan_shao', cities: ['ji'],
+        generals: ['yuan_shao', 'yuan_tan', 'yuan_shang', 'yan_liang', 'wen_chu', 'ju_shou', 'tian_feng', 'feng_ji', 'guo_tu', 'shen_pei', 'xu_you', 'chunyu_qiong', 'gao_gan'] },
+      { id: 'gongsunzan', name: '공손찬', hanja: '公孫瓚', lord: 'gongsun_zan', cities: ['beiping', 'xiangping'],
+        generals: ['gongsun_zan', 'gongsun_yue', 'gongsun_fan', 'shan_jing', 'tian_kai', 'yan_gang', 'guan_jing', 'zou_dan', 'zhao_yun'] },
+      { id: 'sunjian', name: '손견', hanja: '孫堅', lord: 'sun_jian', cities: ['changsha', 'jiangxia'],
+        generals: ['sun_jian', 'cheng_pu', 'huang_gai', 'han_dang', 'zhu_zhi'] },
+      { id: 'liubiao', name: '유표', hanja: '劉表', lord: 'liu_biao', cities: ['xiangyang', 'jiangling', 'xinye', 'guiyang'],
+        generals: ['liu_biao', 'cai_mao', 'kuai_yue', 'huang_zu', 'zhang_yun', 'han_song', 'cai_xun', 'huang_zhong'] },
+      { id: 'taoqian', name: '도겸', hanja: '陶謙', lord: 'tao_qian', cities: ['xiapi', 'pengcheng', 'xiaopei', 'guangling', 'beihai'],
+        generals: ['tao_qian', 'cao_bao', 'chen_deng', 'chen_gui'] },
+      { id: 'liuyao', name: '유요', hanja: '劉繇', lord: 'liu_yao', cities: ['shouchun', 'lujiang', 'jianye', 'wu', 'kuaiji', 'yuzhang'],
+        generals: ['liu_yao', 'zhang_ying', 'fan_neng', 'yu_mi'] },
+      { id: 'liuyan', name: '유언', hanja: '劉焉', lord: 'liu_yan', cities: ['chengdu', 'zitong', 'jiangzhou'],
+        generals: ['liu_yan', 'zhang_ren', 'zhang_song', 'huang_quan', 'lei_tong', 'ling_bao', 'deng_xian', 'liu_gui', 'yang_huai', 'gao_pei', 'wu_yi'] },
+      { id: 'zhanglu', name: '장로', hanja: '張魯', lord: 'zhang_lu', cities: ['hanzhong'],
+        generals: ['zhang_lu', 'zhang_wei', 'yang_ren', 'yan_pu', 'yang_bo'] },
+      { id: 'shixie', name: '사섭', hanja: '士燮', lord: 'shi_xie', cities: ['nanhai', 'jiaozhi'], generals: ['shi_xie', 'shi_yi'] },
+    ],
+    free: { luoyang: ['cao_cao'], ji: ['liu_bei', 'guan_yu', 'zhang_fei'], lujiang: ['sun_ce'], beiping: ['taishi_ci'] },
+  },
+  {
+    id: 's189',
+    year: 189,
+    name: '반동탁 연합',
+    hanja: '反董卓聯合',
+    desc: '동탁이 소제를 폐하고 낙양을 불태웠다. 원소를 맹주로 열여덟 제후가 들고일어나지만, 각자의 셈은 이미 달랐다.',
+    factions: [
+      { id: 'dongzhuo', name: '동탁', hanja: '董卓', lord: 'dong_zhuo', cities: ['luoyang', 'hongnong', 'changan', 'xuchang'],
+        generals: ['dong_zhuo', 'li_ru', 'hua_xiong', 'niu_fu', 'xu_rong', 'li_jue', 'guo_si', 'zhang_ji', 'fan_chou', 'yang_feng', 'lu_bu', 'chen_gong', 'gao_shun', 'zhang_liao', 'zang_ba', 'wei_xu', 'hou_cheng', 'song_xian', 'cao_xing', 'hao_meng'] },
+      { id: 'yuanshao', name: '원소', hanja: '袁紹', lord: 'yuan_shao', cities: ['ye', 'nanpi', 'julu', 'jinyang', 'ji', 'linzi'],
+        generals: ['yuan_shao', 'yuan_tan', 'yuan_shang', 'yan_liang', 'wen_chu', 'ju_shou', 'tian_feng', 'feng_ji', 'guo_tu', 'shen_pei', 'xu_you', 'chunyu_qiong', 'gao_gan', 'zhang_he', 'gao_lan', 'zhang_yang'] },
+      { id: 'jojo', name: '조조', hanja: '曹操', lord: 'cao_cao', cities: ['chenliu', 'puyang'],
+        generals: ['cao_cao', 'xiahou_dun', 'xiahou_yuan', 'cao_ren', 'cao_hong', 'yue_jin', 'yu_jin', 'dian_wei', 'xun_yu', 'xun_you', 'cheng_yu', 'man_chong', 'mao_jie', 'cao_chun', 'cao_xiu', 'lv_qian', 'li_dian', 'zhu_ling', 'cao_ang', 'wei_yan'] },
+      { id: 'sunjian', name: '손견', hanja: '孫堅', lord: 'sun_jian', cities: ['changsha', 'jiangxia'],
+        generals: ['sun_jian', 'sun_ce', 'cheng_pu', 'huang_gai', 'han_dang', 'zhu_zhi', 'sun_quan'] },
+      { id: 'liubei', name: '유비', hanja: '劉備', lord: 'liu_bei', cities: ['pingyuan'],
+        generals: ['liu_bei', 'guan_yu', 'zhang_fei', 'zhao_yun', 'sun_qian', 'mi_zhu', 'jian_yong'] },
+      { id: 'gongsunzan', name: '공손찬', hanja: '公孫瓚', lord: 'gongsun_zan', cities: ['beiping', 'xiangping'],
+        generals: ['gongsun_zan', 'gongsun_yue', 'gongsun_fan', 'shan_jing', 'tian_kai', 'yan_gang', 'guan_jing', 'zou_dan'] },
+      { id: 'liubiao', name: '유표', hanja: '劉表', lord: 'liu_biao', cities: ['xiangyang', 'jiangling', 'xinye', 'guiyang'],
+        generals: ['liu_biao', 'cai_mao', 'kuai_yue', 'huang_zu', 'zhang_yun', 'han_song', 'cai_xun', 'yi_ji', 'huang_zhong'] },
+      { id: 'taoqian', name: '도겸', hanja: '陶謙', lord: 'tao_qian', cities: ['xiapi', 'pengcheng', 'xiaopei', 'guangling', 'beihai'],
+        generals: ['tao_qian', 'cao_bao', 'chen_deng', 'chen_gui'] },
+      { id: 'yuan_shu', name: '원술', hanja: '袁術', lord: 'yuan_shu', cities: ['runan', 'shouchun'],
+        generals: ['yuan_shu', 'ji_ling', 'zhang_xun', 'qiao_rui', 'lei_bao', 'chen_lan', 'yang_hong', 'yan_xiang'] },
+      { id: 'liuyao', name: '유요', hanja: '劉繇', lord: 'liu_yao', cities: ['lujiang', 'jianye', 'wu', 'kuaiji', 'yuzhang'],
+        generals: ['liu_yao', 'zhang_ying', 'fan_neng', 'yu_mi', 'taishi_ci'] },
+      { id: 'liuyan', name: '유언', hanja: '劉焉', lord: 'liu_yan', cities: ['chengdu', 'zitong', 'jiangzhou'],
+        generals: ['liu_yan', 'zhang_ren', 'zhang_song', 'huang_quan', 'lei_tong', 'ling_bao', 'deng_xian', 'liu_gui', 'yang_huai', 'gao_pei', 'wu_yi', 'fa_zheng', 'li_yan'] },
+      { id: 'zhanglu', name: '장로', hanja: '張魯', lord: 'zhang_lu', cities: ['hanzhong'],
+        generals: ['zhang_lu', 'zhang_wei', 'yang_ren', 'yan_pu', 'yang_song', 'yang_bo'] },
+      { id: 'mateng', name: '마등', hanja: '馬騰', lord: 'ma_teng', cities: ['wuwei', 'tianshui', 'longxi'],
+        generals: ['ma_teng', 'ma_chao', 'pang_de', 'ma_xiu', 'ma_tie', 'ma_dai', 'han_sui', 'cheng_yi', 'hou_xuan', 'liang_xing', 'yan_xing'] },
+      { id: 'shixie', name: '사섭', hanja: '士燮', lord: 'shi_xie', cities: ['nanhai', 'jiaozhi'], generals: ['shi_xie', 'shi_yi'] },
+    ],
+    free: { linzi: ['kong_rong', 'wu_anguo'], xuchang: ['xu_chu', 'guo_jia', 'jia_xu'], luoyang: ['sima_yi', 'liu_ye'], xiangyang: ['zhuge_liang', 'pang_tong'], jiangxia: ['lu_xun'] },
+  },
+
   {
     id: 's194',
     year: 194,
@@ -422,7 +576,7 @@ export const SCENARIOS = [
         generals: ['han_sui', 'cheng_yi', 'hou_xuan', 'liang_xing', 'yan_xing'] },
       { id: 'shixie', name: '사섭', hanja: '士燮', lord: 'shi_xie', cities: ['nanhai', 'jiaozhi'], generals: ['shi_xie', 'shi_yi'] },
     ],
-    free: { xinye: ['xushu'], luoyang: ['sima_yi'], xuchang: ['zhuge_liang'], chengdu: ['pang_tong'] },
+    free: { xinye: ['xu_shu'], luoyang: ['sima_yi'], xuchang: ['zhuge_liang'], chengdu: ['pang_tong'] },
   },
   {
     id: 's208',
@@ -448,6 +602,40 @@ export const SCENARIOS = [
       { id: 'shixie', name: '사섭', hanja: '士燮', lord: 'shi_xie', cities: ['nanhai', 'jiaozhi'], generals: ['shi_xie', 'shi_yi'] },
     ],
     free: { xiangyang: ['pang_tong', 'xu_shu'], wu: ['sun_jian'] },
+  },
+  {
+    id: 's219',
+    year: 219,
+    name: '한중 공방전',
+    hanja: '漢中攻防戰',
+    desc: '한중을 얻은 유비가 한중왕에 오르고, 관우는 양양을 포위해 북상을 노린다. 오는 형주를 노리고, 삼국의 국경이 굳어진다.',
+    factions: [
+      { id: 'jojo', name: '위', hanja: '魏', lord: 'cao_cao', cities: ['xuchang', 'luoyang', 'changan', 'hongnong', 'chenliu', 'puyang', 'ye', 'nanpi', 'pingyuan', 'julu', 'jinyang', 'ji', 'beiping', 'xiangping', 'xiaopei', 'pengcheng', 'xiapi', 'guangling', 'shouchun', 'runan', 'linzi', 'beihai', 'tianshui', 'longxi', 'wuwei', 'xinye'],
+        generals: ['cao_cao', 'cao_pi', 'cao_ren', 'zhang_he', 'xu_huang', 'xu_chu', 'sima_yi', 'jia_xu', 'liu_ye', 'man_chong', 'wen_pin', 'cao_xiu', 'cao_zhen', 'pang_de', 'yu_jin', 'lv_qian', 'zhu_ling', 'mao_jie', 'cao_chun', 'cao_hong', 'cao_ang', 'zhang_liao', 'li_dian', 'gao_lan', 'xiahou_dun'] },
+      { id: 'liubei', name: '촉', hanja: '蜀', lord: 'liu_bei', cities: ['chengdu', 'zitong', 'jiangzhou', 'hanzhong', 'xiangyang', 'jiangling', 'changsha', 'guiyang'],
+        generals: ['liu_bei', 'guan_yu', 'zhang_fei', 'zhao_yun', 'zhuge_liang', 'fa_zheng', 'huang_zhong', 'wei_yan', 'ma_chao', 'ma_dai', 'liao_hua', 'guan_ping', 'guan_xing', 'zhang_bao_zi', 'yan_yan', 'li_yan', 'wu_yi', 'huang_quan', 'ma_liang', 'mi_zhu', 'sun_qian', 'jian_yong', 'zhang_wan', 'fei_yi', 'wang_ping', 'ma_su', 'guo_jun', 'ma_zhong'] },
+      { id: 'sunquan', name: '오', hanja: '吳', lord: 'sun_quan', cities: ['jianye', 'wu', 'kuaiji', 'lujiang', 'yuzhang', 'jiangxia', 'nanhai', 'jiaozhi'],
+        generals: ['sun_quan', 'lu_meng', 'lu_xun', 'lu_kang', 'zhu_ran', 'zhu_zhi', 'han_dang', 'jiang_qin', 'ling_tong', 'xu_sheng', 'ding_feng', 'pan_zhang', 'gan_ning', 'zhuge_jin', 'zhang_zhao', 'gu_yong', 'lv_fan', 'sun_huan', 'zhuge_ke', 'cheng_pu', 'zhou_tai'] },
+    ],
+    free: { nanhai: ['meng_huo', 'zhurong', 'wutugu'], wuwei: ['han_sui'] },
+  },
+  {
+    id: 's225',
+    year: 225,
+    name: '남만정벌',
+    hanja: '南蛮平定',
+    desc: '이릉에서 진 촉은 제갈량이 이끄는 처지가 되었다. 남중의 맹획이 반기를 들자 제갈량이 직접 남정에 나서고, 위와 오는 이를 지켜본다.',
+    factions: [
+      { id: 'jojo', name: '위', hanja: '魏', lord: 'cao_rui', cities: ['xuchang', 'luoyang', 'changan', 'hongnong', 'chenliu', 'puyang', 'ye', 'nanpi', 'pingyuan', 'julu', 'jinyang', 'ji', 'beiping', 'xiangping', 'xiaopei', 'pengcheng', 'xiapi', 'guangling', 'shouchun', 'runan', 'linzi', 'beihai', 'tianshui', 'longxi', 'wuwei', 'xinye'],
+        generals: ['cao_rui', 'sima_yi', 'sima_shi', 'sima_zhao', 'cao_zhen', 'cao_xiu', 'zhang_he', 'guo_huai', 'xiahou_ba', 'man_chong', 'wen_pin', 'cao_hong', 'zhang_liao', 'xu_chu', 'cao_ang', 'pang_de', 'yu_jin', 'jia_xu', 'liu_ye', 'gao_lan', 'zhu_ling'] },
+      { id: 'liubei', name: '촉', hanja: '蜀', lord: 'zhuge_liang', cities: ['chengdu', 'zitong', 'jiangzhou', 'hanzhong'],
+        generals: ['zhuge_liang', 'zhao_yun', 'wei_yan', 'jiang_wei', 'zhang_wan', 'fei_yi', 'wang_ping', 'ma_su', 'ma_dai', 'liao_hua', 'guan_xing', 'zhang_bao_zi', 'ma_zhong', 'guo_jun', 'wu_yi', 'li_yan'] },
+      { id: 'sunquan', name: '오', hanja: '吳', lord: 'sun_quan', cities: ['jianye', 'wu', 'kuaiji', 'lujiang', 'yuzhang', 'jiangxia', 'changsha', 'guiyang', 'xiangyang', 'jiangling'],
+        generals: ['sun_quan', 'lu_xun', 'lu_kang', 'zhu_ran', 'zhu_zhi', 'zhuge_ke', 'zhuge_jin', 'xu_sheng', 'ding_feng', 'pan_zhang', 'sun_huan', 'gu_yong', 'jiang_qin', 'ling_tong'] },
+      { id: 'nanman', name: '남만', hanja: '南蠻', lord: 'meng_huo', cities: ['nanhai', 'jiaozhi'],
+        generals: ['meng_huo', 'zhurong', 'wutugu'] },
+    ],
+    free: { chengdu: ['xu_shu'], luoyang: ['deng_ai', 'zhong_hui', 'yang_hu', 'du_yu'] },
   },
 ];
 

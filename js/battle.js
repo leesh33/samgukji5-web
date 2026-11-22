@@ -33,8 +33,9 @@ export function createBattle(opts) {
   const {
     fromCityId, toCityId, attackerFaction, defenderFaction,
     atkGenerals = [], defGenerals = [], atkTroops = 5000, defTroops = 5000,
-    defBonus = 40, seed = 1, playerSide = null,
+    defBonus = 40, seed = 1, playerSide = null, generals = null,
   } = opts;
+  const GD = generals || GENERAL_BY_ID;
   const rng = mulberry32(hashStr(fromCityId + toCityId) + seed);
   const battle = {
     w: BW, h: BH,
@@ -80,7 +81,7 @@ export function createBattle(opts) {
     const n = gens.length;
     const base = Math.floor(troops / n);
     gens.forEach((gid, i) => {
-      const g = GENERAL_BY_ID[gid];
+      const g = GD[gid] || GENERAL_BY_ID[gid];
       if (!g) return;
       const isCastleDef = side === 'def';
       const x = side === 'atk' ? 1 + (i % 2) : BW - 2 - (i % 2);
@@ -89,6 +90,7 @@ export function createBattle(opts) {
       battle.units.push({
         id: `${side}-${gid}`,
         side, gid, name: g.ko,
+        spec: { id: g.id, ko: g.ko, hanja: g.hanja || '', lead: g.lead, war: g.war, int: g.int, pol: g.pol, cha: g.cha, arms: g.arms, skill: g.skill, formations: g.formations || ['eorin'] },
         troops: Math.max(400, Math.round(base * (gid === gids[0] ? 1.1 : 1))),
         morale: clamp(58 + Math.round(g.lead / 4) + (isCastleDef ? 6 : 0), 40, 100),
         formation: formId,
@@ -113,7 +115,7 @@ export function createBattle(opts) {
 export const sideName = (b, side) => (side === 'atk' ? '공격' : '수비');
 export const tileAt = (b, x, y) => (x < 0 || y < 0 || x >= b.w || y >= b.h ? null : b.grid[y * b.w + x]);
 export const unitsOf = (b, side) => b.units.filter((u) => u.side === side && u.alive);
-export const unitSpec = (u) => GENERAL_BY_ID[u.gid];
+export const unitSpec = (u) => u.spec || GENERAL_BY_ID[u.gid];
 export const formOf = (u) => FORMATIONS[u.formation] || FORMATIONS.eorin;
 
 export function dist(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }

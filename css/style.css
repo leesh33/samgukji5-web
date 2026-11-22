@@ -137,6 +137,62 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .lord-card .lc-meta b { color: #cfc095; }
 .lord-card .lc-stats { color: #7f7659; }
 
+/* ---------- 신군주 생성 ---------- */
+.sc-card.sc-custom { border-color: #7d5ac0; background: linear-gradient(180deg, #241c38 0%, #15111f 100%); }
+.sc-card.sc-custom .sc-name { color: #d9c4ff; text-shadow: 0 0 12px rgba(150, 110, 230, 0.45); }
+.sc-card.sc-custom .sc-meta span { color: #a08fc0; }
+
+.custom-scroll { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+.cst-preview {
+  display: flex; align-items: center; gap: 12px; padding: 12px; margin-bottom: 12px;
+  background: linear-gradient(180deg, #1a2231, #111823);
+  border: 2px solid var(--gold-dim); box-shadow: inset 0 0 0 1px #070b12;
+}
+.cst-face { width: 78px; height: 78px; image-rendering: pixelated; border: 2px solid #4a4128; background: #0d121b; flex: 0 0 auto; }
+.cst-who { min-width: 0; flex: 1; }
+.cst-flag {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px;
+  padding: 0 6px; font-size: 18px; color: #10131a; border: 2px solid #10131a; margin-bottom: 4px;
+}
+.cst-name { font-size: 19px; color: var(--gold-bright); letter-spacing: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cst-sub { font-size: 10.5px; color: #8b8267; margin-top: 2px; }
+
+.cst-sec { margin-bottom: 14px; }
+.cst-sec > label { display: block; font-size: 11.5px; color: var(--gold); letter-spacing: 1px; margin-bottom: 6px; }
+.cst-sec > label small { color: #8b8267; font-size: 10px; letter-spacing: 0; margin-left: 4px; }
+.cst-input {
+  width: 100%; padding: 9px 10px; font-family: inherit; font-size: 14px; color: var(--parch);
+  background: #0d121b; border: 2px solid #3a3424; -webkit-appearance: none; appearance: none; border-radius: 0;
+}
+.cst-input:focus { outline: none; border-color: var(--gold); }
+.cst-input + .cst-input { margin-top: 6px; }
+.cst-colors { display: flex; gap: 8px; flex-wrap: wrap; }
+.cst-color {
+  width: 34px; height: 34px; border: 2px solid #10131a; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.25);
+}
+.cst-color.on { border-color: var(--gold-bright); box-shadow: 0 0 10px rgba(245, 217, 122, 0.6), inset 0 0 0 2px rgba(0, 0, 0, 0.25); }
+.cst-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.cst-row .cst-key { flex: 0 0 30px; font-size: 10.5px; color: #9d967f; padding-top: 7px; }
+.cst-row .chip-row { margin: 0; flex: 1; }
+.cst-stats { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.cst-stat {
+  display: grid; grid-template-columns: 40px 34px 1fr 34px; align-items: center; gap: 6px;
+  background: #131b28; border: 1px solid #2c2a20; padding: 4px 6px;
+}
+.cst-stat span { font-size: 11px; color: #a89c7c; }
+.cst-stat b { text-align: center; font-size: 16px; color: var(--gold-bright); }
+.cst-stat button {
+  height: 28px; font-family: inherit; font-size: 14px; color: var(--parch);
+  background: #1d2739; border: 1px solid var(--gold-dim);
+}
+.cst-stat button:active { filter: brightness(1.3); }
+.cst-dice { margin-top: 8px; width: 100%; }
+.cst-lord-entry { border-color: #7d5ac0; color: #d9c4ff; }
+
+@media (min-width: 520px) {
+  .cst-stats { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* ---------- HUD ---------- */
 .hud {
   display: flex; align-items: center; justify-content: space-between;

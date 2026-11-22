@@ -13,8 +13,9 @@ function rnd(seed, i) {
 
 const SKINS = ['#e8c39a', '#dcb184', '#c99a6e', '#b98a5f'];
 
-export function portraitCanvas(gid, general, size = 40, factionColor = '#2b3550') {
-  const key = `${gid}|${size}|${factionColor}`;
+export function portraitCanvas(gid, general, size = 40, factionColor = '#2b3550', style = null) {
+  const st = style || (general && general.style) || null;
+  const key = `${gid}|${size}|${factionColor}|${st ? `${st.hat}-${st.beard}-${st.skin}` : '-'}`;
   if (cache.has(key)) return cache.get(key);
   const P = 24;
   const c = document.createElement('canvas');
@@ -35,7 +36,7 @@ export function portraitCanvas(gid, general, size = 40, factionColor = '#2b3550'
     ctx.fillRect(Math.floor(r(i + 30) * P), Math.floor(r(i + 60) * P), 1, 1);
   }
 
-  const skin = SKINS[Math.floor(r(1) * SKINS.length)];
+  const skin = SKINS[st && st.skin != null ? clampIdx(st.skin, SKINS.length) : Math.floor(r(1) * SKINS.length)];
   const armor = shade(bg, 25);
   const armorDark = shade(bg, -10);
   const trim = '#c8a24a';
@@ -87,13 +88,16 @@ export function portraitCanvas(gid, general, size = 40, factionColor = '#2b3550'
   // 수염 (무력/지력에 따라)
   const war = general ? general.war : 60;
   const lead = general ? general.lead : 60;
-  if (r(4) < 0.55 || war > 82) {
+  // 프리셋(신군주)이 있으면 그 값을, 없으면 능력치·난수로 결정한다
+  const beardShape = st && st.beard != null ? (st.beard <= 0 ? -1 : st.beard - 1) : null;
+  const beardOn = beardShape != null ? beardShape >= 0 : (r(4) < 0.55 || war > 82);
+  if (beardOn) {
     ctx.fillStyle = '#1b1410';
-    if (r(5) < 0.4) {
+    if (beardShape != null ? beardShape === 0 : r(5) < 0.4) {
       ctx.fillRect(9, 17, 6, 1);
       ctx.fillRect(10, 18, 4, 2);
       ctx.fillRect(11, 20, 2, 1);
-    } else if (r(6) < 0.6) {
+    } else if (beardShape != null ? beardShape === 1 : r(6) < 0.6) {
       ctx.fillRect(11, 17, 2, 3);
     } else {
       ctx.fillRect(8, 16, 3, 1);
@@ -104,7 +108,7 @@ export function portraitCanvas(gid, general, size = 40, factionColor = '#2b3550'
   }
 
   // 모자·투구
-  const hatType = Math.floor(r(8) * 5);
+  const hatType = st && st.hat != null ? clampIdx(st.hat, 5) : Math.floor(r(8) * 5);
   // 얼굴형 변형(턱)
   if (r(11) < 0.45) { ctx.fillStyle = skin; ctx.fillRect(8, 17, 8, 1); }
   // 눈매 — 무력이 높으면 치켜뜬 눈썹
@@ -185,9 +189,11 @@ export function portraitCanvas(gid, general, size = 40, factionColor = '#2b3550'
   return out;
 }
 
-export function portraitURL(gid, general, size = 64, color = '#2b3550') {
-  return portraitCanvas(gid, general, size, color).toDataURL('image/png');
+export function portraitURL(gid, general, size = 64, color = '#2b3550', style = null) {
+  return portraitCanvas(gid, general, size, color, style).toDataURL('image/png');
 }
+
+const clampIdx = (v, n) => Math.max(0, Math.min(n - 1, Math.floor(Number(v) || 0)));
 
 function shade(hex, amt) {
   if (!hex) return '#223';
