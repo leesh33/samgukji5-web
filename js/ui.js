@@ -62,64 +62,108 @@ function drawTitleArt() {
   const h = c.clientHeight || window.innerHeight;
   c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
   const ctx = c.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = true;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // 다크 슬레이트 바탕
   const sky = ctx.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, '#070c16'); sky.addColorStop(0.55, '#101a2b'); sky.addColorStop(1, '#241a16');
+  sky.addColorStop(0, '#0a0d10'); sky.addColorStop(0.42, '#0f1317'); sky.addColorStop(1, '#080a0d');
   ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
-  // 별
-  for (let i = 0; i < 90; i++) {
-    const x = (i * 97.13) % w, y = (i * 53.7) % (h * 0.6);
-    ctx.fillStyle = i % 5 === 0 ? '#f5e9c0' : 'rgba(220,220,200,0.5)';
-    ctx.fillRect(Math.round(x), Math.round(y), i % 7 === 0 ? 2 : 1, i % 7 === 0 ? 2 : 1);
+  // 위쪽 은은한 금빛
+  const glow = ctx.createRadialGradient(w * 0.5, h * 0.3, 0, w * 0.5, h * 0.3, h * 0.5);
+  glow.addColorStop(0, 'rgba(201, 164, 92, 0.10)');
+  glow.addColorStop(0.55, 'rgba(201, 164, 92, 0.03)');
+  glow.addColorStop(1, 'rgba(201, 164, 92, 0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
+
+  // 육각 보드 결
+  const R = Math.max(16, w / 14);
+  ctx.strokeStyle = 'rgba(190, 200, 210, 0.035)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let row = -1; row < h / (R * 1.5) + 1; row++) {
+    for (let col = -1; col < w / (R * 1.732) + 2; col++) {
+      const cx = col * R * 1.732 + (row % 2 ? R * 0.866 : 0);
+      const cy = row * R * 1.5;
+      for (let k = 0; k <= 6; k++) {
+        const a = (Math.PI / 3) * k - Math.PI / 6;
+        const px = cx + Math.cos(a) * R;
+        const py = cy + Math.sin(a) * R;
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+    }
   }
-  // 달
-  const mx = w * 0.72, my = h * 0.2, mr = Math.min(w, h) * 0.09;
-  ctx.fillStyle = '#e9d9a8';
-  ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#cfbc85';
-  ctx.beginPath(); ctx.arc(mx - mr * 0.3, my - mr * 0.2, mr * 0.18, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(mx + mr * 0.35, my + mr * 0.25, mr * 0.12, 0, Math.PI * 2); ctx.fill();
-  // 산
-  const step = Math.max(6, w / 36);
-  const baseY = h * 0.72;
-  for (let layer = 0; layer < 3; layer++) {
-    ctx.fillStyle = ['#0d1622', '#131e2a', '#1a2430'][layer];
+  ctx.stroke();
+
+  // 등고선
+  for (let i = 0; i < 20; i++) {
+    const y0 = (i / 20) * h;
     ctx.beginPath();
-    ctx.moveTo(0, h);
-    for (let x = 0; x <= w + step; x += step) {
-      const seed = Math.sin((x * 0.013) + layer * 2.1) * 0.5 + Math.sin(x * 0.031 + layer) * 0.5;
-      const y = baseY + layer * h * 0.07 - Math.abs(seed) * h * (0.16 - layer * 0.03);
+    for (let x = -20; x <= w + 20; x += 24) {
+      const y = y0 + Math.sin(x * 0.009 + i * 1.3) * 16 + Math.sin(x * 0.021 + i * 0.6) * 6;
+      if (x === -20) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = i % 4 === 0 ? 'rgba(201, 164, 92, 0.075)' : 'rgba(160, 175, 195, 0.045)';
+    ctx.stroke();
+  }
+
+  // 아래쪽 산 실루엣 — 보드 위 능선
+  const layers = [
+    { c: '#0d1115', amp: 0.10, base: 0.86, step: 30 },
+    { c: '#101519', amp: 0.13, base: 0.92, step: 22 },
+    { c: '#12171c', amp: 0.16, base: 0.99, step: 15 },
+  ];
+  for (const L of layers) {
+    ctx.beginPath();
+    ctx.moveTo(-10, h);
+    for (let x = -10; x <= w + 10; x += L.step) {
+      const y = h * L.base - Math.abs(Math.sin(x * 0.008 + L.base * 6)) * h * L.amp;
       ctx.lineTo(x, y);
     }
-    ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
+    ctx.lineTo(w + 10, h);
+    ctx.closePath();
+    ctx.fillStyle = L.c;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(201, 164, 92, 0.07)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
-  // 성 실루엣
-  const gy = h * 0.92, gw = Math.min(250, w * 0.66), gx = w / 2 - gw / 2;
-  const u = gw / 24;
-  // 성벽 뒤 은은한 불빛
-  const glow = ctx.createRadialGradient(w / 2, gy - u * 4, 4, w / 2, gy - u * 4, gw * 0.75);
-  glow.addColorStop(0, 'rgba(200,120,50,0.20)');
-  glow.addColorStop(1, 'rgba(200,120,50,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, gy - u * 16, w, h * 0.24);
-  ctx.fillStyle = '#131e2a';
-  ctx.fillRect(gx, gy - u * 4, gw, h * 0.2);
-  ctx.fillRect(gx - u * 2, gy - u * 7, u * 7, h * 0.2);
-  ctx.fillRect(gx + gw - u * 5, gy - u * 7, u * 7, h * 0.2);
-  ctx.fillRect(gx + gw / 2 - u * 3, gy - u * 9, u * 6, h * 0.2);
-  ctx.fillStyle = '#1b2734';
-  for (let i = 0; i < 12; i++) ctx.fillRect(gx + i * u * 2, gy - u * 5, u, u);
-  // 깃발
-  ctx.fillStyle = '#2a2418'; ctx.fillRect(gx + gw / 2 + u * 2, gy - u * 13, 2, u * 5);
-  ctx.fillStyle = '#8f2a22'; ctx.fillRect(gx + gw / 2 + u * 2 + 2, gy - u * 13, u * 4, u * 3);
-  // 횃불
-  for (let i = 0; i < 6; i++) {
-    const fx = gx + u * (2 + i * 4), fy = gy - u * 1.5;
-    const flick = 0.6 + 0.4 * Math.sin(Date.now() / 220 + i);
-    ctx.fillStyle = `rgba(255,170,60,${0.55 * flick})`;
-    ctx.fillRect(fx, fy, 2, 3);
+
+  // 아래쪽 보드 헥스 — 세 세력의 색 테두리 (카드 보드 느낌)
+  const hr = Math.max(26, w / 9.5);
+  const hxStep = hr * 1.732, hyStep = hr * 1.5;
+  const tones = ['rgba(106, 154, 168, 0.20)', 'rgba(201, 164, 92, 0.22)', 'rgba(184, 74, 62, 0.20)'];
+  for (let row = 0; row * hyStep + h * 0.60 < h + hr * 2; row++) {
+    for (let col = -1; col * hxStep < w + hxStep; col++) {
+      const cx = col * hxStep + (row % 2 ? hxStep / 2 : 0);
+      const cy = h * 0.60 + row * hyStep;
+      const tone = tones[Math.min(2, Math.floor((cx / w) * 3))];
+      ctx.beginPath();
+      for (let k = 0; k <= 6; k++) {
+        const a = (Math.PI / 3) * k - Math.PI / 6;
+        const px = cx + Math.cos(a) * hr * 0.97;
+        const py = cy + Math.sin(a) * hr * 0.97;
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = tone;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // 성 표시 — 아주 옅은 성곽 실루엣
+      if ((row + col) % 3 === 0) {
+        ctx.fillStyle = tone;
+        ctx.globalAlpha = 0.55;
+        ctx.fillRect(cx - hr * 0.16, cy - hr * 0.06, hr * 0.32, hr * 0.16);
+        ctx.fillRect(cx - hr * 0.22, cy - hr * 0.2, hr * 0.09, hr * 0.16);
+        ctx.fillRect(cx + hr * 0.13, cy - hr * 0.2, hr * 0.09, hr * 0.16);
+        ctx.globalAlpha = 1;
+      }
+    }
   }
+  // 아래쪽 짙은 그라데이션으로 버튼 가독성 확보는 CSS가 담당
+
+  // 중앙 세로 기준선
+  ctx.strokeStyle = 'rgba(201, 164, 92, 0.05)';
+  ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
 }
 
 /* ---------- 시나리오 / 군주 ---------- */
@@ -205,7 +249,7 @@ function renderCustomBody() {
   for (const c of cities) (groups[c.region] = groups[c.region] || []).push(c);
 
   $('#custom-body').innerHTML = `
-    <div class="cst-preview" style="border-color:${d.color}">
+    <div class="cst-preview" style="--fac:${d.color}">
       <img class="cst-face" src="${portraitURL('cl_lord', preview, 104, d.color, d.style)}" alt="신군주 초상화" />
       <div class="cst-who">
         <div class="cst-flag" style="background:${d.color}">${esc(d.mark)}</div>
@@ -413,8 +457,9 @@ function renderGame() {
   const sum = E.factionSummary(game, game.playerId);
   const lord = gd(f.lord);
   $('#hud-crest').textContent = f.mark || f.name[0];
-  $('#hud-crest').style.background = f.color;
-  $('#hud-crest').style.color = '#10131a';
+  $('#hud-crest').style.background = '#161b21';
+  $('#hud-crest').style.color = f.color;
+  $('#hud-crest').style.borderColor = f.color;
   $('#hud-faction').textContent = `${f.name}군${lord && lord.ko !== f.name ? ' · ' + lord.ko : ''}`;
   $('#hud-date').textContent = `${game.year}년 ${game.month}월 · 제${game.turn}턴`;
   const office = E.officeOf(game, game.playerId);
@@ -1103,6 +1148,12 @@ function beginBattle(setup, playerSide) {
   if (battle.phase !== battle.playerSide) enemyPhase();
 }
 
+/* 전장 바닥 톤 — 다크 슬레이트 보드 */
+const BATTLE_TILE = {
+  plain: '#171c21', road: '#1d2128', forest: '#151d18',
+  hill: '#1d1c19', water: '#121b22', castle: '#201d18',
+};
+
 function resizeBattleCanvas() {
   const c = $('#battle-canvas');
   if (!c) return;
@@ -1125,8 +1176,8 @@ function drawBattle() {
   const dpr = c._dpr || 1;
   const ctx = c.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.imageSmoothingEnabled = false;
-  ctx.fillStyle = '#0a1018';
+  ctx.imageSmoothingEnabled = true;
+  ctx.fillStyle = '#0a0d10';
   ctx.fillRect(0, 0, c.width, c.height);
 
   const reach = battleSel && battleMode === 'move' && battleSel.side === battle.playerSide ? B.reachable(battle, battleSel) : null;
@@ -1135,39 +1186,83 @@ function drawBattle() {
 
   for (const t of battle.grid) {
     const x = t.x * tile, y = t.y * tile;
-    ctx.fillStyle = B.TERRAIN[t.t].color;
+    ctx.fillStyle = BATTLE_TILE[t.t] || '#171c21';
     ctx.fillRect(x, y, tile, tile);
-    // 픽셀 텍스처
+    // 지형 표시 — 도트 대신 보드 위 기호
     if (t.t === 'forest') {
-      ctx.fillStyle = 'rgba(20,50,20,0.7)';
-      ctx.fillRect(x + tile * 0.25, y + tile * 0.3, 2, tile * 0.4);
-      ctx.fillRect(x + tile * 0.6, y + tile * 0.5, 2, tile * 0.3);
+      ctx.strokeStyle = 'rgba(150, 190, 150, 0.30)';
+      ctx.fillStyle = 'rgba(120, 165, 122, 0.18)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const px = x + tile * (0.26 + i * 0.24), py = y + tile * (0.66 + (i % 2) * 0.08);
+        const ph = tile * (0.20 + (i % 2) * 0.04);
+        ctx.beginPath();
+        ctx.moveTo(px, py - ph);
+        ctx.lineTo(px + tile * 0.085, py - ph * 0.32);
+        ctx.lineTo(px + tile * 0.032, py - ph * 0.32);
+        ctx.lineTo(px + tile * 0.095, py);
+        ctx.lineTo(px - tile * 0.095, py);
+        ctx.lineTo(px - tile * 0.032, py - ph * 0.32);
+        ctx.lineTo(px - tile * 0.085, py - ph * 0.32);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
     } else if (t.t === 'hill') {
-      ctx.fillStyle = 'rgba(120,100,70,0.5)';
-      ctx.fillRect(x + tile * 0.2, y + tile * 0.5, tile * 0.5, 2);
+      ctx.strokeStyle = 'rgba(200, 186, 150, 0.28)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + tile * 0.22, y + tile * 0.66);
+      ctx.quadraticCurveTo(x + tile * 0.5, y + tile * 0.36, x + tile * 0.78, y + tile * 0.66);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x + tile * 0.34, y + tile * 0.74);
+      ctx.quadraticCurveTo(x + tile * 0.5, y + tile * 0.56, x + tile * 0.66, y + tile * 0.74);
+      ctx.stroke();
     } else if (t.t === 'water') {
-      ctx.fillStyle = 'rgba(80,140,190,0.35)';
-      ctx.fillRect(x + tile * 0.2, y + tile * 0.45, tile * 0.4, 1);
-      ctx.fillRect(x + tile * 0.5, y + tile * 0.65, tile * 0.3, 1);
+      ctx.strokeStyle = 'rgba(120, 170, 200, 0.30)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const wy = y + tile * (0.3 + i * 0.2);
+        ctx.beginPath();
+        ctx.moveTo(x + tile * 0.18, wy);
+        ctx.quadraticCurveTo(x + tile * 0.4, wy - tile * 0.05, x + tile * 0.62, wy);
+        ctx.quadraticCurveTo(x + tile * 0.74, wy + tile * 0.03, x + tile * 0.84, wy);
+        ctx.stroke();
+      }
     } else if (t.t === 'castle') {
-      ctx.fillStyle = '#6b6252';
-      ctx.fillRect(x, y, tile, tile * 0.25);
-      ctx.fillStyle = '#3a3528';
-      for (let i = 0; i < 3; i++) ctx.fillRect(x + i * tile / 3 + 2, y - 2, tile / 5, 4);
+      ctx.strokeStyle = 'rgba(201, 164, 92, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + tile * 0.08, y + tile * 0.2);
+      ctx.lineTo(x + tile * 0.92, y + tile * 0.2);
+      ctx.stroke();
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = 'rgba(201, 164, 92, 0.22)';
+        ctx.fillRect(x + tile * (0.1 + i * 0.22), y + tile * 0.12, tile * 0.12, tile * 0.08);
+      }
+    } else if (t.t === 'road') {
+      ctx.strokeStyle = 'rgba(201, 164, 92, 0.16)';
+      ctx.setLineDash([tile * 0.16, tile * 0.14]);
+      ctx.beginPath();
+      ctx.moveTo(x + tile / 2, y);
+      ctx.lineTo(x + tile / 2, y + tile);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
     if (reach && reach.has(t.y * battle.w + t.x)) {
-      ctx.fillStyle = 'rgba(90,170,230,0.28)';
+      ctx.fillStyle = 'rgba(96, 148, 208, 0.14)';
       ctx.fillRect(x + 1, y + 1, tile - 2, tile - 2);
-      ctx.strokeStyle = 'rgba(140,210,255,0.5)';
+      ctx.strokeStyle = 'rgba(140, 200, 255, 0.45)';
       ctx.lineWidth = 1;
       ctx.strokeRect(x + 1.5, y + 1.5, tile - 3, tile - 3);
     }
     if (atkTargets.some((u) => u.x === t.x && u.y === t.y) || tacTargets.some((u) => u.x === t.x && u.y === t.y)) {
-      ctx.strokeStyle = 'rgba(240,90,70,0.85)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(226, 100, 78, 0.9)';
+      ctx.lineWidth = 1.4;
       ctx.strokeRect(x + 1, y + 1, tile - 2, tile - 2);
     }
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.strokeStyle = 'rgba(201, 164, 92, 0.075)';
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, tile, tile);
   }
@@ -1186,36 +1281,39 @@ function drawBattle() {
 function sidePalette(side) {
   const isPlayer = battle && side === battle.playerSide;
   return isPlayer
-    ? { plate: 'rgba(36,88,160,0.34)', edge: 'rgba(126,196,255,0.78)', dot: '#a9cdf4', shade: '#0e2a46', tip: '#ffe066', text: '#d6eaff' }
-    : { plate: 'rgba(150,44,32,0.34)', edge: 'rgba(255,154,138,0.78)', dot: '#f0b3a3', shade: '#3c1310', tip: '#ffe066', text: '#ffd5c9' };
+    ? { plate: 'rgba(26, 44, 64, 0.55)', edge: 'rgba(122, 174, 224, 0.62)', dot: '#9cc4ee', shade: '#0d1720', tip: '#e9d3a4', text: '#cfe4fa' }
+    : { plate: 'rgba(58, 28, 24, 0.5)', edge: 'rgba(222, 140, 124, 0.58)', dot: '#e0a99c', shade: '#1d120f', tip: '#e9d3a4', text: '#f0c9bd' };
 }
 
 function pixelText(ctx, text, x, y, size, fill, align = 'center') {
-  ctx.font = `700 ${size}px "Galmuri11", system-ui, sans-serif`;
+  ctx.font = `600 ${size}px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
   ctx.textAlign = align; ctx.textBaseline = 'middle';
-  ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.lineWidth = 2.4; ctx.strokeStyle = 'rgba(6, 8, 11, 0.85)';
   ctx.strokeText(text, x, y);
   ctx.fillStyle = fill; ctx.fillText(text, x, y);
 }
 
-/* 부대 토큰 — 진형 대형 도트 + 바라보는 방향 + 이름·병력 */
+/* 부대 토큰 — 진형 대형 토큰 + 바라보는 방향 + 이름·병력 */
 function drawBattleUnit(ctx, u, tile, selected) {
   const x = u.x * tile, y = u.y * tile;
   const pal = sidePalette(u.side);
   const dir = u.dir || 'E';
-  // 바닥판 — 진영 색 테두리만 남겨 진형 그림이 또렷하게 보이게
-  ctx.fillStyle = 'rgba(7,12,20,0.62)';
-  ctx.fillRect(x + 1, y + 1, tile - 2, tile - 2);
-  ctx.strokeStyle = selected ? '#ffe066' : pal.edge;
-  ctx.lineWidth = selected ? 2 : 1;
+  // 바닥판 — 진영 색 1px 테두리만 남겨 진형 그림이 또렷하게 보이게
+  ctx.fillStyle = pal.plate;
+  ctx.fillRect(x + 1.5, y + 1.5, tile - 3, tile - 3);
+  ctx.strokeStyle = selected ? '#e9d3a4' : pal.edge;
+  ctx.lineWidth = selected ? 1.6 : 1;
   ctx.strokeRect(x + 1.5, y + 1.5, tile - 3, tile - 3);
 
-  // 바라보는 쪽(정면)에 세운 창벽
-  ctx.fillStyle = '#ffe06a';
-  if (dir === 'E') ctx.fillRect(x + tile - 3, y + 3, 2, tile - 6);
-  else if (dir === 'W') ctx.fillRect(x + 1, y + 3, 2, tile - 6);
-  else if (dir === 'N') ctx.fillRect(x + 3, y + 1, tile - 6, 2);
-  else ctx.fillRect(x + 3, y + tile - 3, tile - 6, 2);
+  // 바라보는 쪽(정면)에 세운 창벽 — 금빛 띠
+  const wd = Math.max(2, tile * 0.07);
+  ctx.fillStyle = '#e6c67e';
+  ctx.strokeStyle = 'rgba(20, 16, 8, 0.5)';
+  ctx.lineWidth = 0.7;
+  if (dir === 'E') { ctx.fillRect(x + tile - 2.5 - wd, y + 3, wd, tile - 6); ctx.strokeRect(x + tile - 2.5 - wd, y + 3, wd, tile - 6); }
+  else if (dir === 'W') { ctx.fillRect(x + 2.5, y + 3, wd, tile - 6); ctx.strokeRect(x + 2.5, y + 3, wd, tile - 6); }
+  else if (dir === 'N') { ctx.fillRect(x + 3, y + 2.5, tile - 6, wd); ctx.strokeRect(x + 3, y + 2.5, tile - 6, wd); }
+  else { ctx.fillRect(x + 3, y + tile - 2.5 - wd, tile - 6, wd); ctx.strokeRect(x + 3, y + tile - 2.5 - wd, tile - 6, wd); }
 
   // 진형 대형 — 타일 위쪽
   drawFormation(ctx, u.formation, x + tile / 2, y + tile * 0.27, tile * 0.60, dir, pal);
@@ -1223,16 +1321,22 @@ function drawBattleUnit(ctx, u, tile, selected) {
   // 아래 띠: 진형 색 띠 + 이름 + 병력
   const bandH = Math.max(14, Math.round(tile * 0.43));
   const by = y + tile - bandH;
-  ctx.fillStyle = 'rgba(4,8,14,0.9)';
+  ctx.fillStyle = 'rgba(8, 10, 13, 0.88)';
   ctx.fillRect(x + 1.5, by, tile - 3, bandH - 1);
+  ctx.strokeStyle = 'rgba(201, 164, 92, 0.20)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + 1.5, by + 0.5);
+  ctx.lineTo(x + tile - 1.5, by + 0.5);
+  ctx.stroke();
   const ratio = Math.max(0, Math.min(1, u.troops / 4000));
-  ctx.fillStyle = ratio > 0.4 ? '#8ed18e' : '#e0a05a';
-  ctx.fillRect(x + 1.5, by, (tile - 3) * ratio, 1);
-  pixelText(ctx, u.name, x + tile / 2, by + bandH * 0.38, Math.max(7, Math.min(9.5, tile * 0.24)), '#f8f0d8', 'center');
+  ctx.fillStyle = ratio > 0.4 ? '#8fbf74' : '#d7a35c';
+  ctx.fillRect(x + 1.5, by, (tile - 3) * ratio, 1.4);
+  pixelText(ctx, u.name, x + tile / 2, by + bandH * 0.38, Math.max(7, Math.min(9.5, tile * 0.24)), '#f0e6cd', 'center');
   pixelText(ctx, fmt(u.troops), x + tile / 2, by + bandH * 0.80, Math.max(6, Math.min(7.5, tile * 0.2)), pal.text, 'center');
 
   if (u.acted) {
-    ctx.fillStyle = 'rgba(4,8,14,0.45)';
+    ctx.fillStyle = 'rgba(8, 10, 13, 0.45)';
     ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
   }
 }
@@ -1244,7 +1348,7 @@ function drawAttackHint(ctx, t, tile) {
   const extra = e.relation === 'advantage' ? '진형↑' : e.relation === 'disadvantage' ? '진형↓' : '';
   const cx = t.x * tile + tile / 2;
   const top = t.y * tile;
-  ctx.font = `700 7px "Galmuri11", system-ui, sans-serif`;
+  ctx.font = `600 7px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
   const w = Math.max(ctx.measureText(label).width, ctx.measureText(extra).width) + 6;
   const h = extra ? 15 : 9;
   const bx = Math.max(1, Math.min(battle.w * tile - w - 1, cx - w / 2));

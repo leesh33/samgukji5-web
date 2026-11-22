@@ -1,4 +1,4 @@
-/* 도트삼국 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
+/* 삼국 한 턴 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 

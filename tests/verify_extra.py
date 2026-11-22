@@ -31,7 +31,7 @@ with sync_playwright() as p:
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(BASE, wait_until="networkidle")
     pg.wait_for_timeout(700)
-    step("이름 도트삼국 반영", "도트삼국" in pg.locator(".title-mark h1").inner_text()
+    step("이름 삼국 한 턴 반영", "삼국 한 턴" in pg.locator(".title-mark h1").inner_text()
          and "삼국지" not in pg.title(), pg.title())
 
     # 새 게임 → 자동 저장 생성

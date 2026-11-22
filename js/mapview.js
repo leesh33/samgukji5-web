@@ -1,4 +1,5 @@
-/* 중국 전도 — 도트 스타일 캔버스 지도 (드래그·핀치 줌·탭 선택) */
+/* 중국 전도 — 하이엔드 보드 전략풍 지도 (다크 슬레이트·등고선·권역 경계·벡터 성곽)
+   드래그·핀치 줌·탭 선택은 그대로. */
 import { CITIES, CITY_BY_ID, FACTION_COLORS, REGIONS } from './data.js';
 
 const LAND = [
@@ -14,10 +15,13 @@ const RIVERS = [
   [[52, 44], [56, 46], [61, 47], [66, 46], [70, 44]],
 ];
 
+/* 산맥 — 굵직한 능선 몇 줄 (지형 질감용 장식) */
 const MOUNTAINS = [
   [33, 26], [36, 30], [39, 34], [42, 28], [46, 30], [49, 33], [35, 35], [38, 38],
   [43, 36], [47, 37], [52, 33], [55, 35], [34, 22], [40, 24], [45, 22], [50, 28],
   [58, 36], [60, 38], [30, 34], [37, 44], [42, 44],
+  [55, 43], [63, 33], [66, 30], [43, 33], [31, 29], [48, 25], [53, 30], [70, 45],
+  [75, 47], [79, 41], [62, 55], [57, 52], [45, 40],
 ];
 
 function mix(a, b, t) {
@@ -26,6 +30,33 @@ function mix(a, b, t) {
   const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255;
   const r = Math.round(ar * (1 - t) + br * t), g = Math.round(ag * (1 - t) + bg * t), bl = Math.round(ab * (1 - t) + bb * t);
   return '#' + ((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0');
+}
+
+function rgba(hex, a) {
+  const h = String(hex || '#888888').replace('#', '');
+  const s = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(s, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+/* 볼록 껍질 — 권역 영토 경계선 */
+function hull(points) {
+  const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (pts.length < 3) return pts;
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
 }
 
 export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
@@ -40,7 +71,6 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
   let pointers = new Map();
   let lastPinch = 0;
   let raf = null;
-  let hover = null;
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
@@ -90,50 +120,6 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     raf = requestAnimationFrame(() => { raf = null; render(); });
   }
 
-  function drawPixelRect(x, y, w, h, color) {
-    ctx.fillStyle = color;
-    ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-  }
-
-  function drawLand() {
-    ctx.beginPath();
-    LAND.forEach(([x, y], i) => {
-      const p = toScreen(x, y);
-      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
-    });
-    ctx.closePath();
-    const gy0 = toScreen(0, 0).y, gy1 = toScreen(0, 70).y;
-    if (!Number.isFinite(gy0) || !Number.isFinite(gy1)) return;
-    const g = ctx.createLinearGradient(0, gy0, 0, gy1);
-    g.addColorStop(0, '#33492f');
-    g.addColorStop(0.5, '#3b5334');
-    g.addColorStop(1, '#2f452a');
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.strokeStyle = '#16241a';
-    ctx.lineWidth = Math.max(2, 2.5 * dpr);
-    ctx.stroke();
-    // 해안선 하이라이트
-    ctx.strokeStyle = 'rgba(150,190,165,0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-  }
-
-  function drawSea() {
-    ctx.fillStyle = '#0a1728';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // 물결 픽셀
-    const s = scale();
-    for (let i = 0; i < 90; i++) {
-      const wx = 8 + ((i * 37) % 88);
-      const wy = 6 + ((i * 53) % 62);
-      const p = toScreen(wx, wy);
-      if (insideLand(wx, wy)) continue;
-      ctx.fillStyle = i % 3 === 0 ? 'rgba(60,110,150,0.5)' : 'rgba(40,80,120,0.4)';
-      ctx.fillRect(Math.round(p.x), Math.round(p.y), Math.max(2, 3), Math.max(1, 1));
-    }
-  }
-
   function insideLand(x, y) {
     let inside = false;
     for (let i = 0, j = LAND.length - 1; i < LAND.length; j = i++) {
@@ -143,120 +129,373 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     return inside;
   }
 
-  function drawPatches() {
+  function landPath() {
+    ctx.beginPath();
+    LAND.forEach(([x, y], i) => {
+      const p = toScreen(x, y);
+      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+  }
+
+  function drawSea() {
+    const g = ctx.createLinearGradient(0, 0, 0, cssH);
+    g.addColorStop(0, '#0b0f13');
+    g.addColorStop(0.55, '#090c10');
+    g.addColorStop(1, '#070a0d');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cssW, cssH);
+    // 은은한 물결 결 — 보드 위 대리석 질감처럼
+    ctx.strokeStyle = 'rgba(120, 140, 160, 0.055)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 22; i++) {
+      const y0 = (i / 22) * cssH + 6;
+      ctx.beginPath();
+      for (let x = -10; x <= cssW + 10; x += 22) {
+        const y = y0 + Math.sin((x * 0.012) + i * 1.7) * 4 + Math.sin(x * 0.03 + i) * 1.4;
+        if (x === -10) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // 모서리 비네트
+    const v = ctx.createRadialGradient(cssW / 2, cssH * 0.45, Math.min(cssW, cssH) * 0.25, cssW / 2, cssH * 0.45, Math.max(cssW, cssH) * 0.78);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, cssW, cssH);
+  }
+
+  function drawLand() {
+    landPath();
+    const gy0 = toScreen(0, 0).y, gy1 = toScreen(0, 70).y;
+    if (!Number.isFinite(gy0) || !Number.isFinite(gy1)) return;
+    const g = ctx.createLinearGradient(0, gy0, 0, gy1);
+    g.addColorStop(0, '#1b2026');
+    g.addColorStop(0.45, '#181d23');
+    g.addColorStop(1, '#13171c');
+    ctx.fillStyle = g;
+    ctx.fill();
+    // 해안 — 금빛 실선 하나, 그 위로 옅은 빛
+    ctx.strokeStyle = 'rgba(201, 164, 92, 0.30)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = 'rgba(201, 164, 92, 0.35)';
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = 'rgba(233, 211, 164, 0.20)';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* 육지 안쪽 질감 — 등고선 + 육각 격자 + 지형 톤 */
+  function drawTerrainTexture() {
+    ctx.save();
+    landPath();
+    ctx.clip();
+
+    // 지형 톤(사막·분지·평야·강남)
     const patches = [
-      { x: 34, y: 20, rx: 9, ry: 6, c: 'rgba(120,100,60,0.20)' },   // 서량 사막
-      { x: 44, y: 41, rx: 6, ry: 5, c: 'rgba(90,130,70,0.18)' },    // 촉 분지
-      { x: 66, y: 34, rx: 9, ry: 6, c: 'rgba(110,140,70,0.16)' },   // 중원 평야
-      { x: 78, y: 44, rx: 6, ry: 5, c: 'rgba(70,120,110,0.16)' },   // 강남
-      { x: 56, y: 8, rx: 8, ry: 4, c: 'rgba(90,110,70,0.14)' },
+      { x: 34, y: 20, rx: 9, ry: 6, c: 'rgba(120, 98, 62, 0.16)' },
+      { x: 44, y: 41, rx: 7, ry: 6, c: 'rgba(84, 112, 72, 0.14)' },
+      { x: 66, y: 34, rx: 11, ry: 7, c: 'rgba(98, 118, 70, 0.12)' },
+      { x: 78, y: 44, rx: 7, ry: 6, c: 'rgba(66, 104, 100, 0.14)' },
+      { x: 56, y: 8, rx: 9, ry: 5, c: 'rgba(84, 100, 70, 0.10)' },
     ];
+    const s = scale();
     for (const pt of patches) {
       const c = toScreen(pt.x, pt.y);
-      const s2 = scale();
+      const rg = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, Math.max(pt.rx, pt.ry) * s);
+      rg.addColorStop(0, pt.c);
+      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = rg;
       ctx.beginPath();
-      ctx.ellipse(c.x, c.y, pt.rx * s2, pt.ry * s2, 0, 0, Math.PI * 2);
-      ctx.fillStyle = pt.c;
+      ctx.ellipse(c.x, c.y, pt.rx * s, pt.ry * scaleY(), 0, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // 등고선 — 완만하게 흔들리는 지형선
+    ctx.lineWidth = 1;
+    const lines = 15;
+    for (let i = 0; i < lines; i++) {
+      const wy = 3 + (i / lines) * 66;
+      ctx.beginPath();
+      let started = false;
+      for (let wx = 24; wx <= 92; wx += 2) {
+        const y = wy
+          + Math.sin(wx * 0.31 + i * 1.6) * 1.35
+          + Math.sin(wx * 0.13 + i * 0.7) * 1.9
+          + Math.sin(wx * 0.61 + i * 0.4) * 0.55;
+        const p = toScreen(wx, y);
+        if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y);
+      }
+      ctx.strokeStyle = i % 5 === 0 ? 'rgba(201, 164, 92, 0.10)' : 'rgba(160, 170, 180, 0.055)';
+      ctx.stroke();
+    }
+
+    // 육각 격자 — 보드판의 결
+    const R = 4.7;
+    const hx = R * 1.732, hy = R * 1.5;
+    ctx.strokeStyle = 'rgba(190, 200, 210, 0.032)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    for (let row = -2; row * hy + 2 < 70; row++) {
+      for (let col = -2; col * hx + 22 < 94; col++) {
+        const cx = 24 + col * hx + (row % 2 ? hx / 2 : 0);
+        const cy = 2 + row * hy;
+        const c0 = toScreen(cx, cy);
+        for (let k = 0; k <= 6; k++) {
+          const a = (Math.PI / 3) * k - Math.PI / 6;
+          const px = c0.x + Math.cos(a) * R * s * 0.98;
+          const py = c0.y + Math.sin(a) * R * s * 0.98 * (scaleY() / s);
+          if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawMountains() {
     const s = scale();
     for (const [x, y] of MOUNTAINS) {
       const p = toScreen(x, y);
-      const size = Math.max(5, s * 1.7);
-      ctx.fillStyle = '#4b4335';
+      const h = Math.max(5, s * 1.55);
+      const w = h * 1.35;
+      // 뒤쪽 봉우리
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y - size);
-      ctx.lineTo(p.x + size, p.y + size * 0.6);
-      ctx.lineTo(p.x - size, p.y + size * 0.6);
+      ctx.moveTo(p.x - w * 0.15, p.y - h * 0.72);
+      ctx.lineTo(p.x + w * 0.72, p.y + h * 0.34);
+      ctx.lineTo(p.x - w * 0.62, p.y + h * 0.34);
       ctx.closePath();
+      ctx.fillStyle = 'rgba(48, 47, 43, 0.85)';
       ctx.fill();
-      ctx.fillStyle = '#6a6050';
+      // 앞 봉우리
       ctx.beginPath();
-      ctx.moveTo(p.x, p.y - size);
-      ctx.lineTo(p.x + size * 0.35, p.y - size * 0.1);
-      ctx.lineTo(p.x - size * 0.1, p.y + size * 0.1);
+      ctx.moveTo(p.x, p.y - h);
+      ctx.lineTo(p.x + w, p.y + h * 0.45);
+      ctx.lineTo(p.x - w, p.y + h * 0.45);
       ctx.closePath();
+      const mg = ctx.createLinearGradient(p.x - w, p.y - h, p.x + w, p.y + h);
+      mg.addColorStop(0, '#3b3a34');
+      mg.addColorStop(0.55, '#2c2c28');
+      mg.addColorStop(1, '#20211f');
+      ctx.fillStyle = mg;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(201, 164, 92, 0.13)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      // 좌면 하이라이트
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - h);
+      ctx.lineTo(p.x + w * 0.3, p.y + h * 0.42);
+      ctx.lineTo(p.x - w * 0.06, p.y + h * 0.05);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(150, 148, 136, 0.18)';
       ctx.fill();
     }
   }
 
   function drawRivers() {
     const s = scale();
-    ctx.strokeStyle = '#2f6a94';
-    ctx.lineWidth = Math.max(2, s * 0.75);
     ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     for (const river of RIVERS) {
       ctx.beginPath();
       river.forEach(([x, y], i) => {
         const p = toScreen(x, y);
         if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
       });
+      ctx.strokeStyle = 'rgba(40, 66, 82, 0.9)';
+      ctx.lineWidth = Math.max(2.4, s * 0.85);
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(120,190,230,0.35)';
-      ctx.lineWidth = Math.max(1, s * 0.28);
+      ctx.strokeStyle = 'rgba(108, 154, 176, 0.40)';
+      ctx.lineWidth = Math.max(0.9, s * 0.26);
       ctx.stroke();
-      ctx.strokeStyle = '#2f6a94';
-      ctx.lineWidth = Math.max(2, s * 0.75);
     }
   }
 
   function drawRoads() {
     const s = scale();
-    ctx.lineWidth = Math.max(1.4, Math.min(3.6, s * 0.55));
     const seen = new Set();
+    ctx.lineWidth = Math.max(0.8, Math.min(1.5, s * 0.16));
+    ctx.setLineDash([Math.max(3, s * 0.55), Math.max(3, s * 0.5)]);
     for (const c of CITIES) {
       for (const nb of c.roads) {
         const key = [c.id, nb].sort().join('-');
         if (seen.has(key)) continue;
         seen.add(key);
         const a = toScreen(c.x, c.y), b = toScreen(CITY_BY_ID[nb].x, CITY_BY_ID[nb].y);
-        ctx.strokeStyle = 'rgba(214,192,138,0.42)';
+        ctx.strokeStyle = 'rgba(201, 164, 92, 0.26)';
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
-        // 도트 길
-        const len = Math.hypot(b.x - a.x, b.y - a.y);
-        const steps = Math.floor(len / 9);
-        ctx.fillStyle = 'rgba(226,205,150,0.36)';
-        for (let i = 1; i < steps; i += 2) {
-          const t = i / steps;
-          ctx.fillRect(Math.round(a.x + (b.x - a.x) * t), Math.round(a.y + (b.y - a.y) * t), 2, 2);
-        }
       }
+    }
+    ctx.setLineDash([]);
+  }
+
+  /* 권역 경계 — 그 권역을 가장많이 가진 세력 색으로 옅게 */
+  function drawTerritory() {
+    if (!state) return;
+    const groups = {};
+    for (const c of CITIES) {
+      const city = state.cities[c.id];
+      if (!city || !city.owner) continue;
+      (groups[c.region] = groups[c.region] || []).push({ c, owner: city.owner });
+    }
+    for (const [region, list] of Object.entries(groups)) {
+      if (list.length < 2) continue;
+      const count = {};
+      for (const it of list) count[it.owner] = (count[it.owner] || 0) + 1;
+      const owner = Object.entries(count).sort((a, b) => b[1] - a[1])[0][0];
+      const fac = state.factions[owner];
+      const color = (fac && fac.color) || FACTION_COLORS[owner] || '#8a8474';
+      const pts = hull(list.map((it) => [it.c.x, it.c.y]));
+      if (pts.length < 3) continue;
+      ctx.beginPath();
+      pts.forEach(([wx, wy], i) => {
+        const p = toScreen(wx, wy);
+        if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = rgba(color, 0.05);
+      ctx.fill();
+      ctx.strokeStyle = rgba(color, 0.42);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.save();
+      ctx.shadowColor = rgba(color, 0.4);
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = rgba(color, 0.3);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
-  function castleIcon(p, size, color, owner) {
-    const u = Math.max(1, Math.round(size / 8));
-    const x = Math.round(p.x - u * 4), y = Math.round(p.y - u * 3);
-    const wall = mix(color, '#8a7f66', 0.4);
-    const wallTop = mix(color, '#e0d2a4', 0.55);
-    const gate = mix(color, '#1a1610', 0.72);
-    // 땅 그림자
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.fillRect(x, y + u * 6, u * 8, u);
-    // 성벽 바탕(어두운 테)
-    drawPixelRect(x - u * 0.4, y - u * 0.4, u * 8.8, u * 6.8, '#0a0d13');
-    // 성벽 + 상단 하이라이트
-    drawPixelRect(x, y, u * 8, u * 6, wall);
-    drawPixelRect(x, y, u * 8, u, wallTop);
-    drawPixelRect(x, y + u * 5, u * 8, u, gate);
-    // 성가퀴 3개
-    for (let i = 0; i < 3; i++) drawPixelRect(x + u * (0.3 + i * 3), y - u * 1.6, u * 2, u * 1.8, wall);
-    // 성문
-    drawPixelRect(x + u * 3, y + u * 3.2, u * 2, u * 2.8, gate);
-    // 깃대 + 세력 깃발
-    drawPixelRect(x + u * 3.5, y - u * 4.4, u * 1, u * 3, '#2c2418');
-    drawPixelRect(x + u * 4.2, y - u * 4.4, u * 3.4, u * 2.1, color);
-    drawPixelRect(x + u * 4.2, y - u * 4.4, u * 3.4, u * 0.7, mix(color, '#ffffff', 0.35));
-    // 소유 테두리
-    ctx.strokeStyle = owner ? color : '#79705d';
-    ctx.lineWidth = Math.max(1, u * 0.9);
-    ctx.strokeRect(x - u * 0.4, y - u * 0.4, u * 8.8, u * 6.8);
+  /* 성곽 엠블럼 — 벡터 성벽·탑·성문·세력 깃발 */
+  function castleArt(p, sz, color, owner, major) {
+    const u = sz / 2;
+    const x = p.x, y = p.y;
+    const lit = mix(color, '#6a7078', 0.52);
+    const wall = mix(color, '#22272d', 0.68);
+    const dark = mix(color, '#0e1216', 0.86);
+    const gold = 'rgba(201, 164, 92, 0.50)';
+
+    // 바닥 그림자
+    ctx.beginPath();
+    ctx.ellipse(x, y + u * 0.86, u * 1.15, u * 0.24, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fill();
+
+    // 기단
+    ctx.fillStyle = 'rgba(10, 13, 16, 0.9)';
+    ctx.fillRect(x - u * 1.08, y + u * 0.5, u * 2.16, u * 0.26);
+
+    const wallGrad = (x0, y0, w, h) => {
+      const g = ctx.createLinearGradient(x0, y0, x0 + w * 0.7, y0 + h);
+      g.addColorStop(0, lit);
+      g.addColorStop(0.55, wall);
+      g.addColorStop(1, dark);
+      return g;
+    };
+
+    // 뒤쪽 외벽
+    const ww = u * 1.72, wh = u * 0.58;
+    ctx.fillStyle = wallGrad(x - ww / 2, y - wh * 0.1, ww, wh);
+    ctx.fillRect(x - ww / 2, y - wh * 0.1, ww, wh);
+    ctx.strokeStyle = gold;
+    ctx.lineWidth = 0.7;
+    ctx.strokeRect(x - ww / 2 + 0.35, y - wh * 0.1 + 0.35, ww - 0.7, wh - 0.7);
+
+    // 외벽 성가퀴
+    for (let i = 0; i < 6; i += 1) {
+      ctx.fillStyle = i % 2 ? wall : lit;
+      ctx.fillRect(x - ww / 2 + (i * ww) / 6 + ww * 0.012, y - wh * 0.1 - u * 0.14, (ww / 6) * 0.72, u * 0.16);
+    }
+
+    // 좌우 탑
+    for (const side of [-1, 1]) {
+      const tw = u * 0.52, th = u * 0.98;
+      const tx = x + side * (ww / 2 - tw * 0.42) - tw / 2;
+      const ty = y - th * 0.42;
+      ctx.fillStyle = wallGrad(tx, ty, tw, th);
+      ctx.fillRect(tx, ty, tw, th);
+      ctx.strokeStyle = gold;
+      ctx.lineWidth = 0.7;
+      ctx.strokeRect(tx + 0.35, ty + 0.35, tw - 0.7, th - 0.7);
+      // 탑 꼭대기 홍예
+      ctx.fillStyle = lit;
+      ctx.fillRect(tx - tw * 0.06, ty - u * 0.12, tw * 1.12, u * 0.12);
+      ctx.fillStyle = wall;
+      ctx.fillRect(tx + tw * 0.2, ty - u * 0.24, tw * 0.2, u * 0.13);
+      ctx.fillRect(tx + tw * 0.58, ty - u * 0.24, tw * 0.2, u * 0.13);
+      // 탑 창
+      ctx.fillStyle = 'rgba(9, 12, 15, 0.92)';
+      ctx.fillRect(tx + tw * 0.34, ty + th * 0.42, tw * 0.32, th * 0.24);
+    }
+
+    // 중앙 탑(대도시는 높게)
+    const ch = u * (major ? 1.02 : 0.84);
+    const cw = u * 0.56;
+    const cx = x - cw / 2, cy = y - ch * 0.46;
+    ctx.fillStyle = wallGrad(cx, cy, cw, ch);
+    ctx.fillRect(cx, cy, cw, ch);
+    ctx.strokeStyle = 'rgba(233, 211, 164, 0.45)';
+    ctx.strokeRect(cx + 0.35, cy + 0.35, cw - 0.7, ch - 0.7);
+    ctx.fillStyle = lit;
+    ctx.fillRect(cx - cw * 0.08, cy - u * 0.12, cw * 1.16, u * 0.12);
+
+    // 성문 — 홍예
+    const gw = u * 0.4, gh = u * 0.42;
+    const gy = y + u * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x - gw / 2, gy);
+    ctx.lineTo(x - gw / 2, gy - gh * 0.5);
+    ctx.quadraticCurveTo(x, gy - gh * 1.22, x + gw / 2, gy - gh * 0.5);
+    ctx.lineTo(x + gw / 2, gy);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(8, 11, 14, 0.95)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(201, 164, 92, 0.75)';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+
+    // 깃대와 세력 깃발
+    const poleBase = cy - u * 0.1;
+    const poleTop = cy - u * 1.28;
+    const px = x + cw * 0.34;
+    ctx.strokeStyle = 'rgba(201, 164, 92, 0.85)';
+    ctx.lineWidth = Math.max(0.8, u * 0.055);
+    ctx.beginPath();
+    ctx.moveTo(px, poleBase);
+    ctx.lineTo(px, poleTop);
+    ctx.stroke();
+    const fw = u * 0.86, fh = u * 0.52;
+    ctx.beginPath();
+    ctx.moveTo(px, poleTop);
+    ctx.quadraticCurveTo(px + fw * 0.52, poleTop + fh * 0.14, px + fw, poleTop + fh * 0.3);
+    ctx.quadraticCurveTo(px + fw * 0.52, poleTop + fh * 0.78, px, poleTop + fh * 0.7);
+    ctx.closePath();
+    ctx.fillStyle = mix(color, '#ffffff', 0.06);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(12, 15, 18, 0.55)';
+    ctx.lineWidth = 0.6;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(233, 211, 164, 0.7)';
+    ctx.beginPath();
+    ctx.arc(px + fw * 0.42, poleTop + fh * 0.4, Math.max(0.55, u * 0.055), 0, Math.PI * 2);
+    ctx.fill();
+
+    // 소유 세력 식별 띠
+    if (owner) {
+      ctx.strokeStyle = rgba(color, 0.75);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x - u * 1.08, y + u * 0.76);
+      ctx.lineTo(x + u * 1.08, y + u * 0.76);
+      ctx.stroke();
+    }
   }
 
   function drawRegionLabels() {
@@ -271,14 +510,18 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       const cx = list.reduce((n, c) => n + c.x, 0) / list.length;
       const cy = list.reduce((n, c) => n + c.y, 0) / list.length;
       const p = toScreen(cx, cy);
-      const fs = Math.max(11, Math.min(16, 10 + cam.zoom * 5));
-      ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
-      ctx.fillStyle = 'rgba(230, 210, 150, 0.22)';
+      const fs = Math.max(10, Math.min(15, 9 + cam.zoom * 5));
+      ctx.font = `600 ${fs}px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+      ctx.fillStyle = 'rgba(201, 164, 92, 0.20)';
       ctx.fillText(region, p.x, p.y);
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
-      ctx.fillText(region, p.x + 1, p.y + 1);
-      ctx.fillStyle = 'rgba(230, 210, 150, 0.21)';
-      ctx.fillText(region, p.x, p.y);
+      // 밑줄 장식
+      const tw = ctx.measureText(region).width;
+      ctx.strokeStyle = 'rgba(201, 164, 92, 0.14)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x - tw / 2, p.y + fs * 0.72);
+      ctx.lineTo(p.x + tw / 2, p.y + fs * 0.72);
+      ctx.stroke();
     }
   }
 
@@ -293,29 +536,40 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       const isOwn = !!(city && own && city.owner === own);
       items.push({
         c, city, isOwn, p,
-        sz: Math.max(15, Math.min(30, sc * 2.8)) * (c.major ? 1.1 : 1),
+        sz: Math.max(20, Math.min(38, sc * 3.5)) * (c.major ? 1.1 : 1),
         pri: (selected === c.id ? 4 : 0) + (isOwn ? 2 : 0) + (c.major ? 1 : 0),
       });
     }
-    // 아이콘: 중요도 낮은 성부터 그려 선택 성이 맨 위에 오게
     const iconRects = [];
     for (const it of items.slice().sort((a, b) => a.pri - b.pri)) {
       const owner = it.city ? it.city.owner : null;
       const color = owner ? (state.factions[owner] ? state.factions[owner].color : '#888') : '#7d7462';
       const isSel = selected === it.c.id;
+      // 세력 영토 톤 — 성 아래 옅은 빛
+      if (owner) {
+        const rg = ctx.createRadialGradient(it.p.x, it.p.y + it.sz * 0.2, 0, it.p.x, it.p.y + it.sz * 0.2, it.sz * 1.5);
+        rg.addColorStop(0, rgba(color, 0.20));
+        rg.addColorStop(1, rgba(color, 0));
+        ctx.fillStyle = rg;
+        ctx.beginPath();
+        ctx.ellipse(it.p.x, it.p.y + it.sz * 0.2, it.sz * 1.5, it.sz * 1.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
       if (isSel) {
         const pulse = 0.5 + 0.5 * Math.abs(Math.sin(Date.now() / 520));
-        ctx.strokeStyle = `rgba(255,226,140,${0.35 + 0.5 * pulse})`;
-        ctx.lineWidth = 2;
-        const r = it.sz * 0.78;
-        ctx.strokeRect(Math.round(it.p.x - r), Math.round(it.p.y - r), Math.round(r * 2), Math.round(r * 2));
+        const r = it.sz * 0.92;
+        ctx.strokeStyle = `rgba(233, 211, 164, ${0.35 + 0.45 * pulse})`;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(it.p.x - r, it.p.y - r, r * 2, r * 2);
+        ctx.fillStyle = `rgba(233, 211, 164, ${0.05 + 0.05 * pulse})`;
+        ctx.fillRect(it.p.x - r, it.p.y - r, r * 2, r * 2);
       }
-      castleIcon(it.p, it.sz, color, owner);
-      iconRects.push({ id: it.c.id, r: [it.p.x - it.sz * 0.55, it.p.y - it.sz * 0.55, it.sz * 1.1, it.sz * 1.1] });
+      castleArt(it.p, it.sz, color, owner, it.c.major);
+      iconRects.push({ id: it.c.id, r: [it.p.x - it.sz * 0.62, it.p.y - it.sz * 0.62, it.sz * 1.24, it.sz * 1.24] });
     }
     // 이름표: 중요한 성부터 자리를 잡고, 겹치면 다음 후보/생략
-    const fs = Math.max(9.5, Math.min(15, 8.5 + cam.zoom * 2.2 + Math.max(0, sc - 8) * 0.55));
-    ctx.font = `700 ${fs}px "Galmuri11", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+    const fs = Math.max(9.5, Math.min(14.5, 8.5 + cam.zoom * 2 + Math.max(0, sc - 8) * 0.5));
+    ctx.font = `600 ${fs}px "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const placed = [];
@@ -325,9 +579,9 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       if (it.p.x < 6 || it.p.x > cssW - 6 || it.p.y < TOP_INSET || it.p.y > cssH - 4) continue;
       const isSel = selected === it.c.id;
       const label = it.c.ko;
-      const tw = Math.round(ctx.measureText(label).width) + 7;
-      const th = Math.round(fs + 4);
-      const half = it.sz * 0.62;
+      const tw = Math.round(ctx.measureText(label).width) + 9;
+      const th = Math.round(fs + 5);
+      const half = it.sz * 0.7;
       const cands = [
         [it.p.x - tw / 2, it.p.y + half],
         [it.p.x - tw / 2, it.p.y - half - th],
@@ -348,12 +602,12 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       // 화면 밖으로 잘리지 않게
       rect[0] = Math.max(2, Math.min(cssW - tw - 2, rect[0]));
       placed.push(rect);
-      ctx.fillStyle = isSel ? 'rgba(58,44,12,0.95)' : 'rgba(7,11,17,0.86)';
+      ctx.fillStyle = isSel ? 'rgba(40, 34, 18, 0.96)' : 'rgba(11, 14, 18, 0.86)';
       ctx.fillRect(Math.round(rect[0]), Math.round(rect[1]), tw, th);
-      ctx.strokeStyle = isSel ? '#f0c94a' : (it.isOwn ? 'rgba(150,205,130,0.55)' : 'rgba(145,125,75,0.45)');
+      ctx.strokeStyle = isSel ? 'rgba(233, 211, 164, 0.95)' : (it.isOwn ? 'rgba(201, 164, 92, 0.55)' : 'rgba(150, 140, 118, 0.35)');
       ctx.lineWidth = 1;
       ctx.strokeRect(Math.round(rect[0]) + 0.5, Math.round(rect[1]) + 0.5, tw - 1, th - 1);
-      ctx.fillStyle = isSel ? '#ffe9a8' : it.isOwn ? '#dcf5cb' : '#e8dec4';
+      ctx.fillStyle = isSel ? '#ffeeb8' : it.isOwn ? '#ece0c2' : '#ddd6c4';
       ctx.fillText(label, rect[0] + tw / 2, rect[1] + th / 2 + 0.5);
     }
   }
@@ -363,7 +617,8 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawSea();
     drawLand();
-    drawPatches();
+    drawTerrainTexture();
+    drawTerritory();
     drawRivers();
     drawMountains();
     drawRoads();

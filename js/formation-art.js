@@ -60,40 +60,52 @@ export function frontTip(formId, dir = 'E') {
   return best;
 }
 
-/* canvas 2D — 부대 한 칸 안의 진형 대형을 픽셀 병사로 찍는다 */
+/* canvas 2D — 부대 한 칸 안의 진형 대형을 보드형 토큰(원형)으로 찍는다 */
 export function drawFormation(ctx, formId, cx, cy, size, dir = 'E', colors = {}) {
   const body = colors.body || '#a9cdff';
-  const shade = colors.shade || '#12283d';
-  const tip = colors.tip || '#ffe066';
+  const shade = colors.shade || '#0d1720';
+  const tip = colors.tip || '#e9d3a4';
   const pts = formationDots(formId, dir);
-  const px = Math.max(2, Math.round(size * 0.13));
+  const r = Math.max(1.6, size * 0.055);
   const tipDot = frontTip(formId, dir);
   for (const p of pts) {
-    const x = Math.round(cx + p.x * size);
-    const y = Math.round(cy + p.y * size);
+    const x = cx + p.x * size;
+    const y = cy + p.y * size;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.22, 0, Math.PI * 2);
     ctx.fillStyle = shade;
-    ctx.fillRect(x - px / 2 + 1, y - px / 2 + 1, px, px);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = body;
-    ctx.fillRect(x - px / 2, y - px / 2, px, px);
+    ctx.fill();
   }
-  // 창끝(정면)은 밝은 색으로 한 점 더
-  const tx = Math.round(cx + tipDot.x * size);
-  const ty = Math.round(cy + tipDot.y * size);
+  // 창끝(정면)은 금빛 토큰으로 한 점 더 — 어느 쪽이 정면인지 바로 보이게
+  const tx = cx + tipDot.x * size;
+  const ty = cy + tipDot.y * size;
+  ctx.beginPath();
+  ctx.arc(tx, ty, r * 1.35, 0, Math.PI * 2);
   ctx.fillStyle = tip;
-  ctx.fillRect(tx - px / 2, ty - px / 2, px, px);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(tx, ty, r * 1.35, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(20, 16, 8, 0.55)';
+  ctx.lineWidth = Math.max(0.6, r * 0.3);
+  ctx.stroke();
 }
 
 /* HTML 미리보기 — 작은 SVG로 같은 대형을 그린다 */
 export function formationSVG(formId, dir = 'E', px = 24, opt = {}) {
   const body = opt.body || '#9cc4ee';
-  const shade = opt.shade || '#1b2c3f';
-  const tip = opt.tip || '#ffe066';
+  const shade = opt.shade || '#0d1720';
+  const tip = opt.tip || '#e9d3a4';
   const pts = formationDots(formId, dir);
   const tipDot = frontTip(formId, dir);
-  const d = 0.2;
-  const rects = pts.map((p) => {
+  const r = 0.062;
+  const dots = pts.map((p) => {
     const isTip = Math.abs(p.x - tipDot.x) < 1e-6 && Math.abs(p.y - tipDot.y) < 1e-6;
-    return `<rect x="${(p.x - d / 2).toFixed(3)}" y="${(p.y - d / 2).toFixed(3)}" width="${d}" height="${d}" fill="${isTip ? tip : body}"/>`;
+    if (isTip) return `<circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${(r * 1.35).toFixed(3)}" fill="${tip}" stroke="rgba(20,16,8,0.5)" stroke-width="0.014"/>`;
+    return `<circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${(r * 1.24).toFixed(3)}" fill="${shade}"/><circle cx="${p.x.toFixed(3)}" cy="${p.y.toFixed(3)}" r="${r.toFixed(3)}" fill="${body}"/>`;
   }).join('');
-  return `<svg class="form-svg" width="${px}" height="${px}" viewBox="-0.55 -0.55 1.1 1.1" aria-hidden="true" shape-rendering="crispEdges"><rect x="-0.55" y="-0.55" width="1.1" height="1.1" fill="${shade}" opacity="0.55"/>${rects}</svg>`;
+  return `<svg class="form-svg" width="${px}" height="${px}" viewBox="-0.55 -0.55 1.1 1.1" aria-hidden="true"><rect x="-0.55" y="-0.55" width="1.1" height="1.1" fill="#0c1014"/><rect x="-0.53" y="-0.53" width="1.06" height="1.06" fill="none" stroke="rgba(201,164,92,0.22)" stroke-width="0.016"/>${dots}</svg>`;
 }
