@@ -120,8 +120,8 @@ with sync_playwright() as p:
         page.wait_for_timeout(350)
 
     # ---------- 이동 버튼 ----------
-    step("하단 1차 메뉴 4개(내정·인사·군사·계략)",
-         [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "계략"], menu_labels(page))
+    step("하단 1차 메뉴 5개(내정·인사·군사·외교·계략)",
+         [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "외교", "계략"], menu_labels(page))
     open_group(page, "people")
     move_btn = page.locator('[data-act="cmd"][data-cmd="move"]')
     talk_btn = page.locator('[data-act="cmd"][data-cmd="talk"]')

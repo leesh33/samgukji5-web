@@ -125,8 +125,45 @@ with sync_playwright() as p:
          page.evaluate("() => Math.round(document.querySelector('#map').clientHeight / innerHeight * 100) + '%'"))
     shot(page, "06b-map-open")
     labels = menu_labels(page)
-    step("하단 1차 메뉴 4개(내정·인사·군사·계략)",
-         [x.split("/")[0] for x in labels] == ["내정", "인사", "군사", "계략"], labels)
+    step("하단 1차 메뉴 5개(내정·인사·군사·외교·계략)",
+         [x.split("/")[0] for x in labels] == ["내정", "인사", "군사", "외교", "계략"], labels)
+    shot(page, "diplomacy-bar")
+
+    # ---------- 하단 외교 버튼 → 외교 모달 (증정·동맹·정전·권고) ----------
+    page.click('.cp-cmds [data-act="diplomacy"]')
+    page.wait_for_timeout(520)
+    dtitle = page.locator("#sheet-title").inner_text()
+    rows = page.locator(".dp-row").count()
+    step("하단 외교 버튼 → 외교 모달", dtitle == "외교" and rows >= 5, f"{dtitle} · {rows}세력")
+    first = page.locator(".dp-row").first
+    kinds = {k: first.locator(f'[data-kind="{k}"]').count() for k in ("giftGold", "giftFood", "alliance", "truce", "surrender")}
+    step("증정(금·식량)·동맹·정전·권고 버튼", all(v == 1 for v in kinds.values()), kinds)
+    advise = first.locator('[data-kind="surrender"]').inner_text()
+    step("권고 예상 성공률 표시", "%" in advise, advise)
+    o = overflow(page)
+    step("가로 넘침 없음(외교 모달)", len(o["bad"]) == 0, o)
+    shot(page, "diplomacy-modal")
+
+    # 증정(금) — 우호도가 오르고 금이 준다
+    rel0 = first.locator(".dp-rel span").inner_text()
+    gold0 = page.locator("#res-gold").inner_text()
+    first.locator('[data-kind="giftGold"]').click()
+    page.wait_for_timeout(750)
+    rel1 = page.locator(".dp-row").first.locator(".dp-rel span").inner_text()
+    gold1 = page.locator("#res-gold").inner_text()
+    step("증정(금) — 우호도 상승·금 소모", rel0 != rel1 and gold0 != gold1, f"{rel0} -> {rel1} / 금 {gold0} -> {gold1}")
+    shot(page, "diplomacy-gift")
+    # 식량 증정
+    food0 = page.locator("#res-food").inner_text()
+    rel2 = page.locator(".dp-row").first.locator(".dp-rel span").inner_text()
+    page.locator(".dp-row").first.locator('[data-kind="giftFood"]').click()
+    page.wait_for_timeout(750)
+    rel3 = page.locator(".dp-row").first.locator(".dp-rel span").inner_text()
+    food1 = page.locator("#res-food").inner_text()
+    step("증정(식량) — 우호도 상승·식량 소모", rel2 != rel3 and food0 != food1, f"{rel2} -> {rel3} / 량 {food0} -> {food1}")
+    page.click('.sheet-head [data-act="sheet-close"]')
+    page.wait_for_timeout(280)
+
     for g, ko, n in (("civil", "내정", 5), ("people", "인사", 5), ("army", "군사", 3)):
         page.click(f'[data-act="cmd-group"][data-group="{g}"]')
         page.wait_for_timeout(220)

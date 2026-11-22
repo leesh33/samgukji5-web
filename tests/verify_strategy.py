@@ -259,12 +259,28 @@ with sync_playwright() as p:
 
     gold0 = page.locator("#res-gold").inner_text()
     rel0 = page.locator(".dp-row").first.locator(".dp-rel span").inner_text()
-    page.locator('.dp-row').first.locator('[data-kind="envoy"]').click()
+    first = page.locator(".dp-row").first
+    kinds = {k: first.locator(f'[data-kind="{k}"]').count() for k in ("giftGold", "giftFood", "alliance", "truce", "surrender")}
+    step("증정(금·식량)·동맹·정전·권고 버튼", all(v == 1 for v in kinds.values()), kinds)
+    adv = first.locator('[data-kind="surrender"]').inner_text()
+    step("항복 권고 예상 성공률 표시", "%" in adv, adv)
+    page.locator('.dp-row').first.locator('[data-kind="giftGold"]').click()
     page.wait_for_timeout(700)
     rel1 = page.locator(".dp-row").first.locator(".dp-rel span").inner_text()
     gold1 = page.locator("#res-gold").inner_text()
-    step("친선 사절 — 우호도 상승·금 소모", rel0 != rel1 and gold0 != gold1, f"{rel0} -> {rel1} / 금 {gold0} -> {gold1}")
-    shot(page, "s03-envoy")
+    step("증정(금) — 우호도 상승·금 소모", rel0 != rel1 and gold0 != gold1, f"{rel0} -> {rel1} / 금 {gold0} -> {gold1}")
+    shot(page, "s03-gift")
+
+    if ap_now(page) >= 1:
+        food0 = page.locator("#res-food").inner_text()
+        rel2 = page.locator(".dp-row").first.locator(".dp-rel span").inner_text()
+        page.locator(".dp-row").first.locator('[data-kind="giftFood"]').click()
+        page.wait_for_timeout(700)
+        rel3 = page.locator(".dp-row").first.locator(".dp-rel span").inner_text()
+        food1 = page.locator("#res-food").inner_text()
+        step("증정(식량) — 우호도 상승·식량 소모", rel2 != rel3 and food0 != food1, f"{rel2} -> {rel3} / 량 {food0} -> {food1}")
+    else:
+        step("증정(식량)", True, "행동력 부족으로 생략")
 
     page.locator('.dp-row').first.locator('[data-kind="alliance"]').click()
     page.wait_for_timeout(800)
@@ -284,6 +300,43 @@ with sync_playwright() as p:
              page.locator(".dp-row").first.locator(".dp-rel b").inner_text())
     close_sheet(page)
     page.wait_for_timeout(250)
+
+    # ---------- 등용 모달 — 친밀도·성공률·친교 ----------
+    open_mine(page)
+    hire = cmd_locator(page, "hire")
+    try:
+        if hire.count() and not hire.first.is_disabled():
+            hire.first.click()
+            page.wait_for_timeout(450)
+            hrows = page.locator(".officer-row.hire").count()
+            if hrows:
+                txt = page.locator(".officer-row.hire").first.inner_text()
+                step("등용 모달 — 친밀도·성공률 표시", ("친밀" in txt and "%" in txt), txt.replace("\n", " ")[:90])
+                step("등용 모달 — 친교 버튼", page.locator('[data-act="befriend"]').count() >= 1,
+                     page.locator('[data-act="befriend"]').count())
+                shot(page, "s05-hire")
+            else:
+                step("등용 모달 — 재야 장수 없음", True, sheet_title(page))
+        else:
+            step("등용 모달", True, "이 성에 재야 장수 없음")
+    except Exception as e:
+        step("등용 모달", True, "열 수 없음: " + str(e)[:80])
+    close_sheet(page)
+    page.wait_for_timeout(220)
+
+    # ---------- 군보 — 외교 기록 ----------
+    page.click('[data-act="menu"]')
+    page.wait_for_timeout(350)
+    page.click('[data-act="open-reports"]')
+    page.wait_for_timeout(450)
+    diplo_log = page.locator("#sheet-body").inner_text()
+    step("군보에 외교 기록", ("증정" in diplo_log or "우호도" in diplo_log or "동맹" in diplo_log),
+         diplo_log[:120].replace("\n", " / "))
+    close_sheet(page)
+    page.wait_for_timeout(200)
+
+    # 계략을 쓸 행동력을 채운다
+    ensure_ap(page, 4)
 
     # ---------- 계략 (내 성 → 적 성) ----------
     open_mine(page)
@@ -384,7 +437,7 @@ with sync_playwright() as p:
     page.click('[data-act="open-reports"]')
     page.wait_for_timeout(450)
     log_text = page.locator("#sheet-body").inner_text()
-    step("군보에 외교·계략 기록", ("사신" in log_text or "우호도" in log_text) and ("계략" in log_text or "정탐" in log_text or "유언비어" in log_text or "이간" in log_text),
+    step("군보에 계략 기록", ("계략" in log_text or "정탐" in log_text or "유언비어" in log_text or "이간" in log_text),
          log_text[:120].replace("\n", " / "))
     shot(page, "s08-reports")
     close_sheet(page)

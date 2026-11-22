@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import * as E from '../js/engine.js';
 
 /* rngState를 바꿔 가며 원하는 판정이 나오는 난수를 찾는다(테스트 결정성) */
@@ -200,7 +202,7 @@ test('저장 양식 v6(외교·관직 이전)도 열리고 기본값으로 채�
   delete raw.pendingEvent;
   const back = E.deserialize(JSON.stringify(raw));
   assert.equal(back.version, E.SAVE_VERSION);
-  assert.equal(back.version, 7);
+  assert.equal(back.version, 8);
   assert.ok(back.diplomacy && back.diplomacy.rel && typeof back.diplomacy.rel === 'object');
   const k = E.pairKey(back.playerId, Object.keys(back.factions).find((f) => f !== back.playerId));
   assert.equal(back.diplomacy.rel[k], 40);
@@ -228,4 +230,133 @@ test('동맹·정전 중인 성은 출진 자격에서도 막힌다', () => {
   const chk2 = E.canAttack(s, from.id, to);
   assert.equal(chk2.ok, false);
   assert.match(chk2.why, /정전/);
+});
+
+/* ---------------- 증정 · 항복 권고 · 하단 외교 버튼 ---------------- */
+
+test('증정(금): 금 300과 행동력 1을 쓰고 우호도가 15~25 오른다', () => {
+  const s = newGame(51);
+  const target = E.diplomacyView(s)[0].id;
+  const gold0 = E.factionGold(s, s.playerId);
+  const ap0 = s.actionPoints;
+  const rel0 = E.relationOf(s, s.playerId, target);
+  const r = E.giveGift(s, target, 'gold');
+  assert.ok(r.ok, r.msg);
+  assert.equal(E.factionGold(s, s.playerId), gold0 - E.DIPLO.giftGold.gold);
+  assert.equal(s.actionPoints, ap0 - 1);
+  assert.ok(r.gain >= 15 && r.gain <= 25, 'gain ' + r.gain);
+  assert.equal(E.relationOf(s, s.playerId, target), Math.min(100, rel0 + r.gain));
+  assert.match(r.msg, /우호도/);
+});
+
+test('증정(식량): 식량 1,200을 쓰고 금은 그대로, 우호도가 12~22 오른다', () => {
+  const s = newGame(53);
+  const target = E.diplomacyView(s)[0].id;
+  const gold0 = E.factionGold(s, s.playerId);
+  const food0 = E.factionFood(s, s.playerId);
+  const rel0 = E.relationOf(s, s.playerId, target);
+  const r = E.giveGift(s, target, 'food');
+  assert.ok(r.ok, r.msg);
+  assert.equal(E.factionFood(s, s.playerId), food0 - E.DIPLO.giftFood.food);
+  assert.equal(E.factionGold(s, s.playerId), gold0);
+  assert.ok(r.gain >= 12 && r.gain <= 22, 'gain ' + r.gain);
+  assert.equal(E.relationOf(s, s.playerId, target), Math.min(100, rel0 + r.gain));
+  // 식량이 모자라면 실행되지 않는다
+  for (const c of E.factionCities(s, s.playerId)) c.food = 100;
+  const again = E.giveGift(s, target, 'food');
+  assert.equal(again.ok, false);
+  assert.match(again.msg, /식량/);
+});
+
+test('항복 권고 확률: 대등하거나 강한 세력에는 0, 압도적일 때만 열린다', () => {
+  const s = newGame(57);
+  const list = E.diplomacyView(s);
+  const strong = list.find((d) => d.cities >= 3);
+  assert.ok(strong, '강한 이웃');
+  assert.equal(E.surrenderChance(s, strong.id), 0);
+  const weak = list.find((d) => d.cities === 1);
+  assert.ok(weak, '약한 이웃');
+  const c1 = E.factionCities(s, weak.id)[0];
+  c1.troops = 1200;
+  const chance = E.surrenderChance(s, weak.id);
+  assert.ok(chance > 0.2 && chance <= 0.7, 'chance ' + chance);
+  assert.equal(Math.round(chance * 100), E.diplomacyView(s).find((d) => d.id === weak.id).surrender);
+  // 병력을 채워 대등해지면 다시 0
+  c1.troops = 40000;
+  assert.equal(E.surrenderChance(s, weak.id), 0);
+});
+
+test('항복 권고 성공: 상대 세력의 성·장수·자원을 흡수하고 명성이 오른다', () => {
+  const s = newGame(59);
+  const weak = E.diplomacyView(s).find((d) => d.cities === 1);
+  const cities = E.factionCities(s, weak.id);
+  cities[0].troops = 1200;
+  const chance = E.surrenderChance(s, weak.id);
+  const myCities0 = E.factionCities(s, s.playerId).length;
+  const myGens0 = E.factionGenerals(s, s.playerId).length;
+  const foeGens = E.factionGenerals(s, weak.id).length;
+  const gold0 = E.factionGold(s, s.playerId);
+  const ap0 = s.actionPoints;
+  const fame0 = s.factions[s.playerId].fame;
+  forceRoll(s, (v) => v < chance);
+  const r = E.demandSurrender(s, weak.id);
+  assert.ok(r.ok, r.msg);
+  assert.equal(r.accepted, true, r.msg);
+  assert.equal(s.actionPoints, ap0 - 1);
+  assert.equal(E.factionCities(s, s.playerId).length, myCities0 + 1);
+  assert.equal(s.factions[weak.id].alive, false, '상대 세력 멸망');
+  assert.equal(E.factionGenerals(s, s.playerId).length, myGens0 + foeGens);
+  assert.equal(E.factionGold(s, s.playerId), gold0 + r.gold, '자원 흡수');
+  assert.equal(s.factions[s.playerId].fame, Math.min(100, fame0 + 10));
+  assert.equal(E.diplomacyView(s).some((d) => d.id === weak.id), false);
+  assert.equal(s.log.some((l) => l.text.includes('항복 권고를 받아들였습니다')), true);
+});
+
+test('항복 권고 실패: 행동력만 쓰고 우호도가 25 떨어진다', () => {
+  const s = newGame(61);
+  const weak = E.diplomacyView(s).find((d) => d.cities === 1);
+  E.factionCities(s, weak.id)[0].troops = 1200;
+  const chance = E.surrenderChance(s, weak.id);
+  const rel0 = E.relationOf(s, s.playerId, weak.id);
+  const gold0 = E.factionGold(s, s.playerId);
+  const ap0 = s.actionPoints;
+  const cities0 = E.factionCities(s, s.playerId).length;
+  forceRoll(s, (v) => v >= chance);
+  const r = E.demandSurrender(s, weak.id);
+  assert.ok(r.ok, r.msg);
+  assert.equal(r.accepted, false);
+  assert.equal(s.actionPoints, ap0 - 1);
+  assert.equal(E.factionGold(s, s.playerId), gold0, '금은 들지 않는다');
+  assert.equal(E.relationOf(s, s.playerId, weak.id), Math.max(0, rel0 - 25));
+  assert.equal(E.factionCities(s, s.playerId).length, cities0);
+  assert.equal(s.factions[weak.id].alive, true);
+});
+
+test('항복 권고는 동맹 중인 세력에 보낼 수 없다', () => {
+  const s = newGame(63);
+  const weak = E.diplomacyView(s).find((d) => d.cities === 1);
+  E.factionCities(s, weak.id)[0].troops = 1200;
+  s.diplomacy.ally[E.pairKey(s.playerId, weak.id)] = 12;
+  const r = E.demandSurrender(s, weak.id);
+  assert.equal(r.ok, false);
+  assert.match(r.msg, /동맹/);
+});
+
+test('하단 성 시트 1차 메뉴에 외교가 있고 5칸으로 배치된다', () => {
+  const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  const ui = read('../js/ui.js');
+  const css = read('../css/style.css');
+  const bar = ui.match(/cmdHTML = `<div class="cp-cmds">[\s\S]*?<\/div>`/);
+  assert.ok(bar, '하단 명령 바 코드');
+  assert.match(bar[0], /\$\{diploTab\}/, '하단 외교 버튼이 1차 메뉴에 붙는다');
+  assert.match(bar[0], /계략/, '계략 버튼 유지');
+  const tab = ui.match(/const diploTab = `[^`]*`/);
+  assert.ok(tab, 'diploTab 정의');
+  assert.match(tab[0], /data-act="diplomacy"/);
+  assert.match(tab[0], />외교</);
+  assert.match(css, /\.cp-cmds \{[^}]*repeat\(5, 1fr\)/, '5칸 배치');
+  assert.match(css, /\.dp-btns \{[^}]*repeat\(3, 1fr\)/, '외교 버튼 3열');
+  assert.match(ui, /data-kind="giftGold"/);
+  assert.match(ui, /data-kind="giftFood"/);
+  assert.match(ui, /data-kind="surrender"/);
 });

@@ -827,12 +827,12 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
   function castleArt(c, p, sz, color, owner, major, t) {
     const u = sz / 2;
     const x = p.x, y = p.y;
-    const stoneHi = mix('#d0b98c', color, 0.12);
-    const stoneMid = mix('#8a7857', color, 0.18);
-    const stoneLo = mix('#2f281b', color, 0.2);
-    const roofHi = mix(color, '#a8c8d0', 0.46);
-    const roofMid = mix(color, '#1e2c33', 0.66);
-    const roofLo = mix(color, '#080f13', 0.8);
+    const stoneHi = mix('#d0b98c', color, 0.2);
+    const stoneMid = mix('#8a7857', color, 0.3);
+    const stoneLo = mix('#2f281b', color, 0.26);
+    const roofHi = mix(color, '#d8eef8', 0.34);
+    const roofMid = mix(color, '#16222a', 0.42);
+    const roofLo = mix(color, '#0a1216', 0.62);
 
     const wallBot = y + u * 0.62;
     const wallH = u * 0.46;
@@ -924,7 +924,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       if (i % 2) continue;
       const mw = (wHalf * 2) / merlonN;
       const mx = x - wHalf + i * mw + mw * 0.16;
-      c.fillStyle = mix(stoneMid, '#ffe0a8', 0.1);
+      c.fillStyle = mix(color, '#ffe6b4', 0.22);
       c.fillRect(mx, wallTop - thick - u * 0.12, mw * 0.68, u * 0.12);
       c.fillStyle = 'rgba(255, 232, 180, 0.16)';
       c.fillRect(mx, wallTop - thick - u * 0.12, mw * 0.68, Math.max(0.4, u * 0.02));
@@ -1002,7 +1002,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     c.lineWidth = Math.max(0.35, u * 0.024);
     c.beginPath(); c.moveTo(poleX, keepTop - u * 0.1); c.lineTo(poleX, poleTop); c.stroke();
 
-    const fw = u * 0.95, fh = u * 0.56;
+    const fw = u * 1.28, fh = u * 0.76;
     const wave = Math.sin((t || 0) / 400 + x * 0.05) * 0.26;
     c.beginPath();
     c.moveTo(poleX, poleTop);
@@ -1011,20 +1011,28 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     c.bezierCurveTo(poleX + fw * 0.58, poleTop + fh * (0.54 - wave), poleX + fw * 0.32, poleTop + fh * (0.44 + wave), poleX, poleTop + fh * 0.7);
     c.closePath();
     const fg = c.createLinearGradient(poleX, poleTop, poleX + fw, poleTop + fh);
-    fg.addColorStop(0, mix(color, '#ffe8b8', 0.3));
-    fg.addColorStop(1, mix(color, '#1d1208', 0.28));
+    fg.addColorStop(0, mix(color, '#fff4d6', 0.42));
+    fg.addColorStop(0.55, color);
+    fg.addColorStop(1, mix(color, '#1d1208', 0.18));
     c.fillStyle = fg;
     c.fill();
+    // 깃발 테 — 세력색이 배경에 묽히지 않도록 또렷하게
+    c.strokeStyle = 'rgba(22, 14, 6, 0.75)';
+    c.lineWidth = Math.max(0.7, u * 0.05);
+    c.stroke();
+    c.strokeStyle = rgba(mix(color, '#fff8e0', 0.55), 0.9);
+    c.lineWidth = Math.max(0.4, u * 0.024);
+    c.stroke();
     c.strokeStyle = 'rgba(22, 14, 6, 0.6)';
     c.lineWidth = Math.max(0.28, u * 0.02);
     c.stroke();
 
-    // 소유 세력 — 벽 아래 은은한 띠
+    // 소유 세력 — 성벽 아래 세력색 띠
     if (owner) {
-      c.fillStyle = rgba(color, 0.5);
-      c.fillRect(x - wHalf * 0.92, wallBot - u * 0.03, wHalf * 1.84, Math.max(1, u * 0.06));
-      c.fillStyle = 'rgba(255, 226, 176, 0.25)';
-      c.fillRect(x - wHalf * 0.92, wallBot - u * 0.03, wHalf * 1.84, Math.max(0.4, u * 0.015));
+      c.fillStyle = rgba(color, 0.88);
+      c.fillRect(x - wHalf * 0.94, wallBot - u * 0.07, wHalf * 1.88, Math.max(2, u * 0.12));
+      c.fillStyle = rgba(mix(color, '#fff3cf', 0.5), 0.55);
+      c.fillRect(x - wHalf * 0.94, wallBot - u * 0.07, wHalf * 1.88, Math.max(0.6, u * 0.028));
     }
   }
   function drawRegionLabels(c) {
@@ -1062,8 +1070,11 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       if (p.x < -80 || p.y < -80 || p.x > cssW + 80 || p.y > cssH + 80) continue;
       const st = state ? state.cities[city.id] : null;
       const isOwn = !!(st && own && st.owner === own);
+      const ownerId = st ? st.owner : null;
+      const fac = ownerId && state.factions[ownerId];
       items.push({
-        c: city, city: st, isOwn, p,
+        c: city, city: st, isOwn, p, owner: ownerId,
+        color: ownerId ? ((fac && fac.color) || FACTION_COLORS[ownerId] || '#8a8474') : '#8d7a5c',
         sz: Math.max(19, Math.min(34, sc * 3.05)) * (city.major ? 1.08 : 1),
         pri: (selected === city.id ? 4 : 0) + (isOwn ? 2 : 0) + (city.major ? 1 : 0),
       });
@@ -1071,19 +1082,41 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
     const iconRects = [];
     for (const it of items.slice().sort((a, b) => a.pri - b.pri)) {
       const owner = it.city ? it.city.owner : null;
-      const color = owner ? (state.factions[owner] ? state.factions[owner].color : '#888') : '#8d7a5c';
+      const color = it.color;
       const isSel = selected === it.c.id;
 
-      // 세력 영토 톤 — 성 아래 옅은 빛
+      // 세력 영토 톤 — 성 바닥에 세력색 오라와 링을 또렷하게
       if (owner) {
-        const rg = c.createRadialGradient(it.p.x, it.p.y + it.sz * 0.2, 0, it.p.x, it.p.y + it.sz * 0.2, it.sz * 1.6);
-        rg.addColorStop(0, rgba(color, 0.26));
-        rg.addColorStop(0.55, rgba(color, 0.1));
+        const gy = it.p.y + it.sz * 0.36;
+        const rg = c.createRadialGradient(it.p.x, gy, 0, it.p.x, gy, it.sz * 1.32);
+        rg.addColorStop(0, rgba(color, 0.3));
+        rg.addColorStop(0.5, rgba(color, 0.12));
         rg.addColorStop(1, rgba(color, 0));
         c.fillStyle = rg;
         c.beginPath();
-        c.ellipse(it.p.x, it.p.y + it.sz * 0.2, it.sz * 1.6, it.sz * 1.15, 0, 0, Math.PI * 2);
+        c.ellipse(it.p.x, gy, it.sz * 1.32, it.sz * 0.92, 0, 0, Math.PI * 2);
         c.fill();
+        // 성 아래 세력색 발판 — 원거리에서도 색으로 소속이 읽힌다
+        c.fillStyle = rgba(color, 0.5);
+        c.beginPath();
+        c.ellipse(it.p.x, gy, it.sz * 0.95, it.sz * 0.42, 0, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = rgba(mix(color, '#fff6dc', 0.4), 0.3);
+        c.beginPath();
+        c.ellipse(it.p.x, gy, it.sz * 0.6, it.sz * 0.26, 0, 0, Math.PI * 2);
+        c.fill();
+        // 확대하면 성 아래에 세력색 반달 — 원형으로 겹치지 않고 소속만 짚는다
+        if (it.sz >= 22) {
+          c.save();
+          c.strokeStyle = rgba(color, 0.8);
+          c.lineWidth = Math.max(1.2, it.sz * 0.055);
+          c.shadowColor = rgba(color, 0.9);
+          c.shadowBlur = Math.max(3, it.sz * 0.16);
+          c.beginPath();
+          c.ellipse(it.p.x, gy, it.sz * 0.94, it.sz * 0.44, 0, Math.PI * 0.1, Math.PI * 0.9);
+          c.stroke();
+          c.restore();
+        }
       }
       if (isSel) {
         const pulse = 0.5 + 0.5 * Math.abs(Math.sin(t / 520));
@@ -1119,7 +1152,9 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       if (it.p.x < 6 || it.p.x > cssW - 6 || it.p.y < TOP_INSET || it.p.y > cssH - 4) continue;
       const isSel = selected === it.c.id;
       const label = it.c.ko;
-      const tw = Math.round(c.measureText(label).width) + 10;
+      const textW = Math.round(c.measureText(label).width);
+      const chipW = 5;
+      const tw = textW + 13 + chipW;
       const th = Math.round(fs + 5);
       const half = it.sz * 0.7;
       const cands = [
@@ -1153,15 +1188,28 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       }
       c.fillStyle = pg;
       c.fillRect(bx, by, tw, th);
+      // 세력 색 배지 — 이름표 왼쪽에 세력색을 박아 바로 읽힌다
+      if (it.owner) {
+        c.fillStyle = it.color;
+        c.fillRect(bx + 3, by + 2.5, chipW, th - 5);
+        c.fillStyle = rgba(mix(it.color, '#fff6dc', 0.55), 0.9);
+        c.fillRect(bx + 3, by + 2.5, chipW, 1);
+      } else {
+        c.fillStyle = 'rgba(126, 118, 100, 0.72)';
+        c.fillRect(bx + 3, by + 2.5, chipW, th - 5);
+      }
       // 금빛 테
-      c.strokeStyle = isSel ? 'rgba(255, 232, 180, 0.96)' : (it.isOwn ? 'rgba(240, 194, 128, 0.75)' : 'rgba(180, 150, 110, 0.45)');
-      c.lineWidth = 1;
+      c.strokeStyle = isSel ? 'rgba(255, 232, 180, 0.96)'
+        : it.isOwn ? 'rgba(240, 194, 128, 0.78)'
+        : it.owner ? rgba(it.color, 0.82)
+        : 'rgba(180, 150, 110, 0.45)';
+      c.lineWidth = isSel || it.owner ? 1.2 : 1;
       c.strokeRect(bx + 0.5, by + 0.5, tw - 1, th - 1);
       // 윗면 하이라이트
       c.fillStyle = 'rgba(255, 226, 170, 0.14)';
       c.fillRect(bx + 1, by + 1, tw - 2, 1);
-      c.fillStyle = isSel ? '#fff3d0' : it.isOwn ? '#f6e6c4' : '#ddd2bc';
-      c.fillText(label, bx + tw / 2, by + th / 2 + 0.5);
+      c.fillStyle = isSel ? '#fff3d0' : it.isOwn ? '#f6e6c4' : '#f0e6d2';
+      c.fillText(label, bx + 5.5 + chipW + (textW + 4) / 2, by + th / 2 + 0.5);
     }
   }
 

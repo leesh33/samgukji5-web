@@ -187,7 +187,7 @@ test('저장 양식 v4 → v5 이전: 죽음·포로 필드가 채워진다', ()
   assert.equal(back.version, E.SAVE_VERSION);
   assert.ok(Array.isArray(back.pendingPrisoners));
   assert.equal(back.generals.caocao ? back.generals.caocao.dead : false, false);
-  assert.equal(E.SAVE_VERSION, 7);
+  assert.equal(E.SAVE_VERSION, 8);
 });
 
 test('처분하고 저장한 뒤 다시 불러와도 등용·참수 결과가 남는다', () => {

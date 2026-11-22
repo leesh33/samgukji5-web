@@ -74,7 +74,7 @@ with sync_playwright() as p:
     }""")
     step("불러온 화면에 한자 없음", body["n"] == 0, body)
     step("성 시트·명령 동작", page.locator("#citypanel").is_visible()
-         and [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "계략"], menu_labels(page))
+         and [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "외교", "계략"], menu_labels(page))
     o = page.evaluate("() => document.documentElement.scrollWidth <= document.documentElement.clientWidth")
     step("가로 넘침 없음", o)
     page.screenshot(path=os.path.join(OUT, f"{TAG}-save-v5.png"))

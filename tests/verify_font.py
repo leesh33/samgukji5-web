@@ -187,8 +187,8 @@ with sync_playwright() as p:
         page.click('.cs-toggle')
         page.wait_for_timeout(400)
     scan("font-06-citypanel", "성 시트")
-    step("하단 1차 메뉴 4개(내정·인사·군사·계략)",
-         [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "계략"], menu_labels(page))
+    step("하단 1차 메뉴 5개(내정·인사·군사·외교·계략)",
+         [x.split("/")[0] for x in menu_labels(page)] == ["내정", "인사", "군사", "외교", "계략"], menu_labels(page))
     page.click('[data-act="cmd-group"][data-group="people"]')
     page.wait_for_timeout(300)
     scan("font-06b-citypanel-sub", "성 시트 · 인사 하위 메뉴")

@@ -522,7 +522,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gen-chip span { font-size: 9px; color: #ddcfb2; white-space: nowrap; overflow: hidden; max-width: 44px; text-overflow: ellipsis; }
 .gen-chip.done { opacity: 0.45; }
 .cp-gens .none { font-size: 10.5px; color: #8f7d63; padding: 6px 0; }
-.cp-cmds { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 5px; }
+.cp-cmds { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 5px; }
 .cp-cmds .btn, .cp-subcmds .btn { width: 100%; min-height: 42px; font-size: 12px; letter-spacing: 0.6px; padding: 4px 2px; flex-direction: column; gap: 0; }
 .cp-cmds .btn small, .cp-subcmds .btn small { font-size: 8.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
 .cp-cmds .btn.cmd-tab { color: #e2cfab; }
@@ -821,6 +821,8 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   box-shadow: inset 0 1px 0 rgba(255, 226, 176, 0.2), 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 .cp-cmds .btn.plot { border-color: #4a5d7a; color: #d0e2fa; background: var(--wood-grain), linear-gradient(180deg, #1f2c3d, #131e28); }
+.cp-cmds .btn.diplo { border-color: #6b4a7a; color: #e6d2f4; background: var(--wood-grain), linear-gradient(180deg, #2d1f3a, #1a1224); box-shadow: inset 0 1px 0 rgba(220, 180, 255, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(80, 30, 110, 0.28); }
+.cp-cmds .btn.diplo small { color: #b9a2cc; }
 .dp-head { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 8px; }
 .dp-cell { background: linear-gradient(180deg, #271e14, #171009); border: 1px solid #3d2c1c; border-radius: 3px; padding: 7px 4px; text-align: center; box-shadow: var(--bevel-sm); }
 .dp-cell b { display: block; font-family: var(--font-head); font-size: 15px; color: var(--gold-hi); font-weight: 600; text-shadow: 0 1px 2px #000; }
@@ -844,8 +846,8 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .dp-row.bad .dp-rel b { color: #f0a08f; }
 .dp-rel span { font-size: 9.5px; color: #a2917a; }
 .dp-rel em { display: block; font-style: normal; font-size: 9px; color: #f0d79a; margin-top: 1px; }
-.dp-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 7px; }
-.dp-row:not(.ally) .dp-btns { grid-template-columns: repeat(3, 1fr); }
+.dp-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; }
+.dp-btn.advise { color: #ffd9a2; border-color: #7d5e2a; }
 .dp-btn {
   min-height: 32px; font-size: 10px; color: #e6d3ad; letter-spacing: 0.3px; border-radius: 3px;
   background: linear-gradient(180deg, #2b2015, #191209); border: 1px solid #4b3622;
@@ -865,6 +867,10 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .sc-gen b { font-size: 10.5px; color: #eaf0de; }
 .sc-gen span { color: #a4b8a0; }
 .sc-gen .none { color: #8b9a88; }
+.sc-gen .mini { margin-left: auto; flex: 0 0 auto; font-size: 9px; color: #cfe6f8; border: 1px solid #3f6580; border-radius: 2px; background: rgba(30, 50, 68, 0.6); padding: 1px 5px; }
+.sc-gen .mini[disabled] { opacity: 0.35; pointer-events: none; }
+.officer-row.hire { align-items: flex-start; }
+.officer-row.hire .or-stats { flex-wrap: wrap; row-gap: 2px; }
 .sc-hint { font-size: 9.5px; color: #8f7d63; padding: 3px 0; }
 
 .mr-ally { font-style: normal; font-size: 8.5px; color: #a6d2f0; border: 1px solid #3f6580; border-radius: 2px; padding: 0 3px; }
@@ -904,7 +910,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   #scr-game .citypanel::before { display: none; }
   #scr-game .cs-body { display: block; max-height: none; }
   #scr-game .cs-toggle { display: none; }
-  #scr-game .cp-cmds { grid-template-columns: repeat(4, 1fr); }
+  #scr-game .cp-cmds { grid-template-columns: repeat(5, 1fr); }
   .cp-gens { flex-wrap: wrap; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
   .scroll { max-width: 900px; margin: 0 auto; width: 100%; }
@@ -914,7 +920,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   body { font-size: 13.5px; }
   .citypanel { max-height: 60vh; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
-  .cp-cmds { grid-template-columns: repeat(4, 1fr); }
+  .cp-cmds { grid-template-columns: repeat(5, 1fr); }
   .cp-subcmds .btn { min-height: 46px; }
   .bt-cmds { grid-template-columns: repeat(5, 1fr); }
   /* 넓은 화면에서는 자원 칸이 늘어나지 않게 폭을 잡고 왼쪽으로 모은다 */

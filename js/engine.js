@@ -2,7 +2,7 @@
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -65,6 +65,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     pendingPrisoners: [],
     talked: {},
     diplomacy: { rel: {}, ally: {}, truce: {} },
+    affinity: {},
     offices: {},
     scouted: {},
     pendingEvent: null,
@@ -173,6 +174,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
   }
 
   initDiplomacy(state);
+  ensureAffinity(state);
   syncOffices(state);
   state.maxActionPoints = calcActionPoints(state, factionId);
   state.actionPoints = state.maxActionPoints;
@@ -365,6 +367,51 @@ export function factionStrength(state, fid) {
   const cs = factionCities(state, fid);
   return cs.reduce((s, c) => s + c.troops, 0) + cs.length * 800;
 }
+
+/* ---------- 장수 친밀도 (0~100) ---------- */
+/* 장수마다 플레이어와의 개인 친밀도 — 등용·대화·포상·친교로 오르고 무시·참수로 내린다 */
+function defaultAffinity(state, gid) {
+  const g = state.generals[gid];
+  if (!g) return 30;
+  const t = generalOf(state, gid) || {};
+  let h = 0;
+  for (const ch of String(gid)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const spread = h % 15; // 0~14, 같은 장수는 늘 같은 값
+  const warm = Math.round((((t.cha || 60) - 60) / 6));
+  if (g.faction === state.playerId) {
+    return clamp(Math.round((g.loyalty || 50) * 0.44) + 10 + spread % 8 + warm, 25, 55);
+  }
+  return clamp(28 + spread + warm, 25, 55);
+}
+
+export function ensureAffinity(state) {
+  state.affinity = state.affinity || {};
+  for (const gid of Object.keys(state.generals || {})) {
+    if (typeof state.affinity[gid] !== 'number') state.affinity[gid] = defaultAffinity(state, gid);
+  }
+  return state.affinity;
+}
+
+export function affinityOf(state, gid) {
+  if (state.affinity && typeof state.affinity[gid] === 'number') return state.affinity[gid];
+  state.affinity = state.affinity || {};
+  const v = defaultAffinity(state, gid);
+  state.affinity[gid] = v;
+  return v;
+}
+export function bumpAffinity(state, gid, n) {
+  state.affinity = state.affinity || {};
+  const v = clamp(affinityOf(state, gid) + n, 0, 100);
+  state.affinity[gid] = v;
+  return v;
+}
+export function affinityLabel(v) {
+  if (v >= 80) return '각별';
+  if (v >= 60) return '친함';
+  if (v >= 40) return '알음';
+  if (v >= 25) return '낯섦';
+  return '서먹';
+}
 export function cityPower(state, cityId, defensive = true) {
   const c = state.cities[cityId];
   const gens = generalsInCity(state, cityId);
@@ -468,11 +515,15 @@ export function bestOfficer(state, cityId, key, exclude = []) {
 export const ALLIANCE_MONTHS = 12;
 export const TRUCE_MONTHS = 6;
 export const DIPLO = {
-  envoy: { ko: '친선 사절', gold: 300, ap: 1, desc: '사신을 보내 우호도를 올립니다(+15~25).' },
-  alliance: { ko: '동맹 제의', gold: 500, ap: 1, desc: '12개월 동맹 — 서로 공격하지 않고 원군을 받습니다.' },
-  truce: { ko: '정전 협정', gold: 400, ap: 1, desc: '6개월 정전 — 공격을 유예합니다.' },
-  break: { ko: '동맹 파기', gold: 0, ap: 0, desc: '즉시 공격할 수 있게 되지만 명성 -15, 타 세력 우호도 하락.' },
+  giftGold: { ko: '증정', res: 'gold', gold: 300, food: 0, ap: 1, desc: '금 300을 선물해 우호도를 크게 올립니다(+15~25).' },
+  giftFood: { ko: '증정', res: 'food', gold: 0, food: 1200, ap: 1, desc: '식량 1200을 선물해 우호도를 올립니다(+12~22).' },
+  alliance: { ko: '동맹 제의', gold: 500, food: 0, ap: 1, desc: '12개월 동맹 — 서로 공격하지 않고 원군을 받습니다.' },
+  truce: { ko: '정전 협정', gold: 400, food: 0, ap: 1, desc: '6개월 정전 — 공격을 유예합니다.' },
+  surrender: { ko: '항복 권고', gold: 0, food: 0, ap: 1, desc: '압도적으로 열세인 세력에 항복을 권고합니다. 성공하면 그 성·장수·자원을 모두 거두고, 실패하면 우호도 -25.' },
+  break: { ko: '동맹 파기', gold: 0, food: 0, ap: 0, desc: '즉시 공격할 수 있게 되지만 명성 -15, 타 세력 우호도 하락.' },
 };
+/* 옛 이름(친선 사절) — 금 증정과 같은 행동 */
+DIPLO.envoy = DIPLO.giftGold;
 
 export function pairKey(a, b) { return a < b ? `${a}|${b}` : `${b}|${a}`; }
 
@@ -590,6 +641,21 @@ export function spendFactionGold(state, fid, amount) {
   return amount - left;
 }
 
+export function factionFood(state, fid) {
+  return factionCities(state, fid).reduce((s, c) => s + c.food, 0);
+}
+/* 세력 전체 식량에서 꺼낸다 — 식량이 많은 성부터 */
+export function spendFactionFood(state, fid, amount) {
+  let left = amount;
+  const cs = factionCities(state, fid).sort((a, b) => b.food - a.food);
+  for (const c of cs) {
+    const take = Math.min(c.food, left);
+    c.food -= take; left -= take;
+    if (left <= 0) break;
+  }
+  return amount - left;
+}
+
 /* 외교 화면에 세울 다른 세력 목록 */
 export function diplomacyView(state) {
   const me = state.playerId;
@@ -606,6 +672,7 @@ export function diplomacyView(state) {
         rel: relationOf(state, me, fid), label: relationLabel(state, me, fid),
         allied: isAllied(state, me, fid), truce: isTruce(state, me, fid),
         allyMonths: allyMonths(state, me, fid), truceMonths: truceMonths(state, me, fid),
+        surrender: Math.round(surrenderChance(state, fid) * 100),
       };
     })
     .sort((a, b) => b.cities - a.cities);
@@ -619,30 +686,40 @@ export function diplomacyCheck(state, kind, targetFid) {
   if (!cost) return { ok: false, why: '알 수 없는 외교입니다.' };
   if (!f || !f.alive) return { ok: false, why: '아군 세력이 없습니다.' };
   if (!t || !t.alive || targetFid === me) return { ok: false, why: '대상 세력이 없습니다.' };
-  if (isAllied(state, me, targetFid) && (kind === 'envoy' || kind === 'alliance')) return { ok: false, why: '이미 동맹 중입니다.' };
+  if (isAllied(state, me, targetFid) && (kind === 'envoy' || kind === 'giftGold' || kind === 'giftFood' || kind === 'alliance')) return { ok: false, why: '이미 동맹 중입니다.' };
   if (kind === 'truce' && isTruce(state, me, targetFid)) return { ok: false, why: '이미 정전 중입니다.' };
   if (kind === 'break' && !isAllied(state, me, targetFid)) return { ok: false, why: '동맹 중인 세력이 아닙니다.' };
+  if (kind === 'surrender' && isAllied(state, me, targetFid)) return { ok: false, why: '동맹 중인 세력에는 권고를 보낼 수 없습니다. 먼저 동맹을 파기하세요.' };
   if (state.actionPoints < cost.ap) return { ok: false, why: '행동력이 부족합니다.' };
-  if (factionGold(state, me) < cost.gold) return { ok: false, why: `금이 부족합니다(${cost.gold} 필요).` };
+  if (cost.gold && factionGold(state, me) < cost.gold) return { ok: false, why: `금이 부족합니다(${cost.gold} 필요).` };
+  if (cost.food && factionFood(state, me) < cost.food) return { ok: false, why: `식량이 부족합니다(${cost.food} 필요).` };
   return { ok: true };
 }
 
-/* 친선 사절 — 금 300 · 행동력 1 → 우호도 +15~25 */
-export function sendEnvoy(state, targetFid) {
-  const c = diplomacyCheck(state, 'envoy', targetFid);
+/* 증정 — 금 300(+15~25) 또는 식량 1200(+12~22) · 행동력 1 */
+export function giveGift(state, targetFid, res = 'gold') {
+  const kind = res === 'food' ? 'giftFood' : 'giftGold';
+  const c = diplomacyCheck(state, kind, targetFid);
   if (!c.ok) return { ok: false, msg: c.why };
-  spendFactionGold(state, state.playerId, DIPLO.envoy.gold);
-  state.actionPoints -= DIPLO.envoy.ap;
+  const cost = DIPLO[kind];
+  if (res === 'food') spendFactionFood(state, state.playerId, cost.food);
+  else spendFactionGold(state, state.playerId, cost.gold);
+  state.actionPoints -= cost.ap;
   const d = ensureDiplomacy(state);
   const k = pairKey(state.playerId, targetFid);
   const before = d.rel[k] || 40;
-  const gain = randInt(rngOf(state), 15, 25);
+  const gain = res === 'food' ? randInt(rngOf(state), 12, 22) : randInt(rngOf(state), 15, 25);
   d.rel[k] = clamp(before + gain, 0, 100);
   bumpRng(state, 2);
-  const msg = `${state.factions[targetFid].name}군에 사신을 보냈습니다. 우호도 ${before} → ${d.rel[k]} (+${d.rel[k] - before})`;
+  const name = state.factions[targetFid].name;
+  const msg = res === 'food'
+    ? `${name}군에 식량 ${cost.food}을 보냈습니다. 우호도 ${before} → ${d.rel[k]} (+${d.rel[k] - before})`
+    : `${name}군에 금 ${cost.gold}을 보냈습니다. 우호도 ${before} → ${d.rel[k]} (+${d.rel[k] - before})`;
   log(state, msg);
-  return { ok: true, msg, rel: d.rel[k], gain: d.rel[k] - before, label: relationLabel(state, state.playerId, targetFid) };
+  return { ok: true, msg, res, rel: d.rel[k], gain: d.rel[k] - before, label: relationLabel(state, state.playerId, targetFid) };
 }
+/* 옛 이름 — 금 증정 */
+export function sendEnvoy(state, targetFid) { return giveGift(state, targetFid, 'gold'); }
 
 export function allianceChance(state, targetFid) {
   const rel = relationOf(state, state.playerId, targetFid);
@@ -729,6 +806,86 @@ export function breakAlliance(state, targetFid) {
   return { ok: true, msg, fame: state.factions[me].fame };
 }
 
+/* ---------- 항복 권고 ---------- */
+/* 압도적으로 열세인 세력일수록 권고가 통한다 — 대등하거나 강하면 0에 가납다 */
+export function surrenderChance(state, targetFid) {
+  const me = state.playerId;
+  if (!targetFid || targetFid === me) return 0;
+  const t = state.factions[targetFid];
+  if (!t || !t.alive) return 0;
+  const mine = factionCities(state, me);
+  const theirs = factionCities(state, targetFid);
+  if (!mine.length || !theirs.length) return 0;
+  const myTroops = mine.reduce((s, c) => s + c.troops, 0);
+  const theirTroops = theirs.reduce((s, c) => s + c.troops, 0);
+  const cityEdge = mine.length - theirs.length;
+  const troopEdge = theirTroops > 0 ? myTroops / theirTroops : 4;
+  // 상대가 버틸 만하거나 성 차이가 없으면 권고는 통하지 않는다
+  if (troopEdge < 2 || cityEdge < 1) return 0;
+  // 성 우세가 클수록 권고의 무게가 실린다
+  let c = Math.max(0, (troopEdge - 2.5) * 0.11) * Math.min(1, cityEdge / 2);
+  c += Math.min(0.16, Math.max(0, cityEdge - 1) * 0.02);
+  if (theirs.length <= 2) c += 0.08;
+  if (theirs.length <= 1) c += 0.06;
+  const myFame = state.factions[me] ? state.factions[me].fame : 45;
+  c += clamp((myFame - t.fame) / 600, -0.03, 0.1);
+  if (isPacified(state, me, targetFid)) c += 0.05;
+  return clamp(c, 0, 0.7);
+}
+
+/* 항복 권고 — 행동력 1. 성공하면 상대 세력의 성·장수·자원을 거둔다 */
+export function demandSurrender(state, targetFid) {
+  const c = diplomacyCheck(state, 'surrender', targetFid);
+  if (!c.ok) return { ok: false, msg: c.why };
+  const me = state.playerId;
+  const target = state.factions[targetFid];
+  const chance = surrenderChance(state, targetFid);
+  if (chance <= 0) return { ok: false, msg: '힘의 차이가 모자라 권고가 통하지 않습니다. 더 압도적으로 밀어붙이세요.' };
+  state.actionPoints -= DIPLO.surrender.ap;
+  const d = ensureDiplomacy(state);
+  const k = pairKey(me, targetFid);
+  const before = d.rel[k] || 40;
+  const accepted = rngOf(state)() < chance;
+  bumpRng(state, 5);
+  if (!accepted) {
+    d.rel[k] = clamp(before - 25, 0, 100);
+    const msg = `${target.name}군이 항복 권고를 모욕으로 여겼습니다. 우호도 ${before} → ${d.rel[k]}`;
+    log(state, msg);
+    return { ok: true, accepted: false, chance, rel: d.rel[k], msg };
+  }
+  const cities = factionCities(state, targetFid);
+  const cityNames = cities.map((c) => cityName(c.id));
+  const goldGain = cities.reduce((s, c) => s + Math.round(c.gold), 0);
+  const foodGain = cities.reduce((s, c) => s + Math.round(c.food), 0);
+  for (const c of cities) c.owner = me;
+  const home = cities[0].id;
+  let genCount = 0;
+  const rng = rngOf(state);
+  for (const g of Object.values(state.generals)) {
+    if (g.faction !== targetFid || g.captive || g.dead) continue;
+    g.faction = me;
+    if (!g.city || !state.cities[g.city] || state.cities[g.city].owner !== me) g.city = home;
+    g.loyalty = clamp(38 + randInt(rng, 0, 14), 0, 100);
+    g.acted = true; // 이번 달에는 새 깃발 아래에서 쉰다
+    genCount++;
+  }
+  bumpRng(state, 2);
+  target.alive = false;
+  d.ally[k] = 0; d.truce[k] = 0;
+  bumpFame(state, me, 10);
+  for (const other of Object.keys(state.factions)) {
+    if (other === me || other === targetFid || !state.factions[other].alive) continue;
+    const kk = pairKey(me, other);
+    d.rel[kk] = clamp((d.rel[kk] || 40) - 8, 0, 100);
+  }
+  cleanDiplomacy(state);
+  const msg = `${target.name}군이 항복 권고를 받아들였습니다! ${cityNames.join('·')} ${cityNames.length}성과 장수 ${genCount}명, 금 ${goldGain.toLocaleString()} · 식량 ${foodGain.toLocaleString()}이 그대의 깃발 아래로 들어왔습니다. 명성 +10`;
+  log(state, msg);
+  syncOffices(state);
+  checkVictory(state);
+  return { ok: true, accepted: true, chance, msg, rel: 100, cities: cityNames, generals: genCount, gold: goldGain, food: foodGain, fame: state.factions[me].fame };
+}
+
 /* ---------- 전략 계략 (이간·정탐·유언비어) ---------- */
 export const PLOTS = {
   sow: { ko: '이간계', gold: 300, desc: '적 장수 한 명의 충성을 떨어뜨립니다(-10~20).' },
@@ -757,6 +914,7 @@ export function scoutedInfo(state, cityId) {
       const t = generalOf(state, g.id);
       return {
         gid: g.id, ko: t.ko, lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha,
+        affinity: affinityOf(state, g.id),
         loyalty: Math.round(g.loyalty || 0), arms: t.arms, skill: t.skill, skillKo: (SKILLS[t.skill] || {}).ko || t.skill,
         formation: (t.formations && t.formations[0]) || 'eorin',
       };
@@ -1117,6 +1275,74 @@ export function commandCost(type) {
   return type === 'draft' ? 2 : 1;
 }
 
+/* ---------- 등용·친교 ---------- */
+/* 등용 성공률 — 친밀도가 바탕, 충성도·매력·명성을 가감한다 */
+export function hireChance(state, cityId, gid, officerGid) {
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  if (!g || !t) return 0;
+  const officer = officerGid ? generalOf(state, officerGid) : bestOfficer(state, cityId, 'cha');
+  const lord = lordOf(state, state.playerId);
+  const f = state.factions[state.playerId];
+  const aff = affinityOf(state, gid);
+  const charm = officer ? officer.cha : (lord ? lord.cha : 60);
+  const fame = f ? f.fame : 45;
+  const isFree = !g.faction;
+  const isLord = Object.values(state.factions).some((x) => x.lord === gid);
+  let c;
+  if (isFree) {
+    // 재야 — 친밀도가 낯설면 좀처럼 고개를 숙이지 않는다
+    c = aff / 240 + charm / 500 + fame / 700 - ((t.war || 0) + (t.int || 0)) / 2400;
+    if (aff < 40) c = Math.min(c, 0.3);
+    if (aff >= 60) c += 0.12;
+    if (aff >= 80) c += 0.12;
+  } else {
+    // 타국 — 충성도가 높으면 이간으로 흔들기 전에는 거의 불가능
+    c = 0.06 + aff / 220 + charm / 400 + fame / 500 - (g.loyalty || 0) / 220 - ((t.war || 0) + (t.int || 0)) / 2400;
+    if ((g.loyalty || 0) >= 85 && aff < 60) c = Math.min(c, 0.05);
+    if (aff >= 60) c += 0.06;
+    if (aff >= 80) c += 0.06;
+    if (isLord) c -= 0.12;
+  }
+  if (lord && lord.skill === 'indeok') c += 0.05;
+  if (t.skill === 'indeok') c += 0.02;
+  return clamp(c, 0.01, isFree ? 0.9 : 0.6);
+}
+
+export const BEFRIEND = { gold: 200, ap: 1, min: 12, max: 18, desc: '금 200으로 그 장수와 친교를 맺어 친밀도를 올립니다(+12~18).' };
+
+export function befriendCheck(state, gid) {
+  const g = state.generals[gid];
+  if (!g) return { ok: false, why: '장수가 없습니다.' };
+  if (g.dead || g.captive) return { ok: false, why: '만날 수 없는 장수입니다.' };
+  if (g.faction === state.playerId) return { ok: false, why: '이미 아군 장수입니다.' };
+  if (!g.city || !state.cities[g.city]) return { ok: false, why: '성에 있는 장수가 아닙니다.' };
+  const owner = state.cities[g.city].owner;
+  if (owner !== state.playerId) {
+    if (!adjacentFriends(state, g.city).length) return { ok: false, why: '그 장수의 성과 인접한 아군 성이 있어야 만날 수 있습니다.' };
+    if (owner && isPacified(state, state.playerId, owner)) return { ok: false, why: '동맹·정전 중인 세력의 장수와는 친교를 맺지 않습니다.' };
+  }
+  if (state.actionPoints < BEFRIEND.ap) return { ok: false, why: '행동력이 부족합니다.' };
+  if (factionGold(state, state.playerId) < BEFRIEND.gold) return { ok: false, why: `금이 부족합니다(${BEFRIEND.gold} 필요).` };
+  return { ok: true };
+}
+
+/* 친교 — 금 200 · 행동력 1 → 친밀도 +12~18 */
+export function befriend(state, gid) {
+  const c = befriendCheck(state, gid);
+  if (!c.ok) return { ok: false, msg: c.why };
+  spendFactionGold(state, state.playerId, BEFRIEND.gold);
+  state.actionPoints -= BEFRIEND.ap;
+  const before = affinityOf(state, gid);
+  const gain = randInt(rngOf(state), BEFRIEND.min, BEFRIEND.max);
+  const after = bumpAffinity(state, gid, gain);
+  bumpRng(state, 2);
+  const t = generalOf(state, gid);
+  const msg = `${withJosa(t.ko, '과')} 친교를 맺었습니다. 친밀도 ${before} → ${after} (+${after - before})`;
+  log(state, msg);
+  return { ok: true, msg, aff: after, gain: after - before, label: affinityLabel(after) };
+}
+
 export function canCommand(state, type, cityId, officerId) {
   const c = state.cities[cityId];
   const fid = state.playerId;
@@ -1213,16 +1439,18 @@ export function runCommand(state, type, opts) {
       if (!target || target.faction || target.city !== c.id) return { ok: false, msg: '등용할 수 없는 대상입니다.' };
       const tg = generalOf(state, target.id);
       const f = state.factions[state.playerId];
-      const chance = clamp(0.34 + t.cha / 320 + f.fame / 320 - tg.war / 900 - tg.int / 900, 0.12, 0.92);
+      const chance = hireChance(state, c.id, target.id, opts.officerId);
       if (rng() < chance) {
         target.faction = state.playerId;
-        target.loyalty = 62 + Math.floor(t.cha / 8);
+        target.loyalty = 58 + Math.floor(t.cha / 9) + Math.floor(affinityOf(state, target.id) / 12);
+        const aff = bumpAffinity(state, target.id, 8);
         state.stats.recruited++;
         f.fame = clamp(f.fame + 2, 0, 100);
         gain = 1;
-        msg = `${withJosa(tg.ko, '이')} ${t.ko}의 설득에 응해 부하가 되었습니다! (충성 ${target.loyalty})`;
+        msg = `${withJosa(tg.ko, '이')} ${t.ko}의 설득에 응해 부하가 되었습니다! (충성 ${target.loyalty} · 친밀도 ${aff})`;
       } else {
-        msg = `${tg.ko}은(는) 고개를 저었습니다. (등용 실패)`;
+        const aff = bumpAffinity(state, target.id, -3);
+        msg = `${tg.ko}은(는) 고개를 저었습니다. (등용 실패 · 친밀도 ${aff})`;
         target.loyalty = 0;
       }
       break;
@@ -1234,7 +1462,8 @@ export function runCommand(state, type, opts) {
       c.gold -= 120;
       const inc = 8 + Math.floor(t.cha / 10) + randInt(rng, 0, 5);
       target.loyalty = clamp(target.loyalty + inc, 0, 100);
-      msg = `${generalOf(state, target.id).ko}의 충성도가 ${inc} 올랐습니다. (충성 ${target.loyalty})`;
+      const aff = bumpAffinity(state, target.id, 5);
+      msg = `${generalOf(state, target.id).ko}의 충성도가 ${inc} 올랐습니다. (충성 ${target.loyalty} · 친밀도 ${aff})`;
       break;
     }
     case 'transport': {
@@ -1379,14 +1608,17 @@ export function talkToGeneral(state, cityId, gid) {
   const before = g.loyalty || 0;
   const after = clamp(before + gain, 0, 100);
   g.loyalty = after;
+  const affBefore = affinityOf(state, gid);
+  const affGain = randInt(rng, 6, 10);
+  const affAfter = bumpAffinity(state, gid, affGain);
   state.talked = state.talked || {};
   state.talked[gid] = state.turn;
   state.actionPoints -= TALK_COST;
   const line = pickTalkLine(gid, t, before, state.turn);
-  const msg = `${withJosa(t.ko, '과')} 이야기를 나눴습니다. 충성도 ${before} → ${after} (+${after - before})`;
+  const msg = `${withJosa(t.ko, '과')} 이야기를 나눴습니다. 충성도 ${before} → ${after} (+${after - before}) · 친밀도 ${affBefore} → ${affAfter}`;
   log(state, msg);
   bumpRng(state);
-  return { ok: true, msg, line, before, after, gain: after - before, style: talkStyleOf(t, before) };
+  return { ok: true, msg, line, before, after, gain: after - before, aff: affAfter, affGain: affAfter - affBefore, style: talkStyleOf(t, before) };
 }
 
 /* ---------- 출진 ---------- */
@@ -1639,7 +1871,7 @@ export function holdPrisoners(state, { gids, losingFid, homeCityId, holdCityId, 
   return held;
 }
 
-/* 등용 성공률 — 군주 매력·명성 vs 대상 충성도·무력 */
+/* 등용 성공률 — 군주 매력·명성 vs 대상 충성도·무력, 바탕은 친밀도 */
 export function recruitChance(state, gid) {
   const g = state.generals[gid];
   const t = generalOf(state, gid);
@@ -1647,11 +1879,15 @@ export function recruitChance(state, gid) {
   const f = state.factions[state.playerId];
   const lord = lordOf(state, state.playerId);
   const isLord = Object.values(state.factions).some((x) => x.lord === gid);
-  let c = 0.28 + (lord ? lord.cha : 60) / 300 + (f ? f.fame : 45) / 320 - (g.loyalty || 0) / 260 - (t.war || 0) / 1100;
-  if (isLord) c -= 0.22;
-  if (lord && lord.skill === 'indeok') c += 0.06;
-  if (t.skill === 'indeok') c += 0.03;
-  return clamp(c, 0.05, 0.92);
+  const aff = affinityOf(state, gid);
+  let c = 0.04 + aff / 240 + (lord ? lord.cha : 60) / 360 + (f ? f.fame : 45) / 420 - (g.loyalty || 0) / 150 - (t.war || 0) / 1200;
+  if (aff < 40) c = Math.min(c, 0.3);
+  if ((g.loyalty || 0) >= 85 && aff < 60) c = Math.min(c, 0.05);
+  if (aff >= 60) c += 0.08;
+  if (isLord) c -= 0.18;
+  if (lord && lord.skill === 'indeok') c += 0.05;
+  if (t.skill === 'indeok') c += 0.02;
+  return clamp(c, 0.01, 0.9);
 }
 
 function dropPrisoner(state, gid) {
@@ -1667,7 +1903,8 @@ export function recruitPrisoner(state, gid, rng = Math.random) {
   const chance = recruitChance(state, gid);
   if (rng() >= chance) {
     rec.tried = true;
-    return { ok: true, accepted: false, chance, msg: `${t.ko}: "두 임금을 섬길 수 없습니다." — 등용에 응하지 않았습니다.` };
+    bumpAffinity(state, gid, -3);
+    return { ok: true, accepted: false, chance, aff: affinityOf(state, gid), msg: `${t.ko}: "두 임금을 섬길 수 없습니다." — 등용에 응하지 않았습니다.` };
   }
   const lord = lordOf(state, state.playerId);
   g.captive = false;
@@ -1675,10 +1912,11 @@ export function recruitPrisoner(state, gid, rng = Math.random) {
   g.faction = state.playerId;
   g.city = rec.city;
   g.loyalty = clamp(46 + Math.round((lord ? lord.cha : 60) / 6) - (rec.isLord ? 12 : 0), 30, 88);
+  const aff = bumpAffinity(state, gid, 12);
   state.stats.recruited++;
   dropPrisoner(state, gid);
-  log(state, `${withJosa(t.ko, '이')} ${state.factions[state.playerId].name}군에 합류했습니다. (충성 ${g.loyalty})`);
-  return { ok: true, accepted: true, chance, loyalty: g.loyalty, msg: `${withJosa(t.ko, '이')} 고개를 숙였습니다! 충성 ${g.loyalty}로 아군이 되었습니다.` };
+  log(state, `${withJosa(t.ko, '이')} ${state.factions[state.playerId].name}군에 합류했습니다. (충성 ${g.loyalty} · 친밀도 ${aff})`);
+  return { ok: true, accepted: true, chance, loyalty: g.loyalty, aff, msg: `${withJosa(t.ko, '이')} 고개를 숙였습니다! 충성 ${g.loyalty}로 아군이 되었습니다.` };
 }
 
 /* 해방 — 명성 +5, 원 소속(없으면 재야)으로 돌려보낸다 */
@@ -1695,9 +1933,10 @@ export function releasePrisoner(state, gid) {
   g.loyalty = alive ? Math.max(g.loyalty || 0, 55) : 0;
   state.stats.released = (state.stats.released || 0) + 1;
   bumpFame(state, state.playerId, 5);
+  const aff = bumpAffinity(state, gid, 25);
   dropPrisoner(state, gid);
-  log(state, `${withJosa(t.ko, '을')} 풀어 주었습니다. 의를 베푼 이름이 퍼집니다. (명성 +5)`);
-  return { ok: true, msg: `${withJosa(t.ko, '을')} 풀어 주었습니다. 명성 +5`, fame: state.factions[state.playerId].fame };
+  log(state, `${withJosa(t.ko, '을')} 풀어 주었습니다. 의를 베푼 이름이 퍼집니다. (명성 +5 · 친밀도 ${aff})`);
+  return { ok: true, msg: `${withJosa(t.ko, '을')} 풀어 주었습니다. 명성 +5 · 친밀도 ${aff}`, fame: state.factions[state.playerId].fame, aff };
 }
 
 /* 참수 — 영구 퇴장(다시 등장하지 않음), 명성 소폭 하락과 원한 */
@@ -1714,7 +1953,10 @@ export function executePrisoner(state, gid) {
   state.stats.executed = (state.stats.executed || 0) + 1;
   for (const o of Object.values(state.generals)) {
     if (o.id === gid || o.dead || o.captive) continue;
-    if (o.faction === rec.faction) o.loyalty = clamp((o.loyalty || 0) + 4, 0, 100);
+    if (o.faction === rec.faction) {
+      o.loyalty = clamp((o.loyalty || 0) + 4, 0, 100);
+      bumpAffinity(state, o.id, rec.isLord ? -12 : -8); // 같은 세력은 원한을 품는다
+    }
   }
   bumpFame(state, state.playerId, rec.isLord ? -4 : -2);
   dropPrisoner(state, gid);
@@ -1889,8 +2131,8 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전. 열어서 새 양식으로 옮긴다.
-  if (!s || ![3, 4, 5, 6, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, 5, 6, 7, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];
@@ -1914,6 +2156,7 @@ export function deserialize(json) {
     if (g.movedThisTurn === undefined) g.movedThisTurn = false;
   }
   ensureDiplomacy(s);
+  ensureAffinity(s);
   syncOffices(s);
   s.lastPromotions = [];
   return s;
