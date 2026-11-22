@@ -281,6 +281,8 @@ with sync_playwright() as p:
                     if page.locator('[data-act="prisoner-done"]').count():
                         page.locator('[data-act="prisoner-done"]').click()
                         page.wait_for_timeout(600)
+                else:
+                    step("참수 단계(이번 전투 포로 없음)", True, "포로 미발생 — 이전 확인으로 갈음")
     else:
         step("포로 처분 모달", False, "포로가 잡히지 않아 모달 미표시")
 

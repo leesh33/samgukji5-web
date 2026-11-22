@@ -1070,6 +1070,17 @@ function unitInfoHTML(u) {
   </div>`;
 }
 
+/* 전장 아래 진형 상성표 — 지금 어떤 진형이 무엇에 강한지 바로 보이게 */
+function battleGuideHTML() {
+  const cols = Object.values(FORMATION_GROUPS).map((g) => `<div class="bg-col">
+      <b class="fg-${g.id}">${g.ko}진</b>
+      ${g.forms.filter((f) => FORMATIONS[f]).map((f) => `<span class="bg-item${battleSel && battleSel.formation === f ? ' on' : ''}">${formationSVG(f, 'E', 15)}${FORMATIONS[f].ko}</span>`).join('')}
+    </div>`).join('');
+  return `<div class="bg-head">진형 상성 <span>돌격 → 포위 → 방어 → 돌격</span></div>
+    <div class="bg-cols">${cols}</div>
+    <div class="bg-tip">노란 창벽이 정면 — 옆에서 치면 <b class="lg-flank">측면 ×1.25</b>, 뒤에서 치면 <b class="lg-rear">배후 ×1.50</b></div>`;
+}
+
 /* 하단 전술 안내 — 방향 배율과 진형 상성 순환 */
 function battleLegendHTML() {
   return `<div class="bt-legend-row">
@@ -1097,6 +1108,7 @@ function renderBattle() {
   const info = battleSel ? unitInfoHTML(battleSel) : '';
   $('#bt-info').innerHTML = info;
   $('#bt-legend').innerHTML = battleLegendHTML();
+  $('#bt-guide').innerHTML = battleGuideHTML();
 
   $('#bt-log').innerHTML = battle.log.slice(-40).map((l) => {
     const cls = /\[배후 기습!\]/.test(l) ? 'hi' : /\[측면 공격!\]|\[진형 유리!\]/.test(l) ? 'hi' : /\[진형 불리\]|궤멸/.test(l) ? 'bad' : '';
