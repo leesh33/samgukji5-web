@@ -460,7 +460,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   border: 1px solid #7a5a30;
   box-shadow: inset 0 1px 0 rgba(255, 220, 160, 0.14), 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 20px rgba(200, 120, 40, 0.16);
   animation: toastIn 0.16s ease-out;
-  z-index: 20;
+  z-index: 120;
 }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
@@ -541,14 +541,50 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .cp-gens::-webkit-scrollbar { display: none; }
 .gen-chip {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; width: 46px; gap: 2px;
-  padding: 3px 1px 2px; border-radius: 3px;
+  padding: 3px 1px 2px; border-radius: 3px; font: inherit; cursor: pointer;
   background: linear-gradient(180deg, #271e14, #191209); border: 1px solid #3d2c1c;
-  box-shadow: var(--bevel-sm);
+  box-shadow: var(--bevel-sm); -webkit-tap-highlight-color: transparent;
 }
+.gen-chip:active { border-color: var(--gold); background: linear-gradient(180deg, #3a2b1b, #221810); }
 .gen-chip img { width: 32px; height: 32px; display: block; border-radius: 2px; border: 1px solid #6b4b28; box-shadow: 0 0 8px rgba(255, 170, 80, 0.14); }
 .gen-chip span { font-size: 9px; color: #ddcfb2; white-space: nowrap; overflow: hidden; max-width: 44px; text-overflow: ellipsis; }
 .gen-chip.done { opacity: 0.45; }
 .cp-gens .none { font-size: 10.5px; color: #8f7d63; padding: 6px 0; }
+
+/* 장수 상세 시트 */
+.gd-top { display: flex; gap: 12px; align-items: flex-start; padding: 4px 0 10px; border-bottom: 1px solid rgba(217, 160, 90, 0.22); }
+.gd-face {
+  width: 92px; height: 92px; flex: 0 0 auto; border-radius: 4px;
+  border: 1px solid #8a6532; box-shadow: 0 0 18px rgba(255, 170, 80, 0.18), var(--bevel-sm);
+  image-rendering: pixelated;
+}
+.gd-id { min-width: 0; flex: 1; }
+.gd-name { font-family: var(--font-head); font-size: 22px; color: var(--gold-hi); letter-spacing: 3px; font-weight: 600; text-shadow: 0 1px 2px #000; }
+.gd-sub { font-size: 11px; color: #cbbf9d; margin-top: 3px; }
+.gd-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.gd-tags span {
+  font-size: 9.5px; color: #dcc9a5; padding: 2px 6px; border-radius: 2px;
+  background: linear-gradient(180deg, #2c2116, #1b130c); border: 1px solid #4a3623;
+}
+.gd-status { margin-top: 6px; font-size: 10px; letter-spacing: 0.4px; }
+.gd-status.ready { color: #a8d18a; }
+.gd-status.done { color: #b9a583; }
+.gd-status.bad { color: #e08a7a; }
+.gd-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 11px 0 10px; }
+.gd-stat {
+  padding: 7px 3px 6px; text-align: center; border-radius: 3px;
+  background: linear-gradient(180deg, #271e14, #171009); border: 1px solid #3d2c1c; box-shadow: var(--bevel-sm);
+}
+.gd-stat .gs-ko { display: block; font-size: 9px; color: #a2917a; letter-spacing: 0.5px; }
+.gd-stat b { display: block; font-size: 17px; color: #f3e4c4; font-weight: 600; margin: 1px 0 4px; }
+.gd-stat b i { font-style: normal; font-size: 9.5px; color: #a8d18a; margin-left: 1px; }
+.gs-bar { height: 3px; border-radius: 2px; background: #120c07; overflow: hidden; }
+.gs-bar i { display: block; height: 100%; background: linear-gradient(90deg, #b47c36, #ffe0a0); }
+.gd-rows { border-top: 1px solid rgba(217, 160, 90, 0.2); padding-top: 8px; }
+.gd-row { display: flex; align-items: baseline; gap: 7px; padding: 4px 0; font-size: 11px; color: #cbbf9d; }
+.gd-row > span:first-child { min-width: 66px; color: #a2917a; font-size: 10px; }
+.gd-row b { color: #f0e2c4; font-weight: 600; }
+.gd-row b em { font-style: normal; font-size: 9.5px; color: #a8d18a; font-weight: 400; margin-left: 3px; }
 .cp-cmds { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 5px; }
 .cp-cmds .btn, .cmdp .btn { width: 100%; min-height: 42px; font-size: 12px; letter-spacing: 0.6px; padding: 4px 2px; flex-direction: column; gap: 0; }
 .cp-cmds .btn small, .cmdp .btn small { font-size: 8.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
@@ -939,6 +975,47 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .ev-opt { flex-direction: column; gap: 1px; min-height: 54px; }
 .ev-opt small { font-size: 9.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; }
 .ev-opt.ghost small { color: #8f7d63; }
+
+/* 등용·명령 시트 상단 경고 — 토스트가 가려져도 이유가 보이게 */
+.warn-box {
+  margin: 0 0 9px; padding: 8px 10px; border-radius: 3px;
+  font-size: 11px; line-height: 1.7; color: #ffd7b0;
+  background: linear-gradient(180deg, rgba(92, 38, 24, 0.72), rgba(56, 22, 14, 0.72));
+  border: 1px solid #8a4a2c; border-left: 3px solid #e08a5a;
+  box-shadow: var(--bevel-sm);
+}
+
+/* 5월 무예 대회 · 10월 설전 대회 대진표 */
+.tour-head-box { border-left-color: #d8b34a; }
+.tour-round { margin-bottom: 6px; }
+.tour-round-head {
+  font-size: 9.5px; letter-spacing: 2px; color: #b79a68; font-weight: 600;
+  padding: 2px 0 4px; border-bottom: 1px solid rgba(217, 160, 90, 0.24); margin-bottom: 4px;
+}
+.tour-match {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px;
+  padding: 4px 7px; margin-bottom: 2px; border-radius: 3px;
+  background: linear-gradient(180deg, #241b12, #171009); border: 1px solid #3d2c1c;
+  font-size: 11px;
+}
+.tour-match .tm-team { display: flex; align-items: center; justify-content: space-between; gap: 5px; min-width: 0; }
+.tour-match .tm-team:first-child { text-align: left; }
+.tour-match .tm-team:last-child { text-align: right; flex-direction: row-reverse; }
+.tour-match .tm-team em { font-style: normal; font-size: 9.5px; color: #7f7259; }
+.tour-match .tm-team.win { color: #ffe6b0; font-weight: 700; }
+.tour-match .tm-team.win em { color: #d8b34a; }
+.tour-match .tm-team.lose { color: #8c8070; }
+.tour-match .tm-vs { font-size: 9px; color: #6b5f4b; letter-spacing: 1px; }
+.tour-champ {
+  display: flex; align-items: baseline; justify-content: center; gap: 8px;
+  margin-top: 6px; padding: 10px 8px; border-radius: 5px;
+  background: radial-gradient(120% 140% at 50% 0%, rgba(120, 82, 30, 0.6), rgba(28, 19, 11, 0.85));
+  border: 1px solid #8a6532;
+  box-shadow: inset 0 1px 0 rgba(255, 222, 168, 0.18), 0 0 18px rgba(200, 140, 60, 0.18);
+}
+.tour-champ span { font-size: 10px; letter-spacing: 3px; color: #c9a468; }
+.tour-champ b { font-family: var(--font-head); font-size: 21px; color: #ffe7bb; letter-spacing: 3px; text-shadow: 0 1px 0 #6a3f14, 0 0 18px rgba(255, 180, 90, 0.4); }
+.tour-champ em { font-style: normal; font-size: 10px; color: #b79a68; }
 
 .promo { text-align: center; padding: 9px 0 4px; }
 .promo-to { font-family: var(--font-head); font-size: 30px; letter-spacing: 7px; color: #ffe7bb; font-weight: 600; text-shadow: 0 1px 0 #6a3f14, 0 2px 6px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 172, 84, 0.42); }

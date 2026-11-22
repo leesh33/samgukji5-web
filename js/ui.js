@@ -714,6 +714,7 @@ function queueGameNotice() {
   queueGameNotice._t = setTimeout(() => {
     if (!game || !$('#sheet').classList.contains('hidden')) return;
     if ((game.lastPromotions || []).some((p) => p.factionId === game.playerId)) { openPromotionSheet(); return; }
+    if (game.pendingTournament && !game.pendingTournament.shown) { game.pendingTournament.shown = true; openTournamentSheet(); return; }
     if (game.pendingEvent && !game.pendingEvent.shown) { game.pendingEvent.shown = true; openEventSheet(); }
   }, 280);
 }
@@ -952,9 +953,9 @@ function renderCityPanel(dir = 0) {
   const gens = mine ? E.generalsInCity(game, selectedCity) : Object.values(game.generals).filter((g) => g.city === selectedCity && g.faction === c.owner && !g.captive && !g.dead);
   const genHTML = gens.slice(0, 12).map((g) => {
     const t = gd(g.id);
-    return `<div class="gen-chip ${g.acted ? 'done' : ''}" title="${t.ko}">
+    return `<button class="gen-chip ${g.acted ? 'done' : ''}" data-act="gen-detail" data-gid="${g.id}" title="${t.ko} 능력치" aria-label="${t.ko} 능력치 보기">
       <img src="${portraitURL(g.id, t, 32, colorOf(g.faction))}" alt="${t.ko}" />
-      <span>${t.ko}</span></div>`;
+      <span>${t.ko}</span></button>`;
   }).join('');
 
   let cmdHTML = '';
@@ -1116,6 +1117,12 @@ function openCommandSheet(type, cityId) {
     const free = E.freeGeneralsInCity(game, cityId);
     if (!free.length) { toast('이 성에 재야 장수가 없습니다.'); sfx.fail(); return; }
     const officer = E.bestOfficer(game, cityId, 'cha');
+    const need = E.commandCost('hire');
+    const ap = game.actionPoints;
+    const block = !officer
+      ? '이번 달에 명령할 수 있는 장수가 없습니다. 이 성 장수가 모두 명령을 마쳤으니 다음 달에 다시 시도하세요.'
+      : ap < need ? `행동력이 부족합니다. (필요 ${need} · 남은 ${ap})` : null;
+    if (block) toast(block, 2800);
     const rows = free.map((g) => {
       const t = gd(g.id);
       const aff = E.affinityOf(game, g.id);
@@ -1128,11 +1135,12 @@ function openCommandSheet(type, cityId) {
         <div class="or-stats"><span>친밀 <b>${aff}</b> ${E.affinityLabel(aff)}</span><span>등용 성공률 <b>${chance}%</b></span></div></div>
         <div class="pw-btns">
           <button class="pw-btn rel" data-act="befriend" data-gid="${g.id}" data-city="${cityId}" ${bef ? '' : 'disabled'}>친교 200</button>
-          <button class="pw-btn rec" data-act="do-hire" data-officer="${g.id}" data-city="${cityId}">등용</button>
+          <button class="pw-btn rec" data-act="do-hire" data-officer="${g.id}" data-city="${cityId}" ${block ? 'disabled' : ''}>등용</button>
         </div>
       </div>`;
     }).join('');
-    openSheet(`${cityId ? CITY_BY_ID[cityId].ko : ''} 등용`, `<p class="note">친밀도가 낮으면 고개를 숙이지 않습니다. 친교(금 200 · 행동력 1)로 친밀도를 쌓은 뒤 등용하세요. 등용은 군주 매력과 명성으로 겨룹니다.</p>${rows}`);
+    const warn = block ? `<div class="warn-box">${block}</div>` : '';
+    openSheet(`${cityId ? CITY_BY_ID[cityId].ko : ''} 등용`, `${warn}<p class="note">친밀도가 낮으면 고개를 숙이지 않습니다. 친교(금 200 · 행동력 1)로 친밀도를 쌓은 뒤 등용하세요. 등용은 군주 매력과 명성으로 겨룹니다.</p>${rows}`);
     return;
   }
   if (type === 'transport') {
@@ -1187,10 +1195,22 @@ function doCommand(type, officerId, cityId) {
 
 function doHire(cityId, gid) {
   const officer = E.bestOfficer(game, cityId, 'cha');
-  if (!officer) { toast('등용에 나설 장수가 없습니다.'); return; }
+  const need = E.commandCost('hire');
+  if (!officer) {
+    toast('등용에 나설 장수가 없습니다 — 이 성 장수가 모두 이번 달 명령을 마쳤습니다.', 2800);
+    sfx.fail();
+    openCommandSheet('hire', cityId);
+    return;
+  }
+  if (game.actionPoints < need) {
+    toast(`행동력이 부족합니다. (필요 ${need} · 남은 ${game.actionPoints})`, 2800);
+    sfx.fail();
+    openCommandSheet('hire', cityId);
+    return;
+  }
   const res = E.runCommand(game, 'hire', { cityId, officerId: officer.id, hireId: gid });
   closeSheet();
-  if (res.ok) { sfx.ok(); toast(res.msg); } else { sfx.fail(); toast(res.msg); }
+  if (res.ok) { sfx.ok(); toast(res.msg); } else { sfx.fail(); toast(res.msg, 2600); }
   renderGame(); autoSave();
 }
 
@@ -2767,6 +2787,122 @@ function doEvent(choiceId) {
   autoSave();
 }
 
+/* ---------- 5월 무예 대회 · 10월 설전 대회 ---------- */
+let tourTreasure = null;
+
+function tournamentBracketHTML(tv) {
+  const names = E.TOURNAMENT.rounds;
+  return (tv.rounds || []).map((matches, ri) => `
+    <div class="tour-round">
+      <div class="tour-round-head">${names[ri] || ''}</div>
+      ${matches.map((m) => {
+        const aWin = m.winner === 'a';
+        return `<div class="tour-match">
+          <span class="tm-team ${aWin ? 'win' : 'lose'}">${m.a.ko}<em>${m.a.score}</em></span>
+          <span class="tm-vs">vs</span>
+          <span class="tm-team ${aWin ? 'lose' : 'win'}">${m.b.ko}<em>${m.b.score}</em></span>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+function openTournamentSheet() {
+  const tv = game && game.pendingTournament;
+  if (!tv) return;
+  const gold = E.factionGold(game, game.playerId);
+  const prizes = E.tournamentPrizes(game);
+  if (tourTreasure && !prizes.some((p) => p.id === tourTreasure)) tourTreasure = null;
+  if (!tourTreasure && prizes.length) tourTreasure = prizes[0].id;
+  const R = E.TOURNAMENT.reward;
+  const goldOff = gold < R.gold.gold;
+  const prize = prizes.find((p) => p.id === tourTreasure) || null;
+  const chipRow = prizes.length > 1
+    ? `<div class="chip-row" style="margin:6px 0 4px">${prizes.map((p) => `<button class="pick-chip ${p.id === tourTreasure ? 'on' : ''}" data-act="tour-treasure" data-tid="${p.id}">${p.ko}</button>`).join('')}</div><p class="note" style="margin:0 0 6px">${prize ? prize.bonusText : ''}${prize && prize.from === 'prize' ? ' · 대회 포상' : ''}</p>`
+    : '';
+  openSheet(`${tv.year}년 ${tv.month}월 — ${tv.title}`, `
+    <div class="ev-box tour-head-box">
+      <div class="ev-title">${tv.title}</div>
+      <p class="ev-text">세력 장수 ${tv.totalGenerals || tv.entrants}명 중 ${tv.statKo} 상위 ${tv.entrants}명이 ${tv.statKo === '무력' ? '연무장에서' : '의정당에서'} 기량을 겨뤘습니다.</p>
+    </div>
+    ${tournamentBracketHTML(tv)}
+    <div class="tour-champ">
+      <span>우승</span>
+      <b>${tv.championKo}</b>
+      <em>${tv.statKo} ${tv.championStat}</em>
+    </div>
+    <p class="note" style="margin-top:10px">우승 장수를 치하하는 방식을 고르세요. 하사는 세력 금과 보물을 씁니다.</p>
+    <button class="btn big ev-opt" data-act="tour-reward" data-kind="gold" ${goldOff ? 'disabled' : ''} style="margin-bottom:8px">
+      <span>금 하사</span><small>${goldOff ? `세력 금이 부족합니다 (보유 ${fmt(gold)} / 필요 ${R.gold.gold})` : `금 ${R.gold.gold} · 충성 +${R.gold.loyalty} · 친밀 +${R.gold.affinity} · 명성 +${R.gold.fame}`}</small>
+    </button>
+    <button class="btn big ev-opt" data-act="tour-reward" data-kind="treasure" ${prizes.length ? '' : 'disabled'} style="margin-bottom:8px">
+      <span>보물 하사${prize ? ` — ${prize.ko}` : ''}</span><small>${prizes.length ? `충성 +${R.treasure.loyalty} · 친밀 +${R.treasure.affinity} · 명성 +${R.treasure.fame}${prizes.length > 1 ? ' · 위에서 보물 선택' : ''}` : '하사할 보물이 없습니다'}</small>
+    </button>
+    ${chipRow}
+    <button class="btn big ghost ev-opt" data-act="tour-reward" data-kind="praise">
+      <span>치하만 하기</span><small>비용 없음 · 충성 +${R.praise.loyalty} · 친밀 +${R.praise.affinity} · 명성 +${R.praise.fame}</small>
+    </button>
+  `);
+  sfx.win();
+}
+
+function doTournamentReward(kind) {
+  if (!game || !game.pendingTournament) { closeSheet(); return; }
+  const res = E.resolveTournamentReward(game, kind, { treasureId: tourTreasure });
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2800); return; }
+  closeSheet();
+  sfx.win();
+  toast(res.msg, 3600);
+  renderGame();
+  autoSave();
+}
+
+/* ---------- 장수 상세 ---------------- */
+const GD_STAT_LABELS = [['lead', '통솔'], ['war', '무력'], ['int', '지력'], ['pol', '정치'], ['cha', '매력']];
+
+function openGeneralDetail(gid) {
+  if (!game) return;
+  const rec = game.generals[gid];
+  const t = gd(gid);
+  if (!rec || !t) return;
+  const eff = E.effectiveGeneral(game, gid) || t;
+  const fac = rec.faction ? game.factions[rec.faction] : null;
+  const city = rec.city ? CITY_BY_ID[rec.city] : null;
+  const aff = E.affinityOf(game, gid);
+  const tr = E.treasureOf(game, gid);
+  const forms = E.formationOptions(gid, game).map((f) => f.ko);
+  const status = rec.dead ? '전사' : rec.captive ? '포로' : rec.acted ? '이번 달 행동 완료' : '이번 달 대기';
+  const statusCls = rec.captive || rec.dead ? 'bad' : rec.acted ? 'done' : 'ready';
+  const stats = GD_STAT_LABELS.map(([key, ko]) => {
+    const base = t[key] || 0, val = eff[key] || base;
+    const plus = val > base ? `<i>+${val - base}</i>` : '';
+    return `<div class="gd-stat">
+      <span class="gs-ko">${ko}</span>
+      <b>${val}${plus}</b>
+      <div class="gs-bar"><i style="width:${Math.max(4, Math.min(100, val))}%"></i></div>
+    </div>`;
+  }).join('');
+  openSheet(`${t.ko} — 장수`, `
+    <div class="gd-top">
+      <img class="gd-face" src="${portraitURL(gid, t, 92, colorOf(rec.faction))}" alt="${t.ko}" />
+      <div class="gd-id">
+        <div class="gd-name">${t.ko}</div>
+        <div class="gd-sub"><b style="color:${fac ? fac.color : '#9a8f7a'}">${fac ? fac.name + '군' : '재야'}</b>${city ? ` · ${city.ko} 주둔` : ''}</div>
+        <div class="gd-tags"><span>${t.arms || '보병'}</span><span>${skillName(t.skill)}</span></div>
+        <div class="gd-status ${statusCls}">${status}</div>
+      </div>
+    </div>
+    <div class="gd-stats">${stats}</div>
+    <div class="gd-rows">
+      <div class="gd-row"><span>충성</span><b>${rec.faction === game.playerId ? rec.loyalty : '-'}</b></div>
+      <div class="gd-row"><span>친밀</span><b>${aff} <em>${E.affinityLabel(aff)}</em></b></div>
+      <div class="gd-row"><span>보유 보물</span><b>${tr ? `${tr.ko} <em>${E.treasureBonusText(tr)}</em>` : '없음'}</b></div>
+      <div class="gd-row"><span>주력 진형</span><b>${forms.join(' · ') || '어린'}</b></div>
+    </div>
+    <button class="btn big" data-act="sheet-close" style="margin-top:10px">닫기</button>
+  `);
+  sfx.select();
+}
+
 /* ---------- 관직 승급 ---------- */
 function openPromotionSheet() {
   const list = (game.lastPromotions || []).filter((p) => p.factionId === game.playerId);
@@ -2805,6 +2941,7 @@ function openMenu() {
     <button class="btn big ghost" data-act="open-reports" style="margin-bottom:8px">군보</button>
     <button class="btn big ghost" data-act="diplomacy" style="margin-bottom:8px">외교 · 관직</button>
     ${game && game.pendingEvent ? '<button class="btn big ghost" data-act="open-event" style="margin-bottom:8px">달의 소식</button>' : ''}
+    ${game && game.pendingTournament ? '<button class="btn big ghost" data-act="open-tournament" style="margin-bottom:8px">이달의 대회</button>' : ''}
     <button class="btn big ghost" data-act="open-rank" style="margin-bottom:8px">세력 순위</button>
     <button class="btn big ghost" data-act="open-help" style="margin-bottom:8px">게임 방법</button>
     <button class="btn big ghost" data-act="to-title">타이틀로</button>
@@ -3004,6 +3141,10 @@ function onClick(e) {
       break;
     }
     case 'event-go': doEvent(el.dataset.id); break;
+    case 'gen-detail': openGeneralDetail(el.dataset.gid); break;
+    case 'open-tournament': openTournamentSheet(); break;
+    case 'tour-treasure': tourTreasure = el.dataset.tid; openTournamentSheet(); sfx.click(); break;
+    case 'tour-reward': doTournamentReward(el.dataset.kind); break;
     case 'promo-ok': closeSheet(); break;
     case 'open-event': openEventSheet(); break;
     case 'open-reports': sfx.click(); openReports(); break;

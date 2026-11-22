@@ -69,6 +69,8 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     offices: {},
     scouted: {},
     pendingEvent: null,
+    pendingTournament: null,
+    lastTournament: null,
     lastPromotions: [],
     gameOver: null,
     // 9: 보물 · 참모 · 도시 위임 · 쌀 시세
@@ -2254,6 +2256,164 @@ export function battleSetup(state, fromCityId, toCityId, opts = {}) {
   };
 }
 
+/* ---------- 5월 무예 대회 · 10월 설전 대회 ---------- */
+/* 세력 장수가 30명을 넘으면 5월에 무예 대회, 10월에 설전 대회를 연다.
+   상위 8명 토너먼트(8강→4강→결승)로 우승자를 가리고, 하사로 충성·친밀·명성을 올린다. */
+export const TOURNAMENT = {
+  minGenerals: 30,
+  size: 8,
+  months: { 5: 'martial', 10: 'debate' },
+  kind: {
+    martial: { ko: '무예 대회', statKey: 'war', statKo: '무력' },
+    debate: { ko: '설전 대회', statKey: 'int', statKo: '지력' },
+  },
+  reward: {
+    gold: { ko: '금 하사', done: '금을 하사했습니다', gold: 300, loyalty: 12, affinity: 10, fame: 4 },
+    treasure: { ko: '보물 하사', done: '보물을 하사했습니다', gold: 0, loyalty: 10, affinity: 8, fame: 3 },
+    praise: { ko: '치하만 하기', done: '치하였습니다', gold: 0, loyalty: 5, affinity: 5, fame: 2 },
+  },
+  rounds: ['8강', '4강', '결승'],
+};
+
+export function tournamentKindOf(month) { return TOURNAMENT.months[month] || null; }
+export function canHoldTournament(state) {
+  return factionGenerals(state, state.playerId).length >= TOURNAMENT.minGenerals;
+}
+
+/* 무력·지력 상위 8명 — 보물 보정을 반영한 값으로 겨룬다 */
+function tournamentEntrants(state, kind) {
+  const key = TOURNAMENT.kind[kind].statKey;
+  return factionGenerals(state, state.playerId)
+    .map((g) => {
+      const t = effectiveGeneral(state, g.id) || generalOf(state, g.id) || {};
+      return { gid: g.id, ko: t.ko || g.id, stat: t[key] || 0, lead: t.lead || 0 };
+    })
+    .sort((a, b) => b.stat - a.stat || b.lead - a.lead || (a.gid < b.gid ? -1 : 1))
+    .slice(0, TOURNAMENT.size);
+}
+
+/* 한 판 — 능력치에 소폭의 운(0~12)을 더해 겨룬다 */
+function playTournamentMatch(a, b, rng) {
+  const sa = a.stat + Math.floor(rng() * 13);
+  const sb = b.stat + Math.floor(rng() * 13);
+  const aWins = sa > sb || (sa === sb && a.stat >= b.stat);
+  return {
+    a: { gid: a.gid, ko: a.ko, stat: a.stat, score: sa },
+    b: { gid: b.gid, ko: b.ko, stat: b.stat, score: sb },
+    winner: aWins ? 'a' : 'b',
+    winGid: aWins ? a.gid : b.gid,
+  };
+}
+
+const winnerOf = (m) => (m.winner === 'a' ? m.a : m.b);
+const loserOf = (m) => (m.winner === 'a' ? m.b : m.a);
+
+/* 대진표를 짜고 끝까지 겨룬다 — 1:8 · 4:5 · 3:6 · 2:7 씨드 */
+export function buildTournament(state, kind, rng = Math.random) {
+  const meta = TOURNAMENT.kind[kind];
+  if (!meta) return null;
+  const pool = tournamentEntrants(state, kind);
+  if (pool.length < TOURNAMENT.size) return null;
+  const seeds = [[0, 7], [3, 4], [2, 5], [1, 6]];
+  const quarter = seeds.map(([i, j]) => playTournamentMatch(pool[i], pool[j], rng));
+  const qw = quarter.map(winnerOf);
+  const semi = [[0, 1], [2, 3]].map(([i, j]) => playTournamentMatch(qw[i], qw[j], rng));
+  const sw = semi.map(winnerOf);
+  const final = playTournamentMatch(sw[0], sw[1], rng);
+  const champ = winnerOf(final);
+  const runner = loserOf(final);
+  return {
+    kind,
+    statKey: meta.statKey,
+    statKo: meta.statKo,
+    title: meta.ko,
+    entrants: pool.length,
+    totalGenerals: factionGenerals(state, state.playerId).length,
+    rounds: [quarter, semi, [final]],
+    championId: champ.gid,
+    championKo: champ.ko,
+    championStat: champ.stat,
+    runnerUpKo: runner.ko,
+    reward: null,
+    shown: false,
+  };
+}
+
+/* 달이 바뀔 때 조건(장수 30명 이상·5월/10월)을 채우면 대회를 연다 */
+export function maybeOpenTournament(state, rng = null) {
+  if (!state || state.gameOver) return null;
+  if (state.pendingTournament) return state.pendingTournament;
+  const kind = tournamentKindOf(state.month);
+  if (!kind) return null;
+  if (!canHoldTournament(state)) return null;
+  const r = rng || rngOf(state);
+  const tv = buildTournament(state, kind, r);
+  if (!tv) return null;
+  tv.year = state.year;
+  tv.month = state.month;
+  tv.turn = state.turn;
+  tv.head = `${state.month}월 ${tv.title}`;
+  state.pendingTournament = tv;
+  log(state, `${state.month}월 ${tv.title} — ${withJosa(tv.championKo, '이')} 우승했습니다. (${tv.statKo} ${tv.championStat})`);
+  bumpRng(state, 7);
+  return tv;
+}
+
+/* 하사할 수 있는 보물 — 창고에 있는 보유 보물, 없으면 임자 없는 보물 하나를 대회 포상으로 내건다 */
+export function tournamentPrizes(state) {
+  const t = ensureTreasures(state);
+  const warehouse = t.owned.filter((tid) => !t.where[tid] && TREASURE_BY_ID[tid]);
+  const list = warehouse.map((tid) => {
+    const tr = TREASURE_BY_ID[tid];
+    return { id: tid, ko: tr.ko, bonusText: treasureBonusText(tr), from: 'warehouse' };
+  });
+  if (list.length) return list;
+  const lost = lostTreasures(state);
+  if (!lost.length) return [];
+  const tr = lost[0];
+  return [{ id: tr.id, ko: tr.ko, bonusText: treasureBonusText(tr), from: 'prize' }];
+}
+
+/* 하사 선택 — gold(금 300) · treasure(보물) · praise(치하만) */
+export function resolveTournamentReward(state, choice, opts = {}) {
+  const tv = state.pendingTournament;
+  if (!tv) return { ok: false, msg: '진행 중인 대회가 없습니다.' };
+  const R = TOURNAMENT.reward[choice];
+  if (!R) return { ok: false, msg: '없는 선택입니다.' };
+  const champ = state.generals[tv.championId];
+  if (!champ || champ.dead || champ.captive || champ.faction !== state.playerId) {
+    return { ok: false, msg: '우승 장수가 아군에 없습니다.' };
+  }
+  let gained = '';
+  if (choice === 'gold') {
+    if (factionGold(state, state.playerId) < R.gold) return { ok: false, msg: `세력 금이 부족합니다(${R.gold} 필요).` };
+    spendFactionGold(state, state.playerId, R.gold);
+  } else if (choice === 'treasure') {
+    const prizes = tournamentPrizes(state);
+    const prize = prizes.find((p) => p.id === opts.treasureId) || prizes[0];
+    if (!prize) return { ok: false, msg: '하사할 보물이 없습니다.' };
+    if (prize.from === 'prize') {
+      const res = gainTreasure(state, prize.id, { holder: champ.id });
+      if (!res.ok) return { ok: false, msg: res.msg };
+    } else {
+      const res = awardTreasure(state, prize.id, champ.id);
+      if (!res.ok) return { ok: false, msg: res.msg };
+    }
+    gained = prize.ko;
+  }
+  champ.loyalty = clamp((champ.loyalty || 0) + R.loyalty, 0, 100);
+  const aff = bumpAffinity(state, champ.id, R.affinity);
+  bumpFame(state, state.playerId, R.fame);
+  const costText = R.gold ? `금 ${R.gold} · ` : '';
+  const trText = gained ? `${gained} · ` : '';
+  const msg = `${tv.title} 우승자 ${champ ? generalOf(state, champ.id).ko : tv.championKo}에게 ${costText}${trText}충성 +${R.loyalty} · 친밀 +${R.affinity} · 명성 +${R.fame} — ${R.done}. (충성 ${champ.loyalty} · 친밀 ${aff})`;
+  const record = { ...tv, reward: choice, rewardKo: R.ko, treasure: gained || null, affinityAfter: aff, loyaltyAfter: champ.loyalty, resolvedTurn: state.turn };
+  state.lastTournament = record;
+  state.pendingTournament = null;
+  log(state, msg);
+  return { ok: true, msg, tournament: record };
+}
+
 /* ---------- 턴 진행 ---------- */
 export function endTurnPhase1(state) {
   const rng = rngOf(state);
@@ -2669,6 +2829,7 @@ export function endTurnPhase2(state) {
   state.actionPoints = state.maxActionPoints;
 
   checkVictory(state);
+  if (!state.gameOver) maybeOpenTournament(state, rngOf(state));
   if (!state.gameOver) rollMonthlyEvent(state, rngOf(state));
   bumpRng(state, 11);
   return state;
@@ -2774,6 +2935,8 @@ export function deserialize(json) {
   s.scouted = s.scouted || {};
   s.offices = s.offices || {};
   s.pendingEvent = s.pendingEvent || null;
+  s.pendingTournament = s.pendingTournament || null;
+  s.lastTournament = s.lastTournament || null;
   s.lastPromotions = [];
   s.stats = { battles: 0, wins: 0, duelWins: 0, duels: 0, captured: 0, recruited: 0, executed: 0, released: 0, trades: 0, treasureFound: 0, ...(s.stats || {}) };
   // 옛 저장의 깃발 글자(한자)는 버리고 한글 한 글자로 바꿔 둔다
