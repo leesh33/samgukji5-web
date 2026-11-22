@@ -491,14 +491,13 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .cs-name { font-family: var(--font-head); font-size: 18px; color: var(--gold-hi); letter-spacing: 2px; font-weight: 600; text-shadow: 0 1px 2px #000, 0 0 16px rgba(232, 148, 60, 0.22); }
 .region-tag { font-size: 9px; padding: 1px 5px; border: 1px solid #5c4227; color: #c2a878; letter-spacing: 1.2px; border-radius: 2px; background: rgba(60, 40, 22, 0.5); }
 .cs-owner { font-size: 10.5px; padding: 1px 7px; border: 1px solid currentColor; white-space: nowrap; letter-spacing: 0.6px; border-radius: 2px; background: rgba(0, 0, 0, 0.28); }
-.cs-actions { margin-left: auto; display: flex; align-items: center; gap: 5px; }
+.cs-right { margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
 .cs-toggle {
   height: 30px; padding: 0 11px; font-size: 11.5px; letter-spacing: 1px; color: var(--gold-hi); border-radius: 3px;
   background: linear-gradient(180deg, #3d2c1d, #241a11); border: 1px solid #6b4b28;
   box-shadow: inset 0 1px 0 rgba(255, 220, 160, 0.14), 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 .cs-toggle:active { border-color: var(--gold); }
-.cs-close { width: 30px; height: 30px; font-size: 12px; }
 .cs-brief {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   font-size: 10px; color: #a2917a; letter-spacing: 0.4px;
@@ -506,12 +505,11 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 }
 /* 펼친 상태에서는 아래 표와 같은 값을 중복 표시하지 않는다(접었을 때만 요약) */
 .citypanel.open .cs-brief { display: none; }
-.cs-row .cs-nav { margin-left: auto; }
-.cs-row .cs-actions { margin-left: 5px; }
+.cs-row .cs-nav { margin-left: 0; }
 .cs-brief-main { display: flex; gap: 9px; min-width: 0; overflow: hidden; }
 .cs-brief b { color: #eddec0; font-weight: 600; }
 .cs-nav {
-  margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; border-radius: 3px;
+  flex: 0 0 auto; display: flex; align-items: center; border-radius: 3px;
   border: 1px solid #4a3622; background: linear-gradient(180deg, #221a12, #150f09);
 }
 .cs-navbtn {
@@ -551,6 +549,9 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gen-chip img { width: 32px; height: 32px; display: block; border-radius: 2px; border: 1px solid #6b4b28; box-shadow: 0 0 8px rgba(255, 170, 80, 0.14); }
 .gen-chip span { font-size: 9px; color: #ddcfb2; white-space: nowrap; overflow: hidden; max-width: 44px; text-overflow: ellipsis; }
 .gen-chip.done { opacity: 0.45; }
+.gc-merit { display: block; width: 32px; height: 2px; margin-top: 1px; border-radius: 1px; background: #120c07; overflow: hidden; }
+.gc-merit b { display: block; height: 100%; background: linear-gradient(90deg, #7d5a2e, #ffd79a); }
+.gen-chip.up img { border-color: #ffd79a; box-shadow: 0 0 10px rgba(255, 200, 110, 0.5); }
 .cp-gens .none { font-size: 10.5px; color: #8f7d63; padding: 6px 0; }
 
 /* 장수 상세 시트 */
@@ -583,6 +584,9 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gs-bar { height: 3px; border-radius: 2px; background: #120c07; overflow: hidden; }
 .gs-bar i { display: block; height: 100%; background: linear-gradient(90deg, #b47c36, #ffe0a0); }
 .gd-rows { border-top: 1px solid rgba(217, 160, 90, 0.2); padding-top: 8px; }
+.gd-merit { display: flex; align-items: center; gap: 7px; padding: 0 0 6px; }
+.gd-merit .merit-bar { height: 4px; }
+.gd-merit em { font-style: normal; font-size: 9px; color: #9c8a70; white-space: nowrap; }
 .gd-row { display: flex; align-items: baseline; gap: 7px; padding: 4px 0; font-size: 11px; color: #cbbf9d; }
 .gd-row > span:first-child { min-width: 66px; color: #a2917a; font-size: 10px; }
 .gd-row b { color: #f0e2c4; font-weight: 600; }
@@ -712,6 +716,25 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .officer-row .or-go { font-size: 10px; color: var(--gold); border: 1px solid #5c4227; border-radius: 2px; padding: 5px 8px; letter-spacing: 0.5px; }
 .officer-row.done { opacity: 0.45; }
 .officer-row .or-tag { font-size: 9px; color: #8f7d63; }
+.officer-row .or-rankline { display: flex; align-items: center; gap: 5px; margin-top: 3px; }
+.or-rank { flex: 0 0 auto; font-size: 8.5px; color: #e2c894; border: 1px solid #5c4227; border-radius: 2px; padding: 0 4px; letter-spacing: 0.3px; background: rgba(60, 40, 22, 0.45); }
+.or-rank.up { color: #1a1208; border-color: #ffd79a; background: linear-gradient(180deg, #ffe3ae, #d9a05a); }
+.merit-bar { flex: 1 1 auto; min-width: 26px; height: 3px; border-radius: 2px; background: #120c07; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6); }
+.merit-bar i { display: block; height: 100%; background: linear-gradient(90deg, #7d5a2e, #ffd79a); }
+.or-rankline em { font-style: normal; font-size: 8.5px; color: #9c8a70; white-space: nowrap; }
+.promo-row { align-items: flex-start; }
+.promo-row.ready { border-color: #8a6532; box-shadow: 0 0 12px rgba(232, 148, 60, 0.16), var(--bevel-sm); }
+.pm-gauge { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.pm-gauge em { font-style: normal; font-size: 9px; color: #c2a878; white-space: nowrap; }
+.pm-next { margin-top: 4px; font-size: 9.5px; color: #9c8a70; line-height: 1.5; }
+.pm-next i { font-style: normal; color: #d9b06a; }
+.pm-next i.ok { color: #a8d18a; }
+.pm-ready { margin: 6px 0 8px; font-size: 11px; color: #f2e4c6; border: 1px solid #5c4227; border-radius: 3px; padding: 7px 9px; background: linear-gradient(180deg, #2c2116, #1b130c); }
+.pm-ready b { color: #ffd79a; }
+.pm-ready.dim { color: #a2917a; }
+.btn.promote.ready { border-color: #c9a45c; color: #fff0cc; }
+.mc-rank { font-style: normal; font-size: 8.5px; color: #a2917a; margin-left: 3px; }
+.mc-rank.full { color: #e0a070; }
 .field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0; }
 .field-row label { font-size: 11.5px; color: #c9b892; }
 .stepper { display: flex; align-items: center; gap: 6px; }

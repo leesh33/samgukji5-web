@@ -2,7 +2,7 @@
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_OWNERS, TREASURE_STAT_KO } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -112,7 +112,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
   }
 
   for (const g of allGeneralsOf(state)) {
-    state.generals[g.id] = { id: g.id, faction: null, city: null, loyalty: 0, acted: false, captive: false, dead: false, hidden: false };
+    state.generals[g.id] = { id: g.id, faction: null, city: null, loyalty: 0, acted: false, captive: false, dead: false, hidden: false, merit: 0, rank: 0 };
   }
 
   // 신군주는 기존 소세력의 성 하나를 떼어내 시작한다
@@ -195,6 +195,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
   }
 
   initDiplomacy(state);
+  ensureRanks(state);
   ensureAffinity(state);
   ensureTreasures(state);
   seedTreasures(state);
@@ -730,6 +731,123 @@ function E_adjacentFoeCount(state) {
     }
   }
   return set.size;
+}
+
+/* ---------- 공적 · 장군 직위 ----------
+   장수는 개발·상업·치안·수리·징병·훈련·등용·친교·계략·전투 승리로 개인 공적(merit)을 쌓는다.
+   군주가 직위를 내리면 최대 지휘 병력과 전투 보정이 오르고, 임명받은 장수는 충성이 오른다.
+   군주는 따로 임명받지 않고 '군주' 직위로 10,000명을 지휘한다. */
+export const RANKS = [
+  { ko: '일반', merit: 0, cap: 3000, bonus: 0 },
+  { ko: '비장군', merit: 80, cap: 4000, bonus: 0.03 },
+  { ko: '편장군', merit: 200, cap: 5000, bonus: 0.06 },
+  { ko: '아장군', merit: 400, cap: 6500, bonus: 0.09 },
+  { ko: '진북장군', merit: 700, cap: 8000, bonus: 0.12 },
+  { ko: '정북장군', merit: 1100, cap: 9000, bonus: 0.15 },
+  { ko: '대장군', merit: 1600, cap: 10000, bonus: 0.18 },
+];
+export const RANK_MAX = RANKS.length - 1;
+export const LORD_RANK = { ko: '군주', cap: 10000, bonus: 0.18 };
+export const PROMOTE_LOYALTY = 5;
+/* 행동별 공적 — [최소, 최대] */
+export const MERIT_GAIN = {
+  agri: [15, 25], comm: [15, 25], order: [15, 25], water: [15, 25],
+  draft: [18, 24], train: [18, 24],
+  search: [8, 14], hire: [22, 30], reward: [8, 14],
+  learn: [18, 24], befriend: [22, 30], plot: [22, 28], win: [50, 80],
+};
+
+export function isLordId(state, gid) {
+  for (const f of Object.values(state.factions || {})) if (f && f.lord === gid) return true;
+  return false;
+}
+
+/* 옛 저장(v3~v9)에는 공적·직위가 없다 — 0으로 채운다 */
+export function ensureRanks(state) {
+  if (!state || !state.generals) return state;
+  for (const g of Object.values(state.generals)) {
+    const m = Number(g.merit);
+    g.merit = Number.isFinite(m) ? Math.max(0, Math.round(m)) : 0;
+    const r = Number(g.rank);
+    g.rank = Number.isFinite(r) ? clamp(Math.round(r), 0, RANK_MAX) : 0;
+  }
+  return state;
+}
+
+export function meritOf(state, gid) {
+  const g = state.generals ? state.generals[gid] : null;
+  const m = g ? Number(g.merit) : 0;
+  return Number.isFinite(m) ? Math.max(0, Math.round(m)) : 0;
+}
+
+export function addMerit(state, gid, n) {
+  const g = state.generals ? state.generals[gid] : null;
+  if (!g || !n) return 0;
+  g.merit = Math.max(0, Math.round((Number.isFinite(Number(g.merit)) ? Number(g.merit) : 0) + n));
+  return Math.round(n);
+}
+
+/* 행동 종류로 공적을 굴린다 */
+export function meritRoll(state, kind, rng = null) {
+  const range = MERIT_GAIN[kind];
+  if (!range) return 0;
+  return randInt(rng || rngOf(state), range[0], range[1]);
+}
+
+/* 직위 정보 — 현재 직위·공적·다음 직위까지의 진행도·지휘 상한·전투 보정 */
+export function rankInfoOf(state, gid) {
+  const lord = isLordId(state, gid);
+  const g = (state.generals && state.generals[gid]) || {};
+  const merit = meritOf(state, gid);
+  const raw = Number(g.rank);
+  const index = lord ? RANK_MAX : clamp(Number.isFinite(raw) ? Math.round(raw) : 0, 0, RANK_MAX);
+  const cur = RANKS[index];
+  const next = index < RANK_MAX ? RANKS[index + 1] : null;
+  const span = next ? Math.max(1, next.merit - cur.merit) : 1;
+  return {
+    merit, index, isLord: lord,
+    ko: lord ? LORD_RANK.ko : cur.ko,
+    cap: lord ? LORD_RANK.cap : cur.cap,
+    bonus: lord ? LORD_RANK.bonus : cur.bonus,
+    next: next ? { ko: next.ko, merit: next.merit, cap: next.cap, bonus: next.bonus } : null,
+    toNext: next ? Math.max(0, next.merit - merit) : 0,
+    progress: next ? clamp((merit - cur.merit) / span, 0, 1) : 1,
+    canPromote: !lord && !!next && merit >= next.merit,
+  };
+}
+
+export function maxTroopsOf(state, gid) { return rankInfoOf(state, gid).cap; }
+export function battleBonusOf(state, gid) { return rankInfoOf(state, gid).bonus; }
+
+export function canPromote(state, gid) {
+  const g = state.generals ? state.generals[gid] : null;
+  if (!g || g.dead || g.captive) return { ok: false, why: '임명할 수 없는 장수입니다.' };
+  if (g.faction !== state.playerId) return { ok: false, why: '아군 장수만 임명할 수 있습니다.' };
+  if (isLordId(state, gid)) return { ok: false, why: '군주는 이미 군주 직위입니다.' };
+  const r = rankInfoOf(state, gid);
+  if (!r.next) return { ok: false, why: '이미 대장군입니다.' };
+  if (r.merit < r.next.merit) return { ok: false, why: `공적이 모자랍니다 (${r.merit}/${r.next.merit}).` };
+  return { ok: true, next: r.next };
+}
+
+/* 승급 가능한 아군 장수 — 인사 메뉴 배지에 쓴다 */
+export function promotableGenerals(state) {
+  return factionGenerals(state, state.playerId).filter((g) => canPromote(state, g.id).ok).map((g) => g.id);
+}
+
+/* 장군 임명 — 행동력을 쓰지 않는다(군주가 직접 내리는 직위). 한 단계씩 오르고 충성 +5 */
+export function promoteGeneral(state, gid) {
+  const chk = canPromote(state, gid);
+  if (!chk.ok) return { ok: false, msg: chk.why };
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  const from = RANKS[clamp(g.rank | 0, 0, RANK_MAX)];
+  g.rank = clamp((g.rank | 0) + 1, 0, RANK_MAX);
+  const to = RANKS[g.rank];
+  g.loyalty = clamp((g.loyalty || 0) + PROMOTE_LOYALTY, 0, 100);
+  const msg = `${withJosa(t.ko, '을')} ${withJosa(to.ko, '로')} 임명했습니다! 최대 지휘 ${to.cap.toLocaleString()}명 · 전투 보정 +${Math.round(to.bonus * 100)}% · 충성 +${PROMOTE_LOYALTY}`;
+  log(state, msg);
+  return { ok: true, msg, gid, ko: t.ko, from: from.ko, to: to.ko, rank: g.rank, cap: to.cap, bonus: to.bonus, loyalty: g.loyalty, merit: meritOf(state, gid) };
 }
 
 /* ---------- 쌀 시세 · 교역 ---------- */
@@ -1621,6 +1739,10 @@ export function runPlot(state, fromCityId, toCityId, kind, gid) {
     out.effect = { order, train };
     msg = `${cityName(toCityId)}에 유언비어가 퍼졌습니다. 치안 -${order} · 훈련 -${train} · 금·식량이 흔들렸습니다.`;
   }
+  const merit = meritRoll(state, 'plot') * (success ? 1 : 0.3) | 0;
+  if (merit) addMerit(state, gid, merit);
+  out.merit = merit;
+  out.fx = { kind: 'plot', gid, name: t.ko, line: msg, delta: success ? `${plot.ko} 성공` : `${plot.ko} 실패`, merit, tone: success ? 'good' : 'bad' };
   out.msg = msg;
   log(state, msg);
   bumpRng(state, 5);
@@ -1826,13 +1948,14 @@ export function reinforcementCandidates(state, baseCityIds, fid, exclude = []) {
       });
       const g = gens[0];
       const t = generalOf(state, g.id);
-      const troops = Math.min(Math.round(c.troops * REINFORCE_RATIO), 4200, c.troops - 800);
+      // 직위가 낮은 장수는 많이 데려갈 수 없다 — 병력 상한까지만
+      const troops = Math.min(Math.round(c.troops * REINFORCE_RATIO), 4200, c.troops - 800, maxTroopsOf(state, g.id));
       if (troops < 500) continue;
       seen.add(n);
       out.push({
         cityId: n, city: cityName(n), owner: c.owner,
         ownerName: state.factions[c.owner] ? state.factions[c.owner].name : '',
-        ally, gid: g.id, gname: t.ko, troops,
+        ally, gid: g.id, gname: t.ko, troops, rankBonus: battleBonusOf(state, g.id),
         spec: { id: t.id, ko: t.ko, lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha, arms: t.arms, skill: t.skill, formations: formationsOf(state, g.id) },
       });
     }
@@ -1951,8 +2074,8 @@ export function befriendCheck(state, gid) {
   return { ok: true };
 }
 
-/* 친교 — 금 200 · 행동력 1 → 친밀도 +12~18 */
-export function befriend(state, gid) {
+/* 친교 — 금 200 · 행동력 1 → 친밀도 +12~18. 사절로 나선 아군 장수가 공적을 쌓는다 */
+export function befriend(state, gid, officerId = null) {
   const c = befriendCheck(state, gid);
   if (!c.ok) return { ok: false, msg: c.why };
   spendFactionGold(state, state.playerId, BEFRIEND.gold);
@@ -1962,9 +2085,23 @@ export function befriend(state, gid) {
   const after = bumpAffinity(state, gid, gain);
   bumpRng(state, 2);
   const t = generalOf(state, gid);
+  // 사절 — 지정한 장수, 없으면 그 성(또는 인접한 아군 성)의 매력 최고 장수
+  let agent = officerId && state.generals[officerId] && state.generals[officerId].faction === state.playerId ? officerId : null;
+  if (!agent) {
+    const targetCity = state.generals[gid].city;
+    const here = targetCity && state.cities[targetCity] && state.cities[targetCity].owner === state.playerId ? targetCity : null;
+    const src = here || (targetCity ? adjacentFriends(state, targetCity)[0] : null);
+    const best = src ? bestOfficer(state, src, 'cha') : null;
+    agent = best ? best.id : null;
+  }
+  const merit = agent ? meritRoll(state, 'befriend') : 0;
+  if (merit) addMerit(state, agent, merit);
   const msg = `${withJosa(t.ko, '과')} 친교를 맺었습니다. 친밀도 ${before} → ${after} (+${after - before})`;
   log(state, msg);
-  return { ok: true, msg, aff: after, gain: after - before, label: affinityLabel(after) };
+  return {
+    ok: true, msg, aff: after, gain: after - before, label: affinityLabel(after), merit,
+    fx: { kind: 'befriend', gid: agent || gid, name: agent ? generalOf(state, agent).ko : '사절', line: `${withJosa(t.ko, '과')} 친교를 맺었습니다!`, delta: `친밀도 +${after - before}`, merit, tone: 'good' },
+  };
 }
 
 export function canCommand(state, type, cityId, officerId) {
@@ -1999,6 +2136,10 @@ export function runCommand(state, type, opts) {
   const rng = rngOf(state);
   let msg = '';
   let gain = 0;
+  let fxLine = '';
+  let fxDelta = '';
+  let fxTone = 'good';
+  let hireSuccess = true;
 
   switch (type) {
     case 'agri': {
@@ -2006,12 +2147,16 @@ export function runCommand(state, type, opts) {
       if (t.skill === 'indeok') gain += 1;
       c.agri = clamp(c.agri + gain, 0, 100);
       msg = `${withJosa(t.ko, '이')} ${cityName(c.id)}의 농업을 ${gain} 올렸습니다. (농업 ${c.agri})`;
+      fxLine = `${withJosa(t.ko, '이')} ${cityName(c.id)}의 논밭을 일궜습니다!`;
+      fxDelta = `농업 +${gain}`;
       break;
     }
     case 'comm': {
       gain = 2 + Math.floor(t.pol / 26) + randInt(rng, 0, 2);
       c.comm = clamp(c.comm + gain, 0, 100);
       msg = `${withJosa(t.ko, '이')} ${cityName(c.id)}의 상업을 ${gain} 올렸습니다. (상업 ${c.comm})`;
+      fxLine = `${withJosa(t.ko, '이')} ${cityName(c.id)}의 저잣거리를 열었습니다!`;
+      fxDelta = `상업 +${gain}`;
       break;
     }
     case 'order': {
@@ -2019,12 +2164,16 @@ export function runCommand(state, type, opts) {
       c.order = clamp(c.order + gain, 0, 100);
       c.def = clamp(c.def + 1, 20, 99);
       msg = `${withJosa(t.ko, '이')} 치안을 ${gain} 올렸습니다. (치안 ${c.order})`;
+      fxLine = `${withJosa(t.ko, '이')} 성 안팎을 순찰해 민심을 다독였습니다.`;
+      fxDelta = `치안 +${gain}`;
       break;
     }
     case 'water': {
       gain = 3 + Math.floor(t.int / 22) + randInt(rng, 0, 2);
       c.water = clamp(c.water + gain, 0, 100);
       msg = `${withJosa(t.ko, '이')} 수리 시설을 정비했습니다. (수리 ${c.water})`;
+      fxLine = `${withJosa(t.ko, '이')} 물길과 둑을 손봤습니다!`;
+      fxDelta = `수리 +${gain}`;
       break;
     }
     case 'draft': {
@@ -2032,12 +2181,16 @@ export function runCommand(state, type, opts) {
       c.gold -= 250; c.food -= 400;
       c.troops += add; c.order = clamp(c.order - 3, 0, 100); c.train = clamp(c.train - 6, 10, 100);
       msg = `${withJosa(t.ko, '이')} 병사 ${add.toLocaleString()}명을 모았습니다. (병력 ${c.troops.toLocaleString()})`;
+      fxLine = `${withJosa(t.ko, '이')} 병사 ${add.toLocaleString()}명을 모았습니다!`;
+      fxDelta = `병력 +${add.toLocaleString()}`;
       break;
     }
     case 'train': {
       gain = 4 + Math.floor(t.lead / 18);
       c.train = clamp(c.train + gain, 0, 100);
       msg = `${withJosa(t.ko, '이')} 부대를 훈련했습니다. (훈련 ${c.train})`;
+      fxLine = `${withJosa(t.ko, '이')} 병사를 조련했습니다!`;
+      fxDelta = `훈련 +${gain}`;
       break;
     }
     case 'search': {
@@ -2075,10 +2228,16 @@ export function runCommand(state, type, opts) {
         f.fame = clamp(f.fame + 2, 0, 100);
         gain = 1;
         msg = `${withJosa(tg.ko, '이')} ${t.ko}의 설득에 응해 부하가 되었습니다! (충성 ${target.loyalty} · 친밀도 ${aff})`;
+        fxLine = `${withJosa(tg.ko, '이')} ${t.ko}의 설득에 응해 부하가 되었습니다!`;
+        fxDelta = `충성 ${target.loyalty} · 친밀 ${aff}`;
       } else {
         const aff = bumpAffinity(state, target.id, -3);
         msg = `${tg.ko}은(는) 고개를 저었습니다. (등용 실패 · 친밀도 ${aff})`;
         target.loyalty = 0;
+        hireSuccess = false;
+        fxTone = 'bad';
+        fxLine = `${withJosa(tg.ko, '이')} 고개를 저었습니다.`;
+        fxDelta = `친밀도 ${aff}`;
       }
       break;
     }
@@ -2091,6 +2250,8 @@ export function runCommand(state, type, opts) {
       target.loyalty = clamp(target.loyalty + inc, 0, 100);
       const aff = bumpAffinity(state, target.id, 5);
       msg = `${generalOf(state, target.id).ko}의 충성도가 ${inc} 올랐습니다. (충성 ${target.loyalty} · 친밀도 ${aff})`;
+      fxLine = `${withJosa(generalOf(state, target.id).ko, '을')} 포상했습니다!`;
+      fxDelta = `충성 +${inc}`;
       break;
     }
     case 'transport': {
@@ -2113,9 +2274,20 @@ export function runCommand(state, type, opts) {
   if (gain && (type === 'agri' || type === 'comm' || type === 'order' || type === 'water')) {
     state.factions[state.playerId].fame = clamp(state.factions[state.playerId].fame + 1, 0, 100);
   }
+  // 공적 — 개발·상업·치안·수리·징병·훈련·탐색·등용(성공)·포상
+  let merit = 0;
+  if (type === 'hire') {
+    if (hireSuccess) merit = meritRoll(state, 'hire', rng);
+  } else if (MERIT_GAIN[type]) {
+    merit = meritRoll(state, type, rng);
+  }
+  if (merit) addMerit(state, opts.officerId, merit);
   log(state, msg);
   bumpRng(state);
-  return { ok: true, msg };
+  return {
+    ok: true, msg, merit,
+    fx: { kind: type, name: t.ko, line: fxLine || msg, delta: fxDelta, merit, tone: fxTone },
+  };
 }
 
 /* ---------- 도시간 장수 이동 ---------- */
@@ -2270,15 +2442,29 @@ export function battleSetup(state, fromCityId, toCityId, opts = {}) {
   const defGens = generalsInCity(state, toCityId);
   const plan = planReinforcements(state, fromCityId, toCityId, opts);
   takeReinforcements(state, [...plan.atk, ...plan.def]);
+  const atkIds = (opts.atkGenerals || atkGens.map((g) => g.id)).slice(0, MAX_ARMY);
+  const defIds = defGens.map((g) => g.id).slice(0, MAX_ARMY);
+  // 장군 직위별 지휘 상한 — 상한을 넘는 병력은 성에 남는다
+  const troopCaps = {};
+  const rankBonus = {};
+  for (const gid of [...new Set([...atkIds, ...defIds])]) {
+    troopCaps[gid] = maxTroopsOf(state, gid);
+    rankBonus[gid] = battleBonusOf(state, gid);
+  }
+  const atkCap = atkIds.reduce((s, gid) => s + (troopCaps[gid] || 0), 0);
+  const defCap = defIds.reduce((s, gid) => s + (troopCaps[gid] || 0), 0);
+  const wantAtk = typeof opts.atkTroops === 'number' ? opts.atkTroops : from.troops;
   return {
     fromCityId, toCityId,
     attackerFaction: from.owner,
     defenderFaction: to.owner,
-    atkGenerals: (opts.atkGenerals || atkGens.map((g) => g.id)).slice(0, MAX_ARMY),
+    atkGenerals: atkIds,
     defGenerals: defGens.map((g) => g.id),
-    atkTroops: typeof opts.atkTroops === 'number' ? opts.atkTroops : from.troops,
-    defTroops: to.troops,
+    atkTroops: Math.min(wantAtk, atkCap),
+    defTroops: Math.min(to.troops, defCap || to.troops),
     defBonus: to.def,
+    troopCaps,
+    rankBonus,
     reinforcements: plan,
   };
 }
@@ -2923,6 +3109,17 @@ export function applyBattleResult(state, result, rng = null) {
   }
   result.capturedGenerals = out.prisoners.map((p) => p.gid);
   const victorFid = result.winner === 'attacker' ? atkFid : defFid;
+  // 전투 승리 공적 — 이긴 쪽에 나선 장수마다 +50~80
+  const winGids = result.winner === 'attacker' ? (result.atkGenerals || []) : (result.defGenerals || []);
+  let meritTotal = 0;
+  for (const gid of winGids) {
+    const g = state.generals[gid];
+    if (!g || g.dead || g.captive || g.faction !== victorFid) continue;
+    const m = randInt(R, MERIT_GAIN.win[0], MERIT_GAIN.win[1]);
+    addMerit(state, gid, m);
+    meritTotal += m;
+  }
+  out.merit = meritTotal;
   checkFactionDeath(state, defFid, victorFid);
   checkFactionDeath(state, atkFid, victorFid);
   cleanDiplomacy(state);
@@ -2971,8 +3168,8 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전. 열어서 새 양식으로 옮긴다.
-  if (!s || ![3, 4, 5, 6, 7, 8, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전, 9 = 공적·장군 직위 이전. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, 5, 6, 7, 8, 9, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];
@@ -2998,6 +3195,7 @@ export function deserialize(json) {
     if (g.movedThisTurn === undefined) g.movedThisTurn = false;
   }
   ensureStaticGenerals(s);
+  ensureRanks(s);
   ensureDiplomacy(s);
   ensureAffinity(s);
   ensureTreasures(s);
@@ -3153,12 +3351,17 @@ export function trainFormation(state, cityId, studentGid, formId, teacherGid = n
   }
   state.generals[studentGid].acted = true;
   state.actionPoints -= FORMATION_TRAIN.ap;
+  const merit = meritRoll(state, 'learn');
+  addMerit(state, studentGid, merit);
   const msg = known
     ? `${teacher.ko}에게 ${withJosa(form.ko, '을')} 전수받아 ${withJosa(student.ko, '이')} ${form.ko} 진형을 익혔습니다! (숙련 ${before}% → 100%)`
     : `${teacher.ko}에게 ${withJosa(form.ko, '을')} 전수받았습니다. ${student.ko}의 ${form.ko} 숙련 ${before}% → ${after}%`;
   log(state, msg);
   bumpRng(state);
-  return { ok: true, msg, gain, before, after, known, studentKo: student.ko, formKo: form.ko, formId, teacherKo: teacher.ko };
+  return {
+    ok: true, msg, gain, before, after, known, studentKo: student.ko, formKo: form.ko, formId, teacherKo: teacher.ko, merit,
+    fx: { kind: 'learn', gid: studentGid, name: student.ko, line: known ? `${form.ko} 진형을 익혔습니다!` : `${teacher.ko}에게 ${form.ko}을 전수받았습니다.`, delta: `숙련 ${after}%`, merit, tone: 'good' },
+  };
 }
 
 export function formationOptions(gid, state = null) {

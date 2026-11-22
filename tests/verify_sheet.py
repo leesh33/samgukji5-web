@@ -6,7 +6,7 @@
   2. 좌우 스와이프(실제 터치)로 내 성 전환 + 지도 카메라 포커스 이동
   3. 장수 초상화 줄 스와이프는 초상화 스크롤 우선(도시 전환 없음), 세로 제스처 무시
   4. 헤더 ‹ / › 인디케이터 탭 이동(순환 포함)
-  5. 접기(cs-toggle) · 닫기(✕) 동작, 닫은 뒤 성을 탭하면 다시 펼침
+  5. 접기(cs-toggle)만 남기고 ✕ 제거 · 접기가 헤더 맨 오른쪽 · 빈 지도 탭으로 닫힘
   6. 적 성에서 스와이프하면 내 성으로 복귀
   7. 콘솔 오류 0 · 가로 넘침 0 · 데스크톱(1280) 레이아웃
 """
@@ -79,6 +79,10 @@ def panel_state(page):
         panelH: Math.round(p.getBoundingClientRect().height),
         mapH: map.clientHeight,
         mapPct: Math.round(map.clientHeight / innerHeight * 100),
+        hasClose: !!p.querySelector('.cs-close'),
+        toggleText: (p.querySelector('.cs-toggle') || {}).textContent || '',
+        toggleRight: p.querySelector('.cs-toggle') ? Math.round(p.querySelector('.cs-toggle').getBoundingClientRect().right) : -1,
+        rowRight: Math.round(p.querySelector('.cs-row').getBoundingClientRect().right),
       };
     }""")
 
@@ -101,6 +105,18 @@ def swipe_panel(page, cdp, dx, dy=0, y_off=50):
     x0 = box["x"] + box["width"] * 0.5
     y0 = box["y"] + y_off
     swipe(page, cdp, x0, y0, x0 + dx, y0 + dy)
+
+
+
+def close_panel(page):
+    """✕가 없어졌으니 지도 빈 곳을 탭해 패널을 닫는다."""
+    mb = page.locator("#map").bounding_box()
+    for fx, fy in ((0.06, 0.10), (0.94, 0.10), (0.06, 0.92), (0.94, 0.92), (0.5, 0.10)):
+        page.touchscreen.tap(mb["x"] + mb["width"] * fx, mb["y"] + mb["height"] * fy)
+        page.wait_for_timeout(340)
+        if not panel_state(page)["visible"]:
+            return True
+    return not panel_state(page)["visible"]
 
 
 def tap_city(page, city_id):
@@ -212,9 +228,16 @@ with sync_playwright() as p:
     page.click(".cs-toggle"); page.wait_for_timeout(400)
     step("명령 버튼 → 다시 펼침", panel_state(page)["open"], panel_state(page)["panelH"])
 
-    page.click(".cs-close"); page.wait_for_timeout(450)
+    st = panel_state(page)
+    step("✕ 버튼 제거 — 접기 하나만 남음", not st["hasClose"], panel_state(page))
+    step("접기 버튼이 헤더 맨 오른쪽", st["toggleRight"] >= st["rowRight"] - 6,
+         f"toggleRight={st['toggleRight']} rowRight={st['rowRight']} text={st['toggleText']}")
+    # 헤더 오른쪽 끝을 넘지 않고, 다른 버튼에 가리지 않는다
+    step("접기 버튼이 화면 안", st["toggleRight"] <= 390 and st["toggleRight"] > 300, st["toggleRight"])
+
+    closed_ok = close_panel(page)
     closed = panel_state(page)
-    step("✕ 닫기 → 패널 숨김·지도 확대", (not closed["visible"]) and closed["mapPct"] > 85, closed["mapPct"])
+    step("지도 빈 곳 탭 → 패널 숨김·지도 확대", closed_ok and (not closed["visible"]) and closed["mapPct"] > 85, closed["mapPct"])
 
     # 닫은 뒤 다른 성을 탭하면 다시 펼쳐짐
     page.click('[data-act="zoom-reset"]'); page.wait_for_timeout(350)
@@ -230,7 +253,7 @@ with sync_playwright() as p:
     other = own["mine"][1]["id"] if panel_state(page)["city"] == own["mine"][0]["id"] else own["mine"][0]["id"]
     swipe_panel(page, cdp, -170)
     focused = panel_state(page)
-    page.click(".cs-close"); page.wait_for_timeout(450)
+    close_panel(page)
     mb = page.locator("#map").bounding_box()
     page.touchscreen.tap(mb["x"] + mb["width"] / 2, mb["y"] + mb["height"] / 2 + 13)
     page.wait_for_timeout(450)

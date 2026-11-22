@@ -5,6 +5,7 @@ import * as E from './engine.js';
 import * as B from './battle.js';
 import { createDuel, duelRound, DUEL_ACTIONS } from './duel.js';
 import { portraitURL } from './portrait.js';
+import { playActionFx } from './actionfx.js';
 import { createMapView } from './mapview.js';
 import { sfx } from './audio.js';
 import * as Cloud from './sync.js';
@@ -844,7 +845,7 @@ const CITY_CMD_GROUPS = [
     ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'], ['trade', '교역'], ['transport', '수송'],
   ] },
   { id: 'people', ko: '인사', hint: '등용·이동', subs: [
-    ['search', '탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['advisor', '참모'],
+    ['search', '탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['promote', '장군 임명'], ['advisor', '참모'],
   ] },
   { id: 'army', ko: '군사', hint: '징병·출진', subs: [
     ['draft', '징병', '2령'], ['train', '훈련'], ['learn', '진형전수'], ['march', '출진'],
@@ -890,6 +891,11 @@ function cmdSubHTML(group, ctx) {
       const n = ctx.learnCount || 0;
       const ready = n > 0 && game.actionPoints >= 1;
       return `<button class="btn" role="menuitem" data-act="cmd" data-cmd="learn" ${city} ${ready ? '' : 'disabled'}>${ko}<small>${n ? (ready ? `${n}종` : '행동력 부족') : '스승 없음'}</small></button>`;
+    }
+    if (k === 'promote') {
+      const n = E.promotableGenerals(game).length;
+      const tag = n ? `${n}명` : '공적 부족';
+      return `<button class="btn promote ${n ? 'ready' : ''}" role="menuitem" data-act="promote-open">${ko}<small>${tag}</small></button>`;
     }
     const off = k === 'move' ? !ctx.moveReady
       : k === 'talk' ? (!ctx.partners.length || !ctx.talkLeft || game.actionPoints < 1)
@@ -959,9 +965,11 @@ function renderCityPanel(dir = 0) {
   const gens = mine ? E.generalsInCity(game, selectedCity) : Object.values(game.generals).filter((g) => g.city === selectedCity && g.faction === c.owner && !g.captive && !g.dead);
   const genHTML = gens.slice(0, 12).map((g) => {
     const t = gd(g.id);
-    return `<button class="gen-chip ${g.acted ? 'done' : ''}" data-act="gen-detail" data-gid="${g.id}" title="${t.ko} 능력치" aria-label="${t.ko} 능력치 보기">
+    const rk = E.rankInfoOf(game, g.id);
+    return `<button class="gen-chip ${g.acted ? 'done' : ''} ${rk.canPromote ? 'up' : ''}" data-act="gen-detail" data-gid="${g.id}" title="${t.ko} · ${rk.ko} · 공적 ${rk.merit} · 최대 지휘 ${fmt(rk.cap)}명" aria-label="${t.ko} 능력치 보기 — ${rk.ko}, 공적 ${rk.merit}, 최대 지휘 ${fmt(rk.cap)}명">
       <img src="${portraitURL(g.id, t, 32, colorOf(g.faction))}" alt="${t.ko}" />
-      <span>${t.ko}</span></button>`;
+      <span>${t.ko}</span>
+      <i class="gc-merit" aria-hidden="true"><b style="width:${Math.max(4, Math.round(rk.progress * 100))}%"></b></i></button>`;
   }).join('');
 
   let cmdHTML = '';
@@ -1044,10 +1052,9 @@ function renderCityPanel(dir = 0) {
       <div class="cs-row">
         <div class="cs-id"><span class="region-tag">${base.region}</span><b class="cs-name">${base.ko}</b></div>
         <span class="cs-owner" style="color:${colorOf(c.owner)}">${ownerName}</span>
-        ${navHTML}
-        <div class="cs-actions">
+        <div class="cs-right">
+          ${navHTML}
           <button class="cs-toggle" data-act="city-toggle">${cityPanelOpen ? '접기 ▾' : '명령 ▴'}</button>
-          <button class="cs-close" data-act="close-city" aria-label="닫기">✕</button>
         </div>
       </div>
       <div class="cs-brief">
@@ -1095,11 +1102,17 @@ function closeSheet() { $('#sheet').classList.add('hidden'); }
 function officerRowHTML(g, actionAct, extra = '', disabledHint = '') {
   const t = gd(g.id);
   const done = g.acted || g.captive;
+  const rk = E.rankInfoOf(game, g.id);
   return `<button class="officer-row ${done ? 'done' : ''}" data-act="${actionAct}" data-officer="${g.id}" ${done ? 'disabled' : ''}>
     <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
     <div class="or-main">
       <div class="or-name">${t.ko} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
       <div class="or-stats"><span>통<b>${t.lead}</b></span><span>무<b>${t.war}</b></span><span>지<b>${t.int}</b></span><span>정<b>${t.pol}</b></span><span>매<b>${t.cha}</b></span><span>충<b>${g.loyalty}</b></span><span>친<b>${E.affinityOf(game, g.id)}</b></span></div>
+      <div class="or-rankline">
+        <span class="or-rank ${rk.canPromote ? 'up' : ''}">${rk.ko}</span>
+        <div class="merit-bar"><i style="width:${Math.round(rk.progress * 100)}%"></i></div>
+        <em>공적 ${rk.merit}${rk.next && rk.merit < rk.next.merit ? ` · ${rk.next.merit - rk.merit} 남음` : ''}</em>
+      </div>
     </div>
     <div class="or-go">${done ? '완료' : extra || '선택'}</div>
   </button>`;
@@ -1237,11 +1250,15 @@ function doLearnFormation(gid) {
   if (!learnDraft || !learnDraft.formId) return;
   const res = E.trainFormation(game, learnDraft.cityId, gid, learnDraft.formId);
   if (!res.ok) { sfx.fail(); toast(res.msg, 2800); return; }
-  toast(res.msg, res.known ? 3600 : 2600);
   if (res.known) sfx.win(); else sfx.ok();
   renderGame();
   autoSave();
-  if (!$('#sheet').classList.contains('hidden')) renderFormationLearnSheet();
+  const t = gd(gid);
+  const fx = res.fx || {};
+  playActionFx({
+    kind: 'learn', name: fx.name || t.ko, line: fx.line || res.msg, delta: fx.delta || '',
+    merit: res.merit || 0, portrait: portraitURL(gid, t, 64, colorOf(game.playerId)),
+  }).then(() => { if (learnDraft && !$('#sheet').classList.contains('hidden')) renderFormationLearnSheet(); });
 }
 
 function openTransportSheet(cityId) {
@@ -1261,13 +1278,23 @@ function openTransportSheet(cityId) {
 const uiState = { trTarget: null, trGold: 0, trFood: 0 };
 
 /* ---------- 명령 실행 ---------- */
+const ANIMATED_COMMANDS = new Set(['agri', 'comm', 'order', 'water', 'draft', 'train', 'hire', 'reward']);
+
 function doCommand(type, officerId, cityId) {
   const res = E.runCommand(game, type, { cityId, officerId });
   closeSheet();
-  if (res.ok) { sfx.ok(); toast(res.msg); }
-  else { sfx.fail(); toast(res.msg); }
+  if (!res.ok) { sfx.fail(); toast(res.msg); return; }
+  sfx.ok();
   renderGame();
   autoSave();
+  if (!ANIMATED_COMMANDS.has(type)) { toast(res.msg); return; }
+  const fx = res.fx || {};
+  const gid = officerId;
+  const t = gd(gid);
+  playActionFx({
+    kind: fx.kind || type, name: fx.name || t.ko, line: fx.line || res.msg, delta: fx.delta || '',
+    merit: fx.merit || res.merit || 0, tone: fx.tone, portrait: portraitURL(gid, t, 64, colorOf(game.playerId)),
+  });
 }
 
 function doHire(cityId, gid) {
@@ -1287,22 +1314,36 @@ function doHire(cityId, gid) {
   }
   const res = E.runCommand(game, 'hire', { cityId, officerId: officer.id, hireId: gid });
   closeSheet();
-  if (res.ok) { sfx.ok(); toast(res.msg); } else { sfx.fail(); toast(res.msg, 2600); }
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2600); return; }
+  sfx.ok();
   renderGame(); autoSave();
+  const fx = res.fx || {};
+  const t = gd(officer.id);
+  playActionFx({
+    kind: 'hire', name: fx.name || t.ko, line: fx.line || res.msg, delta: fx.delta || '',
+    merit: res.merit || 0, tone: fx.tone, portrait: portraitURL(officer.id, t, 64, colorOf(game.playerId)),
+  });
 }
 
 /* 친교 — 금 200 · 행동력 1 → 친밀도 +12~18 */
 function doBefriend(gid) {
   const res = E.befriend(game, gid);
   if (!res.ok) { sfx.fail(); toast(res.msg, 2400); return; }
-  sfx.coin(); toast(res.msg, 2400);
+  sfx.coin();
   renderGame(); autoSave();
-  // 열어 둔 모달의 친밀도·성공률을 바로 갱신
-  if (!$('#sheet').classList.contains('hidden')) {
-    const title = $('#sheet-title') ? $('#sheet-title').textContent : '';
+  const title = $('#sheet-title') ? $('#sheet-title').textContent : '';
+  const refresh = () => {
+    if ($('#sheet').classList.contains('hidden')) return;
     if (title.includes('등용') && sheetCityId) openCommandSheet('hire', sheetCityId);
     else if (title.includes('계략') && plotDraft) renderPlotSheet();
-  }
+  };
+  const fx = res.fx || {};
+  const agentId = fx.gid || gid;
+  const at = gd(agentId);
+  playActionFx({
+    kind: 'befriend', name: fx.name || at.ko, line: fx.line || res.msg, delta: fx.delta || '',
+    merit: res.merit || 0, portrait: portraitURL(agentId, at, 64, colorOf(game.playerId)),
+  }).then(refresh);
 }
 
 function doReward(cityId, gid) {
@@ -1310,8 +1351,15 @@ function doReward(cityId, gid) {
   if (!officer) return;
   const res = E.runCommand(game, 'reward', { cityId, officerId: officer.id, rewardId: gid });
   closeSheet();
-  if (res.ok) { sfx.coin(); toast(res.msg); } else { sfx.fail(); toast(res.msg); }
+  if (!res.ok) { sfx.fail(); toast(res.msg); return; }
+  sfx.coin();
   renderGame(); autoSave();
+  const fx = res.fx || {};
+  const t = gd(officer.id);
+  playActionFx({
+    kind: 'reward', name: fx.name || t.ko, line: fx.line || res.msg, delta: fx.delta || '',
+    merit: res.merit || 0, portrait: portraitURL(officer.id, t, 64, colorOf(game.playerId)),
+  });
 }
 
 /* ---------- 도시간 장수 이동 ---------- */
@@ -1484,20 +1532,27 @@ function marchSheetHTML() {
   const target = game.cities[p.targetId];
   const tname = fname(target.owner);
   const defPower = E.cityPower(game, p.targetId, true);
-  const myPower = Math.round(c.troops * (0.7 + c.train / 180) * 0.95);
+  // 장군 직위의 지휘 상한 — 넘는 병력은 성에 남는다
+  const capSum = p.generals.reduce((s, gid) => s + E.maxTroopsOf(game, gid), 0);
+  const ask = Math.round(c.troops * p.ratio);
+  const going = Math.min(ask, capSum);
+  const myPower = Math.round(going * (0.7 + c.train / 180) * 0.95);
   return `
     <div class="field-row"><label>공격 대상</label><div class="chip-row" style="margin:0">
       ${enemies.map((e) => `<button class="pick-chip ${e === p.targetId ? 'on' : ''}" data-act="march-target" data-city="${e}">${CITY_BY_ID[e].ko}</button>`).join('')}
     </div></div>
     <p class="note">${CITY_BY_ID[p.targetId].ko}: ${tname}군 · 병력 ${fmt(target.troops)} · 성 방어 ${target.def}<br>
     예상 전력 — 아군 ${fmt(myPower * p.ratio)} vs 수비 ${fmt(defPower)}${myPower * p.ratio > defPower ? ' <span style="color:#8ed18e">(우세)</span>' : ' <span style="color:#e08a7a">(열세)</span>'}</p>
-    <div class="field-row"><label>출진 병력 ${fmt(Math.round(c.troops * p.ratio))} / ${fmt(c.troops)}</label>
+    <div class="field-row"><label>출진 병력 ${fmt(going)} / ${fmt(c.troops)}</label>
       <div class="stepper"><button data-act="march-ratio-" >－</button><input id="march-ratio" type="number" value="${Math.round(p.ratio * 100)}" min="20" max="100" />%<button data-act="march-ratio+">＋</button></div></div>
+    ${ask > capSum ? `<p class="note warn">장군 지휘 상한 ${fmt(capSum)}명 — 상한을 넘는 병력은 성에 남습니다. 직위를 올리면 더 많이 데려갈 수 있습니다.</p>` : ''}
     <p class="note">출진 장수 (최대 5명)</p>
     <div class="chip-row">${gens.map((g) => {
       const t = gd(g.id);
       const on = p.generals.includes(g.id);
-      return `<button class="pick-chip ${on ? 'on' : ''}" data-act="march-gen" data-officer="${g.id}">${t.ko} <b style="color:#9c9270">무${t.war}</b></button>`;
+      const rk = E.rankInfoOf(game, g.id);
+      const full = p.generals.includes(g.id) && E.maxTroopsOf(game, g.id) < ask / Math.max(1, p.generals.length) * 1.05;
+      return `<button class="pick-chip ${on ? 'on' : ''}" data-act="march-gen" data-officer="${g.id}" title="${rk.ko} · 최대 지휘 ${fmt(rk.cap)}명">${t.ko} <b style="color:#9c9270">무${t.war}</b> <i class="mc-rank ${full ? 'full' : ''}">${rk.ko}</i></button>`;
     }).join('')}</div>
     ${formationPickerHTML()}
     ${reinforcePickerHTML()}
@@ -2197,6 +2252,7 @@ function finishBattle() {
     </div>
     <p class="note">${summary} · ${res.rounds}라운드${prisoners ? '<br>사로잡은 장수: <b style="color:#f5d97a">' + prisoners + '</b> — 처분을 기다립니다' : ''}</p>
     ${win && res.winner === 'attacker' ? `<p class="note">${E.withJosa(CITY_BY_ID[battle.toCityId].ko, '이')} 우리 것이 되었습니다.</p>` : ''}
+    ${applied.merit ? `<p class="note" style="color:#c0d8a8">승전 공적 — 나선 장수들이 합쳐 <b>+${fmt(applied.merit)}</b>을 쌓았습니다. 인사 → 장군 임명에서 확인하세요.</p>` : ''}
     <button class="btn big" data-act="bt-close" style="margin-top:12px">${prisoners ? '포로 처분으로 ▶' : '계속'}</button>
   `);
 }
@@ -2566,11 +2622,16 @@ function doPlot() {
   const res = E.runPlot(game, d.fromCityId, d.toCityId, d.kind, d.gid);
   closeSheet();
   plotDraft = null;
-  if (!res.ok) { sfx.fail(); toast(res.msg); }
-  else if (!res.success) { sfx.fail(); toast(res.msg, 2800); }
-  else { sfx.win(); toast(res.msg, 3200); }
+  if (!res.ok) { sfx.fail(); toast(res.msg); return; }
+  if (res.success) sfx.win(); else sfx.fail();
   renderGame();
   autoSave();
+  const t = gd(d.gid);
+  const fx = res.fx || {};
+  playActionFx({
+    kind: 'plot', name: fx.name || t.ko, line: fx.line || res.msg, delta: fx.delta || '',
+    merit: res.merit || 0, tone: fx.tone, portrait: portraitURL(d.gid, t, 64, colorOf(game.playerId)),
+  });
 }
 
 /* ---------- 교역 (쌀 시세) ---------- */
@@ -2962,6 +3023,8 @@ function openGeneralDetail(gid) {
   ].join('');
   const status = rec.dead ? '전사' : rec.captive ? '포로' : rec.acted ? '이번 달 행동 완료' : '이번 달 대기';
   const statusCls = rec.captive || rec.dead ? 'bad' : rec.acted ? 'done' : 'ready';
+  const rk = E.rankInfoOf(game, gid);
+  const canUp = E.canPromote(game, gid);
   const stats = GD_STAT_LABELS.map(([key, ko]) => {
     const base = t[key] || 0, val = eff[key] || base;
     const plus = val > base ? `<i>+${val - base}</i>` : '';
@@ -2985,12 +3048,67 @@ function openGeneralDetail(gid) {
     <div class="gd-rows">
       <div class="gd-row"><span>충성</span><b>${rec.faction === game.playerId ? rec.loyalty : '-'}</b></div>
       <div class="gd-row"><span>친밀</span><b>${aff} <em>${E.affinityLabel(aff)}</em></b></div>
+      <div class="gd-row"><span>직위</span><b>${rk.ko} <em>전투 보정 +${Math.round(rk.bonus * 100)}%</em></b></div>
+      <div class="gd-row"><span>공적</span><b>${rk.merit}${rk.next ? ` / ${rk.next.merit}` : ' <em>최고 직위</em>'}</b></div>
+      <div class="gd-merit"><div class="merit-bar"><i style="width:${Math.round(rk.progress * 100)}%"></i></div><em>${rk.next ? `다음 ${rk.next.ko}까지 ${rk.toNext}` : '대장군'}</em></div>
+      <div class="gd-row"><span>최대 지휘</span><b>${fmt(rk.cap)}명</b></div>
       <div class="gd-row"><span>보유 보물</span><b>${tr ? `${tr.ko} <em>${E.treasureBonusText(tr)}</em>` : '없음'}</b></div>
       <div class="gd-row"><span>주력 진형</span><b class="gd-forms">${formHTML || '어린'}</b></div>
     </div>
-    <button class="btn big" data-act="sheet-close" style="margin-top:10px">닫기</button>
+    ${canUp.ok ? `<button class="btn big promote" data-act="promote-do" data-officer="${gid}" style="margin-top:10px">${rk.next.ko}로 임명</button>` : ''}
+    <button class="btn big ghost" data-act="sheet-close" style="margin-top:6px">닫기</button>
   `);
   sfx.select();
+}
+
+/* ---------- 장군 임명 (공적 → 직위) ---------- */
+function openPromoteSheet() {
+  const fid = game.playerId;
+  const lordId = game.factions[fid].lord;
+  const gens = E.factionGenerals(game, fid).filter((g) => g.id !== lordId && !g.dead && !g.captive);
+  if (!gens.length) { toast('임명할 부하 장수가 없습니다.'); sfx.fail(); return; }
+  const ranked = gens.slice().sort((a, b) => E.meritOf(game, b.id) - E.meritOf(game, a.id));
+  const ready = E.promotableGenerals(game).length;
+  const rows = ranked.map((g) => {
+    const t = gd(g.id);
+    const rk = E.rankInfoOf(game, g.id);
+    const chk = E.canPromote(game, g.id);
+    const next = rk.next;
+    return `<div class="officer-row promo-row ${chk.ok ? 'ready' : ''}">
+      <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
+      <div class="or-main">
+        <div class="or-name">${t.ko} <span class="or-rank ${chk.ok ? 'up' : ''}">${rk.ko}</span></div>
+        <div class="pm-gauge">
+          <div class="merit-bar"><i style="width:${Math.round(rk.progress * 100)}%"></i></div>
+          <em>공적 ${rk.merit}</em>
+        </div>
+        <div class="or-stats"><span>최대 지휘 <b>${fmt(rk.cap)}</b></span><span>전투 <b>+${Math.round(rk.bonus * 100)}%</b></span><span>충성 <b>${g.loyalty}</b></span></div>
+        <div class="pm-next">${next ? `다음 ${next.ko} — 공적 ${next.merit} · 지휘 ${fmt(next.cap)} · 전투 +${Math.round(next.bonus * 100)}%${rk.toNext ? ` · <i>${rk.toNext} 남음</i>` : ' · <i class="ok">지금 임명 가능</i>'}` : '대장군 — 더 오를 직위가 없습니다.'}</div>
+      </div>
+      <button class="pw-btn ${chk.ok ? 'rec' : 'rel'}" data-act="promote-do" data-officer="${g.id}" ${chk.ok ? '' : 'disabled'}>
+        ${chk.ok ? '임명' : next ? '공적 부족' : '최고'}
+      </button>
+    </div>`;
+  }).join('');
+  openSheet('장군 임명', `
+    <p class="note">공적을 쌓은 장수에게 직위를 내립니다. 임명하면 <b>최대 지휘 병력</b>과 <b>전투 보정</b>이 오르고 <b>충성 +5</b>. <b>행동력은 쓰지 않습니다 — 언제든 즉시</b> 임명할 수 있습니다.</p>
+    ${ready ? `<div class="pm-ready">지금 임명할 수 있는 장수 <b>${ready}명</b></div>` : '<div class="pm-ready dim">아직 공적이 모자랍니다 — 개발·징병·훈련·등용·전투로 공적을 쌓으세요.</div>'}
+    ${rows}`);
+}
+
+function doPromote(gid) {
+  const res = E.promoteGeneral(game, gid);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2600); return; }
+  closeSheet();
+  sfx.win();
+  renderGame();
+  autoSave();
+  const t = gd(gid);
+  playActionFx({
+    kind: 'promote', name: t.ko, line: `${res.to}에 임명되었습니다!`,
+    delta: `최대 지휘 ${fmt(res.cap)} · 충성 +${E.PROMOTE_LOYALTY}`,
+    merit: 0, portrait: portraitURL(gid, t, 64, colorOf(game.playerId)),
+  }).then(() => { if (game) openPromoteSheet(); });
 }
 
 /* ---------- 관직 승급 ---------- */
@@ -3128,7 +3246,9 @@ function openHelp() {
     <b style="color:#e6d9b3">19. 참모</b> — 군주를 뺀 부하 장수 중 지력이 가장 높은 장수가 참모로 앉아 계략·등용·외교 성공률을 2~8% 올리고 조언을 합니다(정보에서 변경).<br>
     <b style="color:#e6d9b3">20. 담당</b> — 성마다 직할·내정 위임·군사 위임을 정합니다. 위임한 성은 턴이 바뀔 때 행동력 없이 스스로 개발·징병·훈련을 합니다.<br>
     <b style="color:#e6d9b3">21. 전술 계략</b> — 화계·혼란·고무·치료에 수계(물가)·낙석(산기슭)이 더해집니다. 계략마다 지력·매력으로 정해지는 성공률이 표시됩니다.<br>
-    <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.
+    <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.<br>
+    <b style="color:#e6d9b3">23. 공적·장군 임명</b> — 개발·상업·징병·훈련·등용·친교·계략·전투 승리로 장수마다 공적이 쌓입니다. 인사 → 장군 임명에서 일반→비장군→편장군→아장군→진북장군→정북장군→대장군으로 올리면 최대 지휘 병력(3,000→10,000)과 전투 보정(+3%씩)이 오르고 충성 +5. 행동력은 들지 않습니다.<br>
+    <b style="color:#e6d9b3">24. 행동 연출</b> — 징병·훈련·개발·등용 같은 주요 명령을 실행하면 장수 초상화와 2초 도트 연출이 재생되고 저절로 닫힙니다.
     </p>`);
 }
 
@@ -3279,6 +3399,8 @@ function onClick(e) {
     case 'treasure-award': doTreasureAward(el.dataset.tid, el.dataset.gid); break;
     case 'treasure-revoke': doTreasureRevoke(el.dataset.tid); break;
     case 'advisor': cityCmdGroup = null; syncCmdPopover(); openAdvisorSheet(); break;
+    case 'promote-open': cityCmdGroup = null; syncCmdPopover(); openPromoteSheet(); break;
+    case 'promote-do': doPromote(el.dataset.officer); break;
     case 'advisor-pick': doAdvisorPick(el.dataset.gid); break;
     case 'info': openInfoSheet(); break;
     case 'info-tab': infoTab = el.dataset.tab; renderInfoSheet(); sfx.click(); break;

@@ -254,11 +254,11 @@ test('저장 양식 v5(한자 깃발·대화 이전)도 열리고 새 양식으�
 
   const back = E.deserialize(JSON.stringify(raw));
   assert.equal(back.version, E.SAVE_VERSION);
-  assert.equal(back.version, 9);
+  assert.equal(back.version, 10);
   assert.deepEqual(back.talked, {});
   assert.equal(back.factions.jojo.hanja, undefined);
   assert.equal(back.factions.jojo.mark, '조');
   assert.equal(back.customGenerals.cl_lord.hanja, undefined);
   for (const g of Object.values(back.generals)) assert.equal(typeof g.movedThisTurn, 'boolean');
-  assert.equal(E.SAVE_VERSION, 9);
+  assert.equal(E.SAVE_VERSION, 10);
 });

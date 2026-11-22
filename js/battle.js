@@ -123,6 +123,7 @@ export function createBattle(opts) {
     fromCityId, toCityId, attackerFaction, defenderFaction,
     atkGenerals = [], defGenerals = [], atkTroops = 5000, defTroops = 5000,
     defBonus = 40, seed = 1, playerSide = null, generals = null,
+    troopCaps = null, rankBonus = null,
   } = opts;
   const GD = generals || GENERAL_BY_ID;
   const rng = mulberry32(hashStr(fromCityId + toCityId) + seed);
@@ -180,11 +181,14 @@ export function createBattle(opts) {
       const own = (g.formations && g.formations) || ['eorin'];
       const asked = opts.formations && opts.formations[gid];
       const formId = (asked && own.includes(asked) ? asked : own[0]) || 'eorin';
+      // 장군 직위의 지휘 상한을 넘기지 않는다
+      const cap = troopCaps && troopCaps[gid] ? troopCaps[gid] : Infinity;
       battle.units.push({
         id: `${side}-${gid}`,
         side, gid, name: g.ko,
+        rankBonus: (rankBonus && rankBonus[gid]) || 0,
         spec: { id: g.id, ko: g.ko, lead: g.lead, war: g.war, int: g.int, pol: g.pol, cha: g.cha, arms: g.arms, skill: g.skill, formations: g.formations || ['eorin'] },
-        troops: Math.max(400, Math.round(base * (gid === gids[0] ? 1.1 : 1))),
+        troops: Math.min(cap, Math.max(400, Math.round(base * (gid === gids[0] ? 1.1 : 1)))),
         morale: clamp(58 + Math.round(g.lead / 4) + (isCastleDef ? 6 : 0), 40, 100),
         formation: formId,
         x: clamp(x, 0, BW - 1), y,
@@ -227,6 +231,7 @@ export function addReinforcement(b, side, r) {
     id: `${side}-${r.gid}-re`,
     side, gid: r.gid, name: spec.ko,
     spec: { id: spec.id || r.gid, ko: spec.ko, lead: spec.lead, war: spec.war, int: spec.int, pol: spec.pol, cha: spec.cha, arms: spec.arms, skill: spec.skill, formations: spec.formations || ['eorin'] },
+    rankBonus: r.rankBonus || 0,
     troops: Math.max(300, Math.round(r.troops)),
     morale: clamp(62 + Math.round((spec.lead || 50) / 5), 45, 100),
     formation: (spec.formations && spec.formations[0]) || 'eorin',
@@ -357,6 +362,7 @@ export function resolveAttack(b, u, t, rng) {
   u.dir = dirBetween(u, t);
   const edge = attackEdge(u, t);
   let atk = u.troops * 0.16 * (1 + ga.war / 140) * fa.atk * (0.65 + u.morale / 160) * (0.9 + ga.lead / 600);
+  atk *= 1 + (u.rankBonus || 0);            // 장군 직위 보정 — 공격
   if (ga.skill === 'dolgyeok') atk *= 1.2;
   if (ga.skill === 'jeogyeok' && fa.range > 1) atk *= 1.25;
   if (ga.skill === 'sujeon' && tileAt(b, t.x, t.y).t === 'water') atk *= 1.25;
@@ -364,7 +370,7 @@ export function resolveAttack(b, u, t, rng) {
   if (ga.skill === 'yongmaeng') atk *= 1.08;
   if (ga.skill === 'bigyeok') atk *= 1.1;
   atk *= edge.mult;                       // 정면 1.0 · 측면 1.25 · 배후 1.5 × 진형 상성
-  let def = (1 + (gd.lead + gd.war) / 420) * fd.def * ter.def;
+  let def = (1 + (gd.lead + gd.war) / 420) * fd.def * ter.def * (1 + (t.rankBonus || 0));
   if (gd.skill === 'cheolbyeok') def *= 1.2;
   if (gd.skill === 'gyeonsu') def *= 1.1;
   if (t.defDown > 0) def *= 0.85;   // 혼란·낙석으로 방어진이 흐트러진 상태
@@ -387,6 +393,8 @@ export function resolveAttack(b, u, t, rng) {
       let cAtk = t.troops * 0.1 * (1 + gd.war / 160) * f2.atk * (0.55 + t.morale / 180) * (back.mult > 1 ? 1 + (back.mult - 1) * 0.5 : back.mult);
       let cDef = (1 + (ga.lead + ga.war) / 420) * fa.def * TERRAIN[tileAt(b, u.x, u.y).t].def;
       if (ga.skill === 'cheolbyeok') cDef *= 1.2;
+      cAtk *= 1 + (t.rankBonus || 0);     // 직위 보정 — 반격
+      cDef *= 1 + (u.rankBonus || 0);
       const cDmg = Math.max(20, Math.round((cAtk / cDef) * (0.8 + rng() * 0.3) * 0.6));
       u.troops -= cDmg;
       u.morale = clamp(u.morale - 2, 0, 100);
@@ -616,6 +624,8 @@ export function battleResult(b) {
   const defeatedGenerals = b.units.filter((x) => x.side === losingSide && !x.alive).map((x) => x.gid);
   return {
     fromCityId: b.fromCityId, toCityId: b.toCityId,
+    atkGenerals: b.units.filter((x) => x.side === 'atk').map((x) => x.gid),
+    defGenerals: b.units.filter((x) => x.side === 'def').map((x) => x.gid),
     winner,
     atkLoss: Math.max(0, b.initial.atk - atkSurvivors),
     defLoss: Math.max(0, b.initial.def - defSurvivors),
