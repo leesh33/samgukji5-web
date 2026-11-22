@@ -87,7 +87,7 @@ with sync_playwright() as p:
         page.locator(".officer-row:not(.done)").first.click()
         page.wait_for_timeout(450)
     v = page.evaluate("() => { const r = localStorage.getItem('samguk5.auto'); return r ? JSON.parse(r).version : null; }")
-    step("저장 뒤 최신 양식(v7)", v == 7, v)
+    step("저장 뒤 최신 양식(v9)", v == 9, v)
 
     errs = [e for e in errors if "favicon" not in str(e).lower()]
     step("콘솔 오류 0", len(errs) == 0, errs[:3])
