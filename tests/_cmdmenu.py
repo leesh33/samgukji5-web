@@ -9,7 +9,7 @@
 GROUPS = {
     'agri': 'civil', 'comm': 'civil', 'order': 'civil', 'water': 'civil', 'trade': 'civil', 'transport': 'civil',
     'search': 'people', 'hire': 'people', 'move': 'people', 'talk': 'people', 'reward': 'people',
-    'draft': 'army', 'train': 'army', 'march': 'army',
+    'draft': 'army', 'train': 'army', 'learn': 'army', 'march': 'army',
 }
 GROUP_LABELS = {'civil': '내정', 'people': '인사', 'army': '군사'}
 

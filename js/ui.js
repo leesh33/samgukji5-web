@@ -847,7 +847,7 @@ const CITY_CMD_GROUPS = [
     ['search', '탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['advisor', '참모'],
   ] },
   { id: 'army', ko: '군사', hint: '징병·출진', subs: [
-    ['draft', '징병', '2령'], ['train', '훈련'], ['march', '출진'],
+    ['draft', '징병', '2령'], ['train', '훈련'], ['learn', '진형전수'], ['march', '출진'],
   ] },
 ];
 let cityCmdGroup = null;
@@ -884,6 +884,11 @@ function cmdSubHTML(group, ctx) {
     if (k === 'advisor') {
       const adv = E.advisorOf(game);
       return `<button class="btn" role="menuitem" data-act="advisor">${ko}<small>${adv ? adv.ko : '지력 최고'}</small></button>`;
+    }
+    if (k === 'learn') {
+      const n = ctx.learnCount || 0;
+      const ready = n > 0 && game.actionPoints >= 1;
+      return `<button class="btn" role="menuitem" data-act="cmd" data-cmd="learn" ${city} ${ready ? '' : 'disabled'}>${ko}<small>${n ? (ready ? `${n}종` : '행동력 부족') : '스승 없음'}</small></button>`;
     }
     const off = k === 'move' ? !ctx.moveReady
       : k === 'talk' ? (!ctx.partners.length || !ctx.talkLeft || game.actionPoints < 1)
@@ -978,7 +983,7 @@ function renderCityPanel(dir = 0) {
     const diploSub = game.actionPoints >= 1 ? '증정·동맹' : '행동력 부족';
     const diploTab = `<button class="btn diplo" data-act="diplomacy" data-city="${selectedCity}">외교<small>${diploSub}</small></button>`;
     cmdHTML = `<div class="cp-cmds">${tabs}${diploTab}<button class="btn ${plotReady ? 'plot' : ''}" data-act="cmd" data-cmd="plot" data-city="${selectedCity}" ${plotReady ? '' : 'disabled'}>계략<small>${plotSub}</small></button></div>`;
-    cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies };
+    cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies, learnCount: E.cityLearnableFormations(game, selectedCity).length };
   } else {
     cmdCtx = null;
     const pacified = !!c.owner && E.isPacified(game, game.playerId, c.owner);
@@ -1165,6 +1170,77 @@ function openCommandSheet(type, cityId) {
     : type === 'search' ? '<p class="note">탐색: 숨은 인재·금·식량을 찾습니다. 지력이 높을수록 유리합니다.</p>'
     : `<p class="note">${E.COMMANDS[type] ? E.COMMANDS[type].desc : ''} 행동력 1을 사용합니다.</p>`;
   openSheet(`${CITY_BY_ID[cityId].ko} — ${label}`, extra + rows);
+}
+
+/* ---------- 진형 전수 (같은 성 스승 장수에게 배우기) ---------- */
+let learnDraft = null;
+
+function openFormationLearnSheet(cityId) {
+  const rows = E.cityLearnableFormations(game, cityId);
+  const first = rows.find((r) => r.id !== 'eorin') || rows[0];
+  learnDraft = { cityId, formId: first ? first.id : null };
+  renderFormationLearnSheet();
+  if (rows.length) sfx.click(); else sfx.fail();
+}
+
+function renderFormationLearnSheet() {
+  if (!learnDraft) return;
+  const { cityId } = learnDraft;
+  const city = CITY_BY_ID[cityId];
+  const open = E.cityLearnableFormations(game, cityId);
+  if (!open.some((r) => r.id === learnDraft.formId)) {
+    const first = open.find((r) => r.id !== 'eorin') || open[0];
+    learnDraft.formId = first ? first.id : null;
+  }
+  const formId = learnDraft.formId;
+  const known = E.cityFormationTeachers(game, cityId);
+  const ap = game.actionPoints;
+  const form = formId ? FORMATIONS[formId] : null;
+  const chips = known.length
+    ? `<div class="chip-row learn-forms">${known.map((r) => {
+      const can = open.some((x) => x.id === r.id);
+      return `<button class="pick-chip ${r.id === formId ? 'on' : ''}" data-act="learn-form" data-form="${r.id}" ${can ? '' : 'disabled'}>${r.ko}<small>스승 ${r.teachers.map((t) => t.ko).join('·')}</small></button>`;
+    }).join('')}</div>`
+    : '';
+  const rows = formId ? E.generalsInCity(game, cityId).map((g) => {
+    const t = gd(g.id);
+    const owns = E.knowsFormation(game, g.id, formId);
+    const mastery = owns ? 100 : E.formationMasteryOf(game, g.id, formId);
+    const blocked = owns || g.acted || ap < 1;
+    const tag = owns ? '보유' : g.acted ? '완료' : ap < 1 ? '행동력' : '전수';
+    return `<button class="officer-row learn ${owns ? 'done' : ''}" data-act="learn-do" data-officer="${g.id}" ${blocked ? 'disabled' : ''}>
+      <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
+      <div class="or-main">
+        <div class="or-name">${t.ko} <span class="or-tag">${t.arms}·${skillName(t.skill)}</span></div>
+        <div class="or-stats"><span>통솔<b>${t.lead}</b></span><span>지력<b>${t.int}</b></span><span>${owns ? '주력 진형' : '숙련도'}</span></div>
+        <div class="learn-bar ${owns ? 'full' : ''}"><div class="learn-gauge"><i style="width:${Math.max(owns ? 100 : mastery, 3)}%"></i></div><em>${owns ? '익힘' : `${mastery}/100`}</em></div>
+      </div>
+      <div class="or-go">${tag}</div>
+    </button>`;
+  }).join('') : '';
+  const warn = ap < 1 ? '<div class="warn-box">행동력이 부족합니다. 다음 달에 다시 시도하세요.</div>'
+    : !known.length ? '<div class="warn-box">이 성에는 진형을 전수해 줄 스승 장수가 없습니다. 그 진형을 아는 장수를 같은 성에 두세요.</div>'
+    : !formId ? '<div class="warn-box">이번 달에 전수받을 수 있는 장수가 없습니다 — 모두 이미 배웠거나 이번 달 행동을 마쳤습니다.</div>'
+    : '';
+  const detail = form ? `<div class="learn-info"><b>${form.ko}</b><span>${form.desc}</span><em>${formationCounterText(formId)}</em></div>` : '';
+  openSheet(`${city.ko} — 진형 전수`, `
+    ${warn}
+    <p class="note">같은 성에 그 진형을 아는 아군 스승 장수가 있어야 전수받을 수 있습니다. 제자만 행동력 1과 이번 달 행동을 쓰고, 스승은 성에 주둔하기만 하면 됩니다. 한 번에 25~36%씩 쌓여 3~4번 훈련해야 익힐 수 있습니다.</p>
+    ${chips}
+    ${detail}
+    ${rows || '<p class="note">전수받을 장수를 고르세요.</p>'}
+    <p class="note" style="margin-top:8px">100%에 이르면 그 진형이 제자의 주력 진형에 영구히 붙어 출진 때 고를 수 있습니다.</p>`);
+}
+
+function doLearnFormation(gid) {
+  if (!learnDraft || !learnDraft.formId) return;
+  const res = E.trainFormation(game, learnDraft.cityId, gid, learnDraft.formId);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2800); return; }
+  toast(res.msg, res.known ? 3600 : 2600);
+  if (res.known) sfx.win(); else sfx.ok();
+  renderGame();
+  autoSave();
+  if (!$('#sheet').classList.contains('hidden')) renderFormationLearnSheet();
 }
 
 function openTransportSheet(cityId) {
@@ -1448,8 +1524,7 @@ function reinforcePickerHTML() {
 
 /* 출진 전 진형 고르기 — 장수별 대형 미리보기 + 상성 */
 function formOfPick(gid) {
-  const t = gd(gid);
-  const own = (t.formations && t.formations.length ? t.formations : ['eorin']).filter((f) => FORMATIONS[f]);
+  const own = E.formationsOf(game, gid);
   const picked = pendingSetup.forms[gid];
   return picked && own.includes(picked) ? picked : own[0];
 }
@@ -1459,7 +1534,7 @@ function formationPickerHTML() {
   if (!p.generals.length) return '';
   const rows = p.generals.map((gid) => {
     const t = gd(gid);
-    const own = (t.formations || ['eorin']).filter((f) => FORMATIONS[f]);
+    const own = E.formationsOf(game, gid);
     const cur = formOfPick(gid);
     return `<div class="fp-row">
       <span class="fp-name">${t.ko}</span>
@@ -2869,7 +2944,15 @@ function openGeneralDetail(gid) {
   const city = rec.city ? CITY_BY_ID[rec.city] : null;
   const aff = E.affinityOf(game, gid);
   const tr = E.treasureOf(game, gid);
-  const forms = E.formationOptions(gid, game).map((f) => f.ko);
+  // 전수로 익힌 진형과 진행 중인 숙련도
+  const learned = E.learnedFormationsOf(game, gid);
+  const learning = Object.entries((game.formationMastery || {})[gid] || {})
+    .filter(([fid, v]) => FORMATIONS[fid] && !E.knowsFormation(game, gid, fid) && Number(v) > 0)
+    .map(([fid, v]) => ({ fid, v: Math.round(Number(v)) }));
+  const formHTML = [
+    ...E.formationsOf(game, gid).map((fid) => `<span class="gd-form${learned.includes(fid) ? ' learned' : ''}">${FORMATIONS[fid].ko}</span>`),
+    ...learning.map(({ fid, v }) => `<span class="gd-form learning">${FORMATIONS[fid].ko}<em>${v}%</em></span>`),
+  ].join('');
   const status = rec.dead ? '전사' : rec.captive ? '포로' : rec.acted ? '이번 달 행동 완료' : '이번 달 대기';
   const statusCls = rec.captive || rec.dead ? 'bad' : rec.acted ? 'done' : 'ready';
   const stats = GD_STAT_LABELS.map(([key, ko]) => {
@@ -2896,7 +2979,7 @@ function openGeneralDetail(gid) {
       <div class="gd-row"><span>충성</span><b>${rec.faction === game.playerId ? rec.loyalty : '-'}</b></div>
       <div class="gd-row"><span>친밀</span><b>${aff} <em>${E.affinityLabel(aff)}</em></b></div>
       <div class="gd-row"><span>보유 보물</span><b>${tr ? `${tr.ko} <em>${E.treasureBonusText(tr)}</em>` : '없음'}</b></div>
-      <div class="gd-row"><span>주력 진형</span><b>${forms.join(' · ') || '어린'}</b></div>
+      <div class="gd-row"><span>주력 진형</span><b class="gd-forms">${formHTML || '어린'}</b></div>
     </div>
     <button class="btn big" data-act="sheet-close" style="margin-top:10px">닫기</button>
   `);
@@ -3171,9 +3254,13 @@ function onClick(e) {
       else if (cmd === 'talk') openTalkSheet(el.dataset.city);
       else if (cmd === 'plot') openPlotSheet(null, el.dataset.city);
       else if (cmd === 'trade') openTradeSheet(el.dataset.city);
+      else if (cmd === 'learn') openFormationLearnSheet(el.dataset.city);
       else openCommandSheet(cmd, el.dataset.city);
       break;
     }
+    /* 진형 전수 */
+    case 'learn-form': learnDraft.formId = el.dataset.form; renderFormationLearnSheet(); sfx.click(); break;
+    case 'learn-do': doLearnFormation(el.dataset.officer); break;
     /* 교역 · 특수 · 보물 · 참모 · 정보 */
     case 'trade': doTrade(el.dataset.kind, Number(el.dataset.amount)); break;
     case 'trade-open': openTradeSheet(specialCity || selectedCity); break;

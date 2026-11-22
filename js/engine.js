@@ -15,6 +15,13 @@ export function generalOf(state, gid) {
 export function generalMap(state) {
   const map = { ...GENERAL_BY_ID };
   if (state && state.customGenerals) Object.assign(map, state.customGenerals);
+  // 전수로 익힌 진형까지 합친 사본 — 전투가 익힌 진형을 그대로 쓸 수 있게 한다
+  for (const gid of Object.keys((state && state.learnedFormations) || {})) {
+    const base = map[gid];
+    const extra = (state.learnedFormations[gid] || []).filter((f) => FORMATIONS[f]);
+    if (!base || !extra.length) continue;
+    map[gid] = { ...base, formations: [...new Set([...(base.formations || []), ...extra])] };
+  }
   return map;
 }
 export function allGeneralsOf(state) {
@@ -68,6 +75,9 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     affinity: {},
     offices: {},
     scouted: {},
+    // 진형 전수 — 스승 장수에게 배운 진형과 숙련도(0~100)
+    learnedFormations: {},
+    formationMastery: {},
     pendingEvent: null,
     pendingTournament: null,
     lastTournament: null,
@@ -1508,7 +1518,7 @@ export function scoutedInfo(state, cityId) {
         gid: g.id, ko: t.ko, lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha,
         affinity: affinityOf(state, g.id),
         loyalty: Math.round(g.loyalty || 0), arms: t.arms, skill: t.skill, skillKo: (SKILLS[t.skill] || {}).ko || t.skill,
-        formation: (t.formations && t.formations[0]) || 'eorin',
+        formation: formationsOf(state, g.id)[0] || 'eorin',
       };
     }),
   };
@@ -1808,7 +1818,7 @@ export function reinforcementCandidates(state, baseCityIds, fid, exclude = []) {
         cityId: n, city: cityName(n), owner: c.owner,
         ownerName: state.factions[c.owner] ? state.factions[c.owner].name : '',
         ally, gid: g.id, gname: t.ko, troops,
-        spec: { id: t.id, ko: t.ko, lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha, arms: t.arms, skill: t.skill, formations: t.formations || ['eorin'] },
+        spec: { id: t.id, ko: t.ko, lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha, arms: t.arms, skill: t.skill, formations: formationsOf(state, g.id) },
       });
     }
   }
@@ -2917,6 +2927,26 @@ function ensureStaticGenerals(s) {
   }
 }
 
+/* 진형 전수 기록 — 옛 저장(v3~v9)에는 없으니 빈 기록으로 채워 넣는다 */
+function ensureFormationLearning(s) {
+  s.learnedFormations = s.learnedFormations && typeof s.learnedFormations === 'object' && !Array.isArray(s.learnedFormations)
+    ? s.learnedFormations : {};
+  s.formationMastery = s.formationMastery && typeof s.formationMastery === 'object' && !Array.isArray(s.formationMastery)
+    ? s.formationMastery : {};
+  for (const gid of Object.keys(s.learnedFormations)) {
+    const list = (Array.isArray(s.learnedFormations[gid]) ? s.learnedFormations[gid] : []).filter((f) => FORMATIONS[f]);
+    s.learnedFormations[gid] = [...new Set(list)];
+  }
+  for (const gid of Object.keys(s.formationMastery)) {
+    const row = s.formationMastery[gid] && typeof s.formationMastery[gid] === 'object' ? s.formationMastery[gid] : {};
+    for (const f of Object.keys(row)) {
+      if (!FORMATIONS[f]) { delete row[f]; continue; }
+      row[f] = clamp(Math.round(Number(row[f]) || 0), 0, FORMATION_TRAIN.target);
+    }
+    s.formationMastery[gid] = row;
+  }
+}
+
 export function serialize(state) {
   const copy = { ...state };
   delete copy.__rng;
@@ -2955,6 +2985,7 @@ export function deserialize(json) {
   ensureAffinity(s);
   ensureTreasures(s);
   ensureDelegation(s);
+  ensureFormationLearning(s);
   s.delegationLog = Array.isArray(s.delegationLog) ? s.delegationLog : [];
   ricePriceOf(s);
   autoAdvisor(s);
@@ -2984,8 +3015,136 @@ export function ranking(state) {
 export function formationOf(general) {
   return general.formations && general.formations.length ? general.formations : ['eorin'];
 }
-export function formationOptions(gid, state = null) {
+
+/* ---------- 진형 전수 (같은 성의 스승 장수에게 배우기) ----------
+   · 제자만 행동력 1과 이번 달 행동을 쓴다(스승은 성에 있기만 하면 된다).
+   · 한 번에 25~36%만 오르므로 3~4번 훈련해야 100%가 된다.
+   · 100%가 되면 그 진형이 장수의 주력 진형에 영구히 붙는다. */
+export const FORMATION_TRAIN = { ap: 1, min: 25, max: 36, target: 100 };
+
+/* 이 장수가 전수로 익힌 진형(100% 달성분) */
+export function learnedFormationsOf(state, gid) {
+  const list = state && state.learnedFormations ? state.learnedFormations[gid] : null;
+  return (Array.isArray(list) ? list : []).filter((f) => FORMATIONS[f]);
+}
+
+/* 지금 쓸 수 있는 진형 — 원래 주력 + 전수로 익힌 진형 */
+export function formationsOf(state, gid) {
   const g = generalOf(state, gid);
-  return formationOf(g || {}).map((fid) => FORMATIONS[fid]).filter(Boolean);
+  return [...new Set([...formationOf(g || {}), ...learnedFormationsOf(state, gid)])].filter((f) => FORMATIONS[f]);
+}
+
+export function knowsFormation(state, gid, formId) {
+  return formationsOf(state, gid).includes(formId);
+}
+
+/* 숙련도 0~100 — 이미 익힌 진형은 100 */
+export function formationMasteryOf(state, gid, formId) {
+  if (knowsFormation(state, gid, formId)) return FORMATION_TRAIN.target;
+  const row = state && state.formationMastery ? state.formationMastery[gid] : null;
+  const v = row ? Number(row[formId]) : 0;
+  return clamp(Math.round(v || 0), 0, FORMATION_TRAIN.target - 1);
+}
+
+/* 이 성에서 그 진형을 아는 아군 스승 장수 */
+export function formationTeachers(state, cityId, formId, exclude = []) {
+  const fid = state.playerId;
+  return generalsInCity(state, cityId)
+    .filter((g) => g.faction === fid && !exclude.includes(g.id) && knowsFormation(state, g.id, formId))
+    .map((g) => generalOf(state, g.id))
+    .filter(Boolean);
+}
+
+/* 이 성의 장수들이 아는 진형 — 스승 이름과 함께 */
+export function cityFormationTeachers(state, cityId) {
+  const fid = state.playerId;
+  const rows = new Map();
+  for (const g of generalsInCity(state, cityId)) {
+    if (g.faction !== fid) continue;
+    const t = generalOf(state, g.id);
+    if (!t) continue;
+    for (const formId of formationsOf(state, g.id)) {
+      if (!rows.has(formId)) rows.set(formId, []);
+      rows.get(formId).push({ id: g.id, ko: t.ko });
+    }
+  }
+  return [...rows.entries()].map(([formId, teachers]) => ({
+    id: formId, ...FORMATIONS[formId], teachers,
+  })).sort((a, b) => {
+    // 기본 진형(어린)은 뒤로 — 배울 만한 진형부터 보이게
+    const rank = (id) => (id === 'eorin' ? 99 : Object.keys(FORMATIONS).indexOf(id));
+    return rank(a.id) - rank(b.id);
+  });
+}
+
+/* 제자가 이 성에서 배울 수 있는 진형 — 스승이 있고 제자가 아직 모르는 것 */
+export function learnableFormations(state, cityId, studentGid = null) {
+  const list = cityFormationTeachers(state, cityId).filter((row) => row.teachers.some((x) => x.id !== studentGid));
+  if (!studentGid) return list;
+  return list.filter((row) => !knowsFormation(state, studentGid, row.id));
+}
+
+/* 이 성에서 전수할 수 있는 진형 — 스승이 있고, 아직 배울 수 있는 제자(행동 전)가 있는 것 */
+export function cityLearnableFormations(state, cityId) {
+  const gens = generalsInCity(state, cityId).filter((g) => g.faction === state.playerId);
+  return cityFormationTeachers(state, cityId).filter((row) =>
+    gens.some((g) => !g.acted && !knowsFormation(state, g.id, row.id)));
+}
+
+/* 1회 전수 상승폭 — 제자의 통솔·지력과 스승의 통솔·지력이 좋을수록 크다(25~36%) */
+export function formationTrainGain(state, studentGid, teacherGid, rng = rngOf(state)) {
+  const s = generalOf(state, studentGid) || {};
+  const m = generalOf(state, teacherGid) || {};
+  const apt = ((s.lead || 0) + (s.int || 0)) / 2;
+  const mast = (m.lead || 0) * 0.6 + (m.int || 0) * 0.4;
+  const bonus = clamp(Math.round(((apt + mast) / 2 - 55) / 5), 0, 8);
+  return clamp(FORMATION_TRAIN.min + bonus + randInt(rng, 0, 3), FORMATION_TRAIN.min, FORMATION_TRAIN.max);
+}
+
+export function canLearnFormation(state, cityId, studentGid, formId) {
+  const c = state.cities[cityId];
+  if (!c || c.owner !== state.playerId) return { ok: false, why: '아군 성이 아닙니다.' };
+  const g = state.generals[studentGid];
+  const t = generalOf(state, studentGid);
+  if (!g || !t) return { ok: false, why: '장수를 찾을 수 없습니다.' };
+  if (g.city !== cityId || g.faction !== state.playerId || g.captive || g.dead) return { ok: false, why: '이 성에 있는 아군 장수가 아닙니다.' };
+  const form = FORMATIONS[formId];
+  if (!form) return { ok: false, why: '알 수 없는 진형입니다.' };
+  if (knowsFormation(state, studentGid, formId)) return { ok: false, why: `${t.ko}은(는) 이미 ${form.ko} 진형을 익혔습니다.` };
+  if (g.acted) return { ok: false, why: `${t.ko}은(는) 이번 달에 이미 움직였습니다.` };
+  if (state.actionPoints < FORMATION_TRAIN.ap) return { ok: false, why: '행동력이 부족합니다.' };
+  const teachers = formationTeachers(state, cityId, formId, [studentGid]);
+  if (!teachers.length) return { ok: false, why: `이 성에 ${form.ko} 진형을 아는 스승 장수가 없습니다.` };
+  return { ok: true, teachers };
+}
+
+/* 전수 훈련 실행 — 제자 행동력 1 · 행동 완료, 스승은 그대로 */
+export function trainFormation(state, cityId, studentGid, formId, teacherGid = null) {
+  const check = canLearnFormation(state, cityId, studentGid, formId);
+  if (!check.ok) return { ok: false, msg: check.why };
+  const teacher = check.teachers.find((x) => x.id === teacherGid) || check.teachers[0];
+  const student = generalOf(state, studentGid);
+  const form = FORMATIONS[formId];
+  const before = formationMasteryOf(state, studentGid, formId);
+  const gain = formationTrainGain(state, studentGid, teacher.id);
+  const after = clamp(before + gain, 0, FORMATION_TRAIN.target);
+  state.formationMastery[studentGid] = state.formationMastery[studentGid] || {};
+  state.formationMastery[studentGid][formId] = after;
+  const known = after >= FORMATION_TRAIN.target;
+  if (known) {
+    state.learnedFormations[studentGid] = [...new Set([...learnedFormationsOf(state, studentGid), formId])];
+  }
+  state.generals[studentGid].acted = true;
+  state.actionPoints -= FORMATION_TRAIN.ap;
+  const msg = known
+    ? `${teacher.ko}에게 ${withJosa(form.ko, '을')} 전수받아 ${withJosa(student.ko, '이')} ${form.ko} 진형을 익혔습니다! (숙련 ${before}% → 100%)`
+    : `${teacher.ko}에게 ${withJosa(form.ko, '을')} 전수받았습니다. ${student.ko}의 ${form.ko} 숙련 ${before}% → ${after}%`;
+  log(state, msg);
+  bumpRng(state);
+  return { ok: true, msg, gain, before, after, known, studentKo: student.ko, formKo: form.ko, formId, teacherKo: teacher.ko };
+}
+
+export function formationOptions(gid, state = null) {
+  return formationsOf(state, gid).map((fid) => FORMATIONS[fid]).filter(Boolean);
 }
 export { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_STAT_KO };

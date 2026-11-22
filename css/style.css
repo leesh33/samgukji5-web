@@ -1203,3 +1203,36 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .tactic-grid .tc-btn small { font-size: 8.5px; color: #9a8f70; }
 .tactic-grid .tc-btn:disabled { opacity: 0.4; }
 .bu-chaos { font-style: normal; font-size: 9px; color: #ffb15c; border: 1px solid #8a5a2a; border-radius: 2px; padding: 0 3px; margin-left: 4px; }
+
+/* ---------- 진형 전수 시트 ---------- */
+.learn-forms { margin: 8px 0 6px; }
+.learn-forms .pick-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.3; }
+.learn-forms .pick-chip small { font-size: 8.5px; color: #a2917a; letter-spacing: 0; }
+.learn-forms .pick-chip.on small { color: var(--gold-hi); }
+.learn-forms .pick-chip:disabled { opacity: 0.42; }
+.learn-info {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px; margin: 2px 0 8px; padding: 7px 9px;
+  border-radius: 3px; background: linear-gradient(180deg, #241b12, #171009); border: 1px solid #3d2c1c;
+  font-size: 10.5px; color: #cbbf9d; line-height: 1.6;
+}
+.learn-info b { color: var(--gold-hi); font-size: 12px; letter-spacing: 1px; }
+.learn-info span { flex: 1 1 100%; color: #a2917a; }
+.learn-info em { font-style: normal; font-size: 9.5px; color: #a8d18a; }
+.officer-row.learn { align-items: flex-start; }
+.officer-row.learn .or-stats span { white-space: nowrap; }
+.learn-bar { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+.learn-gauge { flex: 1; height: 4px; border-radius: 2px; background: #120c07; overflow: hidden; border: 1px solid #2a1f13; }
+.learn-gauge i { display: block; height: 100%; background: linear-gradient(90deg, #8a5a26, #ffd88f); }
+.learn-bar em { font-style: normal; font-size: 9px; color: #d9c9a8; }
+.learn-bar.full .learn-gauge i { background: linear-gradient(90deg, #5f8a36, #b9e28a); }
+.learn-bar.full em { color: #b9e28a; }
+
+/* 장수 상세 — 주력 진형 배지 */
+.gd-forms { display: flex; flex-wrap: wrap; gap: 4px; }
+.gd-form {
+  display: inline-flex; align-items: baseline; gap: 3px; font-size: 10px; color: #e8d8b6; padding: 1px 6px;
+  border-radius: 2px; background: linear-gradient(180deg, #2c2116, #1b130c); border: 1px solid #4a3623;
+}
+.gd-form.learned { border-color: #6d8f45; color: #d8ecbc; }
+.gd-form.learning { border-style: dashed; border-color: #7d5e2a; color: #d9c9a8; }
+.gd-form.learning em { font-style: normal; font-size: 9px; color: var(--gold-hi); }
