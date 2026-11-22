@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, SKILLS, ARMS } from '../js/data.js';
+import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, SKILLS, ARMS, CORE_FORMATIONS } from '../js/data.js';
 
 test('성 42곳 · id 유일 · 필수 거점 포함', () => {
   assert.equal(CITIES.length, 42);
@@ -60,14 +60,20 @@ test('장수 200명 이상 · 능력치 범위 · 진형/특기/병과 유효', 
   for (const n of added) assert.ok(names.includes(n), `${n} 포함`);
 });
 
-test('진형 9종: 공격/방어/기동/사거리 정의', () => {
+test('진형 11종(핵심 9종 + 안행·수진): 공격/방어/기동/사거리 정의', () => {
   const keys = Object.keys(FORMATIONS);
-  assert.equal(keys.length, 9);
+  assert.equal(keys.length, 11);
   for (const k of keys) {
     const f = FORMATIONS[k];
     assert.ok(f.atk > 0 && f.def > 0 && f.move > 0, k);
     assert.ok([1, 2].includes(f.range), k + ' 사거리');
   }
+  // 요청하신 핵심 9종은 모두 존재하고 상성표에 들어 있다
+  for (const ko of ['학익', '어린', '봉시', '방원', '장사', '언월', '추행', '구행', '형액']) {
+    assert.ok(keys.some((k) => FORMATIONS[k].ko === ko), ko + ' 진형');
+  }
+  assert.equal(CORE_FORMATIONS.length, 9);
+  for (const id of CORE_FORMATIONS) assert.ok(FORMATIONS[id], id);
   const atk = keys.map((k) => FORMATIONS[k].atk);
   const def = keys.map((k) => FORMATIONS[k].def);
   assert.ok(Math.max(...atk) !== Math.min(...atk), '공격 계수 차이');

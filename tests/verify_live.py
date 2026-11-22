@@ -157,6 +157,21 @@ with sync_playwright() as p:
     else:
         step("등용 목록(재야 없음)", True, "재야 장수 없음")
 
+
+    def clear_prisoners():
+        """승전 뒤 포로 처분 창이 뜨면 해방으로 정리한다(새 전투 흐름)"""
+        for _ in range(6):
+            if not page.locator('[data-act="prisoner-release"]').count():
+                break
+            try:
+                page.locator('[data-act="prisoner-release"]').first.click()
+                page.wait_for_timeout(350)
+            except Exception:
+                break
+        if page.locator('[data-act="prisoner-done"]').count():
+            page.click('[data-act="prisoner-done"]')
+            page.wait_for_timeout(700)
+
     # ---------- 출진 → 전술 전투 ----------
     page.click('[data-act="march"]')
     page.wait_for_timeout(400)
@@ -260,6 +275,7 @@ with sync_playwright() as p:
     if ended:
         page.click('[data-act="bt-close"]')
         page.wait_for_timeout(900)
+        clear_prisoners()
 
     # ---------- 턴 진행 ----------
     if page.locator("#scr-game").is_visible():
@@ -277,6 +293,7 @@ with sync_playwright() as p:
             if end_battle(max_rounds=40) and page.locator('[data-act="bt-close"]').count():
                 page.click('[data-act="bt-close"]')
                 page.wait_for_timeout(1100)
+                clear_prisoners()
             else:
                 break
         d1 = page.locator("#hud-date").inner_text()
@@ -296,6 +313,7 @@ with sync_playwright() as p:
                 if page.locator('[data-act="bt-close"]').count() and page.locator('[data-act="bt-close"]').is_visible():
                     page.click('[data-act="bt-close"]')
                     page.wait_for_timeout(700)
+                    clear_prisoners()
         step("연속 턴 진행", page.locator("#hud-date").inner_text() != d1, page.locator("#hud-date").inner_text())
         shot(page, "21-turns-later")
 

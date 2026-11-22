@@ -1,5 +1,6 @@
 /* UI — 화면 전환 · 지도 · 내정 · 전술전투 · 일기토 */
-import { CITIES, CITY_BY_ID, GENERAL_BY_ID, SCENARIOS, FORMATIONS, REGIONS, FACTION_COLORS, CUSTOM_COLORS, CUSTOM_HANJA, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS, SKILLS } from './data.js';
+import { CITIES, CITY_BY_ID, GENERAL_BY_ID, SCENARIOS, FORMATIONS, REGIONS, FACTION_COLORS, CUSTOM_COLORS, CUSTOM_HANJA, PORTRAIT_HATS, PORTRAIT_BEARDS, PORTRAIT_SKINS, SKILLS, FORMATION_GROUPS, CORE_FORMATIONS, formationGroup, formationRelation, formationCounterText } from './data.js';
+import { formationSVG, drawFormation, DIR_KO } from './formation-art.js';
 import * as E from './engine.js';
 import * as B from './battle.js';
 import { createDuel, duelRound, DUEL_ACTIONS } from './duel.js';
@@ -373,6 +374,7 @@ function afterGameInit() {
   mapView.resize();
   renderGame();
   autoSave();
+  if ((game.pendingPrisoners || []).length) setTimeout(openPrisonerSheet, 500);
 }
 
 function autoSave() {
@@ -554,7 +556,7 @@ function renderCityPanel(dir = 0) {
   const base = CITY_BY_ID[selectedCity];
   const mine = c.owner === game.playerId;
   const ownerName = c.owner ? fname(c.owner) : '재야';
-  const gens = mine ? E.generalsInCity(game, selectedCity) : Object.values(game.generals).filter((g) => g.city === selectedCity && g.faction === c.owner && !g.captive);
+  const gens = mine ? E.generalsInCity(game, selectedCity) : Object.values(game.generals).filter((g) => g.city === selectedCity && g.faction === c.owner && !g.captive && !g.dead);
   const genHTML = gens.slice(0, 12).map((g) => {
     const t = gd(g.id);
     return `<div class="gen-chip ${g.acted ? 'done' : ''}" title="${t.ko}">
@@ -762,6 +764,8 @@ function openMarchSheet(cityId, targetId = null) {
   pendingSetup = {
     cityId, targetId: targets[0], generals: gens.slice(0, 5).map((g) => g.id),
     ratio: 1,
+    forms: {},
+    focus: gens.length ? gens[0].id : null,
   };
   openSheet(`${CITY_BY_ID[cityId].ko} 출진`, marchSheetHTML());
 }
@@ -789,8 +793,54 @@ function marchSheetHTML() {
       const on = p.generals.includes(g.id);
       return `<button class="pick-chip ${on ? 'on' : ''}" data-act="march-gen" data-officer="${g.id}">${t.ko} <b style="color:#9c9270">무${t.war}</b></button>`;
     }).join('')}</div>
-    <button class="btn big" data-act="march-go" style="margin-top:14px" ${p.generals.length ? '' : 'disabled'}>${CITY_BY_ID[p.targetId].ko}으로 출진 (${p.generals.length}부대)</button>
-    <p class="note">전투에서는 부대별 이동·공격·계략과 일기토를 지휘합니다. 수비측은 성곽에서 시작합니다.</p>`;
+    ${formationPickerHTML()}
+    <button class="btn big" data-act="march-go" style="margin-top:12px" ${p.generals.length ? '' : 'disabled'}>${CITY_BY_ID[p.targetId].ko}으로 출진 (${p.generals.length}부대)</button>
+    <p class="note">전투에서는 부대별 이동·공격·계략과 일기토를 지휘합니다. 정면보다 측면(×1.25)·배후(×1.5)를 노리세요.</p>`;
+}
+
+/* 출진 전 진형 고르기 — 장수별 대형 미리보기 + 상성 */
+function formOfPick(gid) {
+  const t = gd(gid);
+  const own = (t.formations && t.formations.length ? t.formations : ['eorin']).filter((f) => FORMATIONS[f]);
+  const picked = pendingSetup.forms[gid];
+  return picked && own.includes(picked) ? picked : own[0];
+}
+
+function formationPickerHTML() {
+  const p = pendingSetup;
+  if (!p.generals.length) return '';
+  const rows = p.generals.map((gid) => {
+    const t = gd(gid);
+    const own = (t.formations || ['eorin']).filter((f) => FORMATIONS[f]);
+    const cur = formOfPick(gid);
+    return `<div class="fp-row">
+      <span class="fp-name">${t.ko}</span>
+      <div class="fp-chips">${own.map((fid) => {
+        const f = FORMATIONS[fid];
+        return `<button class="fp-chip ${fid === cur ? 'on' : ''}" data-act="march-form" data-officer="${gid}" data-form="${fid}" aria-label="${t.ko} ${f.ko}">
+          ${formationSVG(fid, 'E', 22)}<span>${f.ko}</span></button>`;
+      }).join('')}</div>
+    </div>`;
+  }).join('');
+  const focus = p.focus && p.generals.includes(p.focus) ? p.focus : p.generals[0];
+  const cur = FORMATIONS[formOfPick(focus)] || FORMATIONS.eorin;
+  const grp = formationGroup(cur.id);
+  const cols = Object.values(FORMATION_GROUPS).map((g) => `<div class="fl-col">
+      <b class="fg-${g.id}">${g.ko}진</b>
+      ${g.forms.filter((f) => FORMATIONS[f]).map((f) => `<span class="fl-item">${formationSVG(f, 'E', 16)}${FORMATIONS[f].ko}</span>`).join('')}
+    </div>`).join('');
+  return `<div class="form-pick-box">
+    <p class="note" style="margin:12px 0 4px">진형 — 장수마다 대형과 상성이 다릅니다</p>
+    ${rows}
+    <div class="fp-detail">
+      <b>${cur.ko}</b> <small>${cur.hanja}</small>
+      ${grp ? `<em class="fg-${grp.id}">${grp.ko}진</em>` : ''}
+      <span>${cur.desc}</span>
+      <span class="fp-ct">${formationCounterText(cur.id)}</span>
+    </div>
+    <div class="form-legend">${cols}</div>
+    <p class="note" style="margin-top:6px">돌격 → 포위 → 방어 → 돌격 순환 · 유리 ×1.25 · 불리 ×0.85</p>
+  </div>`;
 }
 
 function openAttackEnemySheet(enemyCityId) {
@@ -813,6 +863,7 @@ function startPlayerBattle() {
     attackerFaction: game.playerId, defenderFaction: target.owner,
     atkGenerals: p.generals, defGenerals: E.generalsInCity(game, p.targetId).map((g) => g.id),
     atkTroops: troops, defTroops: target.troops, defBonus: target.def,
+    formations: Object.fromEntries(p.generals.map((gid) => [gid, formOfPick(gid)])),
   };
   closeSheet();
   beginBattle(setup, 'atk');
@@ -834,7 +885,7 @@ function resizeBattleCanvas() {
   const c = $('#battle-canvas');
   if (!c) return;
   const wrap = c.parentElement;
-  const cssW = Math.max(200, wrap.clientWidth - 16);
+  const cssW = Math.max(200, wrap.clientWidth - 2);
   const dpr = Math.min(2.5, window.devicePixelRatio || 1);
   const tile = Math.floor(cssW / B.BW);
   c.style.width = (tile * B.BW) + 'px';
@@ -901,58 +952,132 @@ function drawBattle() {
 
   for (const u of battle.units) {
     if (!u.alive) continue;
-    const x = u.x * tile, y = u.y * tile;
-    const isPlayer = u.side === battle.playerSide;
-    const col = isPlayer ? '#2f7fd0' : '#c0392b';
-    const col2 = isPlayer ? '#7ec4ff' : '#ff9a8a';
-    ctx.fillStyle = 'rgba(0,0,0,0.45)';
-    ctx.fillRect(x + 3, y + tile - 8, tile - 6, 4);
-    ctx.fillStyle = col;
-    ctx.fillRect(x + 2, y + 4, tile - 4, tile - 12);
-    ctx.fillStyle = col2;
-    ctx.fillRect(x + 2, y + 4, tile - 4, 3);
-    // 병력 바
-    const ratio = Math.max(0, Math.min(1, u.troops / 8000));
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x + 3, y + tile - 7, tile - 6, 3);
-    ctx.fillStyle = ratio > 0.4 ? '#8ed18e' : '#e0a05a'; ctx.fillRect(x + 3, y + tile - 7, (tile - 6) * ratio, 3);
-    // 이름
-    ctx.fillStyle = '#0b0b0b';
-    const fs = Math.max(7, Math.min(10, Math.floor(tile * 0.3)));
-    ctx.font = `700 ${fs}px "Galmuri11", system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-    ctx.strokeText(u.name, x + tile / 2, y + tile * 0.4);
-    ctx.fillStyle = '#f4ecd2';
-    ctx.fillText(u.name, x + tile / 2, y + tile * 0.4);
-    ctx.font = `400 ${Math.max(6, fs - 2)}px "Galmuri11", system-ui, sans-serif`;
-    ctx.strokeText(fmt(u.troops), x + tile / 2, y + tile * 0.64);
-    ctx.fillStyle = '#cfe4ff';
-    ctx.fillText(fmt(u.troops), x + tile / 2, y + tile * 0.64);
-    if (battleSel === u) {
-      ctx.strokeStyle = '#ffe066';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x + 1.5, y + 1.5, tile - 3, tile - 3);
-    }
-    if (u.acted) {
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.fillRect(x + 2, y + 4, tile - 4, tile - 12);
-    }
+    drawBattleUnit(ctx, u, tile, u === battleSel);
   }
-  // 진형 표시
-  if (battleSel) {
-    ctx.fillStyle = '#ffe9a8';
-    ctx.font = `700 10px "Galmuri11", system-ui, sans-serif`;
+  // 공격 예상(정면/측면/배후 · 진형 상성) 힌트
+  if (battleSel && battleMode === 'attack') {
+    for (const t of atkTargets) drawAttackHint(ctx, t, tile);
+  }
+}
+
+/* 진영 색 — 아군은 청, 적은 홍 */
+function sidePalette(side) {
+  const isPlayer = battle && side === battle.playerSide;
+  return isPlayer
+    ? { plate: 'rgba(36,88,160,0.34)', edge: 'rgba(126,196,255,0.78)', dot: '#a9cdf4', shade: '#0e2a46', tip: '#ffe066', text: '#d6eaff' }
+    : { plate: 'rgba(150,44,32,0.34)', edge: 'rgba(255,154,138,0.78)', dot: '#f0b3a3', shade: '#3c1310', tip: '#ffe066', text: '#ffd5c9' };
+}
+
+function pixelText(ctx, text, x, y, size, fill, align = 'center') {
+  ctx.font = `700 ${size}px "Galmuri11", system-ui, sans-serif`;
+  ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 2.6; ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = fill; ctx.fillText(text, x, y);
+}
+
+/* 부대 토큰 — 진형 대형 도트 + 바라보는 방향 + 이름·병력 */
+function drawBattleUnit(ctx, u, tile, selected) {
+  const x = u.x * tile, y = u.y * tile;
+  const pal = sidePalette(u.side);
+  const dir = u.dir || 'E';
+  // 바닥판 — 진영 색 테두리만 남겨 진형 그림이 또렷하게 보이게
+  ctx.fillStyle = 'rgba(7,12,20,0.62)';
+  ctx.fillRect(x + 1, y + 1, tile - 2, tile - 2);
+  ctx.strokeStyle = selected ? '#ffe066' : pal.edge;
+  ctx.lineWidth = selected ? 2 : 1;
+  ctx.strokeRect(x + 1.5, y + 1.5, tile - 3, tile - 3);
+
+  // 바라보는 쪽(정면)에 세운 창벽
+  ctx.fillStyle = '#ffe06a';
+  if (dir === 'E') ctx.fillRect(x + tile - 3, y + 3, 2, tile - 6);
+  else if (dir === 'W') ctx.fillRect(x + 1, y + 3, 2, tile - 6);
+  else if (dir === 'N') ctx.fillRect(x + 3, y + 1, tile - 6, 2);
+  else ctx.fillRect(x + 3, y + tile - 3, tile - 6, 2);
+
+  // 진형 대형 — 타일 위쪽
+  drawFormation(ctx, u.formation, x + tile / 2, y + tile * 0.27, tile * 0.60, dir, pal);
+
+  // 아래 띠: 진형 색 띠 + 이름 + 병력
+  const bandH = Math.max(14, Math.round(tile * 0.43));
+  const by = y + tile - bandH;
+  ctx.fillStyle = 'rgba(4,8,14,0.9)';
+  ctx.fillRect(x + 1.5, by, tile - 3, bandH - 1);
+  const ratio = Math.max(0, Math.min(1, u.troops / 4000));
+  ctx.fillStyle = ratio > 0.4 ? '#8ed18e' : '#e0a05a';
+  ctx.fillRect(x + 1.5, by, (tile - 3) * ratio, 1);
+  pixelText(ctx, u.name, x + tile / 2, by + bandH * 0.38, Math.max(7, Math.min(9.5, tile * 0.24)), '#f8f0d8', 'center');
+  pixelText(ctx, fmt(u.troops), x + tile / 2, by + bandH * 0.80, Math.max(6, Math.min(7.5, tile * 0.2)), pal.text, 'center');
+
+  if (u.acted) {
+    ctx.fillStyle = 'rgba(4,8,14,0.45)';
+    ctx.fillRect(x + 2, y + 2, tile - 4, tile - 4);
+  }
+}
+
+/* 공격 타겟 위에 정면/측면/배후와 배율을 띄운다 */
+function drawAttackHint(ctx, t, tile) {
+  const e = B.attackEdge(battleSel, t);
+  const label = `${B.SIDE_KO[e.side]}${e.mult !== 1 ? ' ×' + e.mult.toFixed(2) : ''}`;
+  const extra = e.relation === 'advantage' ? '진형↑' : e.relation === 'disadvantage' ? '진형↓' : '';
+  const cx = t.x * tile + tile / 2;
+  const top = t.y * tile;
+  ctx.font = `700 7px "Galmuri11", system-ui, sans-serif`;
+  const w = Math.max(ctx.measureText(label).width, ctx.measureText(extra).width) + 6;
+  const h = extra ? 15 : 9;
+  const bx = Math.max(1, Math.min(battle.w * tile - w - 1, cx - w / 2));
+  const by = top > h + 1 ? top - h - 1 : top + 1;
+  const tone = e.side === 'rear' ? '#ff6a4d' : e.side === 'flank' ? '#ffb15c' : '#9fb6c8';
+  ctx.fillStyle = 'rgba(8,11,18,0.92)';
+  ctx.fillRect(bx, by, w, h);
+  ctx.strokeStyle = tone; ctx.lineWidth = 1;
+  ctx.strokeRect(bx + 0.5, by + 0.5, w - 1, h - 1);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = tone;
+  ctx.fillText(label, bx + w / 2, by + (extra ? 5 : h / 2));
+  if (extra) {
+    ctx.fillStyle = e.relation === 'advantage' ? '#8ed18e' : '#e08a7a';
+    ctx.fillText(extra, bx + w / 2, by + 11);
   }
 }
 
 function unitCardHTML(u, selected) {
   const t = gd(u.gid);
-  return `<button class="pick-chip ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" style="opacity:${u.acted ? 0.5 : 1};padding:5px 7px">
-    <span style="display:block;white-space:nowrap">${u.name}</span>
-    <b style="font-size:10px;color:#9fd0a0;white-space:nowrap">${fmt(u.troops)}</b>
-    <span style="font-size:9px;color:#b8ab84;white-space:nowrap">사기 ${Math.round(u.morale)}</span>
+  const isPlayer = u.side === battle.playerSide;
+  return `<button class="pick-chip bt-card ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}">
+    ${formationSVG(u.formation, u.dir || 'E', 20, isPlayer ? {} : { body: '#f0b3a3', shade: '#3c1310' })}
+    <span class="bc-main">
+      <span class="bc-name">${u.name}</span>
+      <b class="bc-troop">${fmt(u.troops)}</b>
+      <span class="bc-morale">사기 ${Math.round(u.morale)}</span>
+    </span>
   </button>`;
+}
+
+/* 선택한 부대 — 진형 대형 미리보기와 상성·방향 안내 */
+function unitInfoHTML(u) {
+  const f = B.formOf(u);
+  const grp = formationGroup(u.formation);
+  const rel = formationCounterText(u.formation);
+  const dirKo = DIR_KO[u.dir || 'E'] || '동';
+  return `<div class="bt-unitinfo">
+    ${formationSVG(u.formation, u.dir || 'E', 34)}
+    <div class="bu-main">
+      <div class="bu-name"><b>${u.name}</b> <span>${fmt(u.troops)} · 사기 ${Math.round(u.morale)}</span>${u.acted ? ' <i class="bu-done">행동 완료</i>' : ''}</div>
+      <div class="bu-form">${f.ko}<small>(${f.hanja})</small> <em class="fg-${grp ? grp.id : 'none'}">${grp ? grp.ko + '진' : ''}</em> · ${dirKo}쪽을 바라봄</div>
+      <div class="bu-ct">${rel}</div>
+    </div>
+  </div>`;
+}
+
+/* 하단 전술 안내 — 방향 배율과 진형 상성 순환 */
+function battleLegendHTML() {
+  return `<div class="bt-legend-row">
+    <span class="lg-front">정면 ×1.00</span> <span class="lg-flank">측면 ×1.25</span> <span class="lg-rear">배후 ×1.50</span>
+    <span class="lg-sep">|</span>
+    <span class="lg-charge">돌격</span>→<span class="lg-pincer">포위</span>→<span class="lg-guard">방어</span>→<span class="lg-charge">돌격</span>
+    <small>유리 ×1.25 · 불리 ×0.85</small>
+  </div>`;
 }
 
 function renderBattle() {
@@ -969,12 +1094,14 @@ function renderBattle() {
   drawBattle();
 
   const mine = battle.units.filter((u) => u.side === my && u.alive);
-  const info = battleSel
-    ? `<b>${battleSel.name}</b> ${fmt(battleSel.troops)} · 사기 ${Math.round(battleSel.morale)} · ${B.formOf(battleSel).ko}${battleSel.acted ? ' · 완료' : ''}`
-    : '';
+  const info = battleSel ? unitInfoHTML(battleSel) : '';
   $('#bt-info').innerHTML = info;
+  $('#bt-legend').innerHTML = battleLegendHTML();
 
-  $('#bt-log').innerHTML = battle.log.slice(-40).map((l) => `<div>${l}</div>`).join('');
+  $('#bt-log').innerHTML = battle.log.slice(-40).map((l) => {
+    const cls = /\[배후 기습!\]/.test(l) ? 'hi' : /\[측면 공격!\]|\[진형 유리!\]/.test(l) ? 'hi' : /\[진형 불리\]|궤멸/.test(l) ? 'bad' : '';
+    return `<div class="${cls}">${l}</div>`;
+  }).join('');
   $('#bt-log').scrollTop = $('#bt-log').scrollHeight;
 
   const canAct = !battleBusy && !battle.over && battle.phase === my && battleSel && !battleSel.acted && battleSel.side === my;
@@ -1126,11 +1253,11 @@ function finishBattle() {
   const summary = iAmAttacker
     ? `아군 손실 ${fmt(res.atkLoss)} · 적 손실 ${fmt(res.defLoss)}`
     : `아군 손실 ${fmt(res.defLoss)} · 적 손실 ${fmt(res.atkLoss)}`;
-  const captured = res.capturedGenerals.map((g) => gd(g).ko).join(', ');
   if (win) sfx.win(); else sfx.lose();
 
-  // 엔진 반영
-  E.applyBattleResult(game, res);
+  // 엔진 반영 (포로는 여기서 붙잡혀 처분 대기 상태가 된다)
+  const applied = E.applyBattleResult(game, res);
+  const prisoners = (applied.prisoners || []).map((p) => gd(p.gid).ko).join(', ');
   autoSave();
 
   openSheet(win ? '승전' : '패전', `
@@ -1138,15 +1265,25 @@ function finishBattle() {
       <div style="font-size:30px;letter-spacing:4px;color:${win ? '#f5d97a' : '#e08a7a'}">${win ? '승리' : '패배'}</div>
       <p style="margin:8px 0;color:#cbbf9d">${battle.over === 'atk' ? CITY_BY_ID[battle.toCityId].ko + ' 함락' : CITY_BY_ID[battle.toCityId].ko + ' 공략 실패'}</p>
     </div>
-    <p class="note">${summary} · ${res.rounds}라운드${captured ? '<br>사로잡은 장수: ' + captured : ''}</p>
-    ${win && res.winner === 'attacker' ? `<p class="note">${CITY_BY_ID[battle.toCityId].ko}이(가) 우리 것이 되었습니다.</p>` : ''}
-    <button class="btn big" data-act="bt-close" style="margin-top:12px">계속</button>
+    <p class="note">${summary} · ${res.rounds}라운드${prisoners ? '<br>사로잡은 장수: <b style="color:#f5d97a">' + prisoners + '</b> — 처분을 기다립니다' : ''}</p>
+    ${win && res.winner === 'attacker' ? `<p class="note">${E.withJosa(CITY_BY_ID[battle.toCityId].ko, '이')} 우리 것이 되었습니다.</p>` : ''}
+    <button class="btn big" data-act="bt-close" style="margin-top:12px">${prisoners ? '포로 처분으로 ▶' : '계속'}</button>
   `);
 }
 
 function closeBattle() {
   closeSheet();
   battle = null; battleSel = null; battleMode = null; battleBusy = false;
+  // 잡힌 장수가 있으면 처분 화면을 먼저 연다
+  if ((game.pendingPrisoners || []).length) {
+    show('scr-game');
+    openPrisonerSheet();
+    return;
+  }
+  continueAfterBattle();
+}
+
+function continueAfterBattle() {
   show('scr-game');
   const pending = game.pendingBattles || [];
   if (pending.length) {
@@ -1166,6 +1303,91 @@ function closeBattle() {
   renderGame();
   autoSave();
 }
+
+/* ---------- 승전 후 포로 처분 (등용 · 해방 · 참수) ---------- */
+let prisonerNotes = [];
+let execConfirm = null;
+
+function openPrisonerSheet() {
+  const list = game.pendingPrisoners || [];
+  if (!list.length) {
+    prisonerSheetOpen = true;
+    openSheet('포로 처분', `${prisonerNotesHTML()}
+      <p class="note">모든 포로를 처분했습니다.</p>
+      <button class="btn big" data-act="prisoner-done" style="margin-top:10px">마무리</button>`);
+    return;
+  }
+  prisonerSheetOpen = true;
+  openSheet(`포로 처분 · ${list.length}명`, prisonerSheetHTML());
+}
+
+function prisonerNotesHTML() {
+  if (!prisonerNotes.length) return '';
+  return `<div class="pw-notes">${prisonerNotes.map((n) => `<div>${n}</div>`).join('')}</div>`;
+}
+
+function prisonerSheetHTML() {
+  const list = game.pendingPrisoners || [];
+  const f = game.factions[game.playerId];
+  const lord = gd(f.lord);
+  return `${prisonerNotesHTML()}
+    <p class="note">${f.name}군 승전 — 잡힌 장수 <b>${list.length}</b>명. 등용 판정은 군주 ${lord.ko}의 매력 <b>${lord.cha}</b> · 명성 <b>${Math.round(f.fame)}</b>로 겨룹니다.</p>
+    ${list.map(prisonerRowHTML).join('')}
+    <p class="note" style="margin-top:8px">해방하면 명성 +5 · 참수하면 그 장수는 다시 나타나지 않고 명성이 조금 깎입니다.</p>`;
+}
+
+function prisonerRowHTML(rec) {
+  const t = gd(rec.gid);
+  const g = game.generals[rec.gid] || {};
+  const chance = Math.round(E.recruitChance(game, rec.gid) * 100);
+  const confirm = execConfirm === rec.gid;
+  return `<div class="pw-row">
+    <img src="${portraitURL(rec.gid, t, 46, colorOf(rec.faction))}" alt="" />
+    <div class="pw-main">
+      <div class="pw-name">${t.ko} <small>${t.hanja || ''}</small>${rec.isLord ? ' <i class="pw-lord">군주</i>' : ''}</div>
+      <div class="pw-stats">통 <b>${t.lead}</b> 무 <b>${t.war}</b> 지 <b>${t.int}</b> 매 <b>${t.cha}</b></div>
+      <div class="pw-meta">${fname(rec.faction)} 소속 · 충성 ${Math.round(g.loyalty || 0)} · 등용 성공률 <b>${chance}%</b>${rec.tried ? ' · <i style="color:#e08a7a">등용 거절</i>' : ''}</div>
+    </div>
+    <div class="pw-btns">
+      <button class="pw-btn rec" data-act="prisoner-recruit" data-gid="${rec.gid}" ${rec.tried ? 'disabled' : ''}>등용</button>
+      <button class="pw-btn rel" data-act="prisoner-release" data-gid="${rec.gid}">해방</button>
+      <button class="pw-btn exec ${confirm ? 'on' : ''}" data-act="prisoner-execute" data-gid="${rec.gid}">${confirm ? '참수 확정' : '참수'}</button>
+    </div>
+  </div>`;
+}
+
+function prisonerAct(kind, gid) {
+  if (kind === 'execute' && execConfirm !== gid) {
+    execConfirm = gid;
+    sfx.select();
+    openPrisonerSheet();
+    return;
+  }
+  let r = null;
+  if (kind === 'recruit') r = E.recruitPrisoner(game, gid, Math.random);
+  else if (kind === 'release') r = E.releasePrisoner(game, gid);
+  else if (kind === 'execute') r = E.executePrisoner(game, gid);
+  if (!r) return;
+  if (kind === 'recruit' && r.accepted === false) sfx.fail();
+  else if (kind === 'execute') sfx.lose();
+  else sfx.win();
+  prisonerNotes.unshift(r.msg);
+  execConfirm = null;
+  autoSave();
+  renderGame();
+  openPrisonerSheet();
+}
+
+function closePrisonerSheet() {
+  prisonerNotes = [];
+  execConfirm = null;
+  prisonerSheetOpen = false;
+  closeSheet();
+  continueAfterBattle();
+}
+
+/* 포로 창을 X로 닫아도 전투 흐름은 이어진다(남은 포로는 다음에 다시 묻는다) */
+let prisonerSheetOpen = false;
 
 /* ---------- 일기토 ---------- */
 function openDuel(target) {
@@ -1329,6 +1551,7 @@ function doLoad(slot) {
     renderGame();
     sfx.ok();
     toast('기록을 불러왔습니다.', 1400);
+    if ((game.pendingPrisoners || []).length) setTimeout(openPrisonerSheet, 500);
   } catch (e) {
     toast('불러오기 실패: ' + e.message);
     sfx.fail();
@@ -1473,8 +1696,15 @@ function onClick(e) {
       $('#sheet-body').innerHTML = marchSheetHTML();
       break;
     }
+    case 'march-form': {
+      pendingSetup.forms[el.dataset.officer] = el.dataset.form;
+      pendingSetup.focus = el.dataset.officer;
+      $('#sheet-body').innerHTML = marchSheetHTML();
+      sfx.click();
+      break;
+    }
     case 'march-go': startPlayerBattle(); break;
-    case 'sheet-close': closeSheet(); break;
+    case 'sheet-close': if (prisonerSheetOpen) closePrisonerSheet(); else closeSheet(); break;
     case 'menu': openMenu(); break;
     case 'open-load': openLoad(); break;
     case 'open-rank': openRank(); break;
@@ -1542,6 +1772,10 @@ function onClick(e) {
     case 'bt-all': allOut(); break;
     case 'bt-retreat': retreat(); break;
     case 'bt-close': closeBattle(); break;
+    case 'prisoner-recruit': prisonerAct('recruit', el.dataset.gid); break;
+    case 'prisoner-release': prisonerAct('release', el.dataset.gid); break;
+    case 'prisoner-execute': prisonerAct('execute', el.dataset.gid); break;
+    case 'prisoner-done': closePrisonerSheet(); break;
     default: break;
   }
 }

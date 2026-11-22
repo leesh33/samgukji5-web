@@ -1,7 +1,7 @@
 /* 도트삼국 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS } from './data.js';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -61,8 +61,9 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     customGenerals: {},
     log: [],
     pendingBattles: [],
+    pendingPrisoners: [],
     gameOver: null,
-    stats: { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0 },
+    stats: { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0, executed: 0, released: 0 },
   };
 
   // 신군주가 만든 장수는 상태 안에 함께 보관한다(저장·복원·이어하기에 그대로 따라간다)
@@ -85,7 +86,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
   }
 
   for (const g of allGeneralsOf(state)) {
-    state.generals[g.id] = { id: g.id, faction: null, city: null, loyalty: 0, acted: false, captive: false, hidden: false };
+    state.generals[g.id] = { id: g.id, faction: null, city: null, loyalty: 0, acted: false, captive: false, dead: false, hidden: false };
   }
 
   // 신군주는 기존 소세력의 성 하나를 떼어내 시작한다
@@ -159,9 +160,9 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
       g.loyalty = 0;
     }
   }
-  // 어디에도 속하지 않은 장수는 재야로 낙양에
+  // 어디에도 속하지 않은 장수는 재야로 낙양에 (죽은 장수 제외)
   for (const g of Object.values(state.generals)) {
-    if (!g.faction && !g.city) { g.city = 'luoyang'; }
+    if (!g.dead && !g.faction && !g.city) { g.city = 'luoyang'; }
   }
 
   state.maxActionPoints = calcActionPoints(state, factionId);
@@ -292,13 +293,13 @@ export const factionOf = (state, id) => state.factions[id];
 export const cityName = (id) => (CITY_BY_ID[id] ? CITY_BY_ID[id].ko : id);
 
 export function generalsInCity(state, cityId) {
-  return Object.values(state.generals).filter((g) => g.city === cityId && g.faction && !g.captive);
+  return Object.values(state.generals).filter((g) => g.city === cityId && g.faction && !g.captive && !g.dead);
 }
 export function freeGeneralsInCity(state, cityId) {
-  return Object.values(state.generals).filter((g) => g.city === cityId && !g.faction && !g.captive);
+  return Object.values(state.generals).filter((g) => g.city === cityId && !g.faction && !g.captive && !g.dead);
 }
 export function factionGenerals(state, fid) {
-  return Object.values(state.generals).filter((g) => g.faction === fid && !g.captive);
+  return Object.values(state.generals).filter((g) => g.faction === fid && !g.captive && !g.dead);
 }
 export function factionCities(state, fid) {
   return Object.values(state.cities).filter((c) => c.owner === fid);
@@ -400,39 +401,39 @@ export function runCommand(state, type, opts) {
       gain = 2 + Math.floor(t.pol / 26) + randInt(rng, 0, 2);
       if (t.skill === 'indeok') gain += 1;
       c.agri = clamp(c.agri + gain, 0, 100);
-      msg = `${t.ko}이(가) ${cityName(c.id)}의 농업을 ${gain} 올렸습니다. (농업 ${c.agri})`;
+      msg = `${withJosa(t.ko, '이')} ${cityName(c.id)}의 농업을 ${gain} 올렸습니다. (농업 ${c.agri})`;
       break;
     }
     case 'comm': {
       gain = 2 + Math.floor(t.pol / 26) + randInt(rng, 0, 2);
       c.comm = clamp(c.comm + gain, 0, 100);
-      msg = `${t.ko}이(가) ${cityName(c.id)}의 상업을 ${gain} 올렸습니다. (상업 ${c.comm})`;
+      msg = `${withJosa(t.ko, '이')} ${cityName(c.id)}의 상업을 ${gain} 올렸습니다. (상업 ${c.comm})`;
       break;
     }
     case 'order': {
       gain = 3 + Math.floor(t.pol / 22) + randInt(rng, 0, 2);
       c.order = clamp(c.order + gain, 0, 100);
       c.def = clamp(c.def + 1, 20, 99);
-      msg = `${t.ko}이(가) 치안을 ${gain} 올렸습니다. (치안 ${c.order})`;
+      msg = `${withJosa(t.ko, '이')} 치안을 ${gain} 올렸습니다. (치안 ${c.order})`;
       break;
     }
     case 'water': {
       gain = 3 + Math.floor(t.int / 22) + randInt(rng, 0, 2);
       c.water = clamp(c.water + gain, 0, 100);
-      msg = `${t.ko}이(가) 수리 시설을 정비했습니다. (수리 ${c.water})`;
+      msg = `${withJosa(t.ko, '이')} 수리 시설을 정비했습니다. (수리 ${c.water})`;
       break;
     }
     case 'draft': {
       const add = 900 + Math.floor(t.lead * 4);
       c.gold -= 250; c.food -= 400;
       c.troops += add; c.order = clamp(c.order - 3, 0, 100); c.train = clamp(c.train - 6, 10, 100);
-      msg = `${t.ko}이(가) 병사 ${add.toLocaleString()}명을 모았습니다. (병력 ${c.troops.toLocaleString()})`;
+      msg = `${withJosa(t.ko, '이')} 병사 ${add.toLocaleString()}명을 모았습니다. (병력 ${c.troops.toLocaleString()})`;
       break;
     }
     case 'train': {
       gain = 4 + Math.floor(t.lead / 18);
       c.train = clamp(c.train + gain, 0, 100);
-      msg = `${t.ko}이(가) 부대를 훈련했습니다. (훈련 ${c.train})`;
+      msg = `${withJosa(t.ko, '이')} 부대를 훈련했습니다. (훈련 ${c.train})`;
       break;
     }
     case 'search': {
@@ -440,13 +441,13 @@ export function runCommand(state, type, opts) {
       if (r < 0.35) {
         const free = freeGeneralsInCity(state, c.id);
         if (free.length) msg = `${t.ko}의 탐색으로 ${cityName(c.id)}에서 인재를 찾았습니다: ${generalOf(state, free[0].id).ko}`;
-        else { c.gold += 200; msg = `${t.ko}이(가) 숨은 재물 200금을 찾았습니다.`; }
+        else { c.gold += 200; msg = `${withJosa(t.ko, '이')} 숨은 재물 200금을 찾았습니다.`; }
       } else if (r < 0.7) {
         const f = 400 + randInt(rng, 0, 400);
-        c.food += f; msg = `${t.ko}이(가) 곡물 ${f}를 확보했습니다.`;
+        c.food += f; msg = `${withJosa(t.ko, '이')} 곡물 ${f}를 확보했습니다.`;
       } else if (r < 0.9) {
         const gg = 150 + randInt(rng, 0, 200);
-        c.gold += gg; msg = `${t.ko}이(가) 금 ${gg}을 얻었습니다.`;
+        c.gold += gg; msg = `${withJosa(t.ko, '이')} 금 ${gg}을 얻었습니다.`;
       } else {
         msg = `탐색했지만 아무것도 얻지 못했습니다.`;
       }
@@ -465,7 +466,7 @@ export function runCommand(state, type, opts) {
         state.stats.recruited++;
         f.fame = clamp(f.fame + 2, 0, 100);
         gain = 1;
-        msg = `${tg.ko}이(가) ${t.ko}의 설득에 응해 부하가 되었습니다! (충성 ${target.loyalty})`;
+        msg = `${withJosa(tg.ko, '이')} ${t.ko}의 설득에 응해 부하가 되었습니다! (충성 ${target.loyalty})`;
       } else {
         msg = `${tg.ko}은(는) 고개를 저었습니다. (등용 실패)`;
         target.loyalty = 0;
@@ -631,7 +632,7 @@ function aiEconomy(state, fid, rng) {
       if (rng() < clamp(0.2 + t.cha / 400, 0.05, 0.6)) {
         const g = state.generals[free[0].id];
         g.faction = fid; g.loyalty = 70;
-        log(state, `${f.name}군이 ${c.ko}에서 ${tg.ko}을(를) 등용했습니다.`);
+        log(state, `${f.name}군이 ${c.ko}에서 ${withJosa(tg.ko, '을')} 등용했습니다.`);
         break;
       }
     }
@@ -654,7 +655,7 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
     toC.order = clamp(toC.order - 15, 10, 100);
     fromC.troops = Math.max(500, Math.round(fromC.troops * 0.45));
     moveGeneralsOnCapture(state, to, defFid, atkFid, rng);
-    log(state, `${state.factions[atkFid] ? state.factions[atkFid].name : '?'}군이 ${cityName(to)}을(를) 함락했습니다.`);
+    log(state, `${state.factions[atkFid] ? state.factions[atkFid].name : '?'}군이 ${withJosa(cityName(to), '을')} 함락했습니다.`);
     if (defFid) bumpFame(state, defFid, -3);
     bumpFame(state, atkFid, 5);
   } else {
@@ -672,23 +673,157 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
 }
 
 export function moveGeneralsOnCapture(state, cityId, defFid, atkFid, rng) {
-  const defGens = Object.values(state.generals).filter((g) => g.city === cityId && g.faction === defFid);
+  // 포로로 잡혀 있는 장수는 그 자리에 묶인다
+  const defGens = Object.values(state.generals).filter((g) => g.city === cityId && g.faction === defFid && !g.captive && !g.dead);
   const refuge = defFid ? factionCities(state, defFid).filter((c) => c.id !== cityId) : [];
   for (const g of defGens) {
     const r = rng();
     if (r < 0.18 && atkFid !== state.playerId) {
       // AI가 포로를 거두지 않음 → 재야로
       g.faction = null; g.city = cityId; g.loyalty = 0;
-    } else if (r < 0.3 && atkFid === state.playerId) {
-      g.faction = state.playerId; g.loyalty = 45; g.city = cityId;
-      state.stats.captured++;
-      log(state, `${generalOf(state, g.id).ko}이(가) 포로가 되어 항복했습니다.`);
     } else if (refuge.length) {
       g.city = refuge[Math.floor(rng() * refuge.length)].id;
     } else {
       g.faction = null; g.city = cityId; g.loyalty = 0;
     }
   }
+}
+
+
+/* 한국어 조사 붙이기 — 유비를 / 조운을 */
+export function withJosa(name, kind = '을') {
+  const n = String(name || '');
+  const code = n.charCodeAt(n.length - 1);
+  const hasFinal = code >= 0xac00 && code <= 0xd7a3 ? (code - 0xac00) % 28 > 0 : false;
+  const map = {
+    '을': hasFinal ? '을' : '를', '를': hasFinal ? '을' : '를',
+    '이': hasFinal ? '이' : '가', '가': hasFinal ? '이' : '가',
+    '은': hasFinal ? '은' : '는', '는': hasFinal ? '은' : '는',
+    '과': hasFinal ? '과' : '와', '와': hasFinal ? '과' : '와',
+  };
+  return n + (map[kind] || kind);
+}
+
+/* ---------- 승전 후 포로 처분 (등용·해방·참수) ---------- */
+
+/* 패배측 궤멸 부대 장수 중 누가 사로잡히는가 */
+export function captureCandidates(state, gids, losingFid, rng) {
+  const refuge = factionCities(state, losingFid);
+  const out = [];
+  for (const gid of gids || []) {
+    const g = state.generals[gid];
+    if (!g || g.dead || g.captive) continue;
+    const isLord = !!state.factions[losingFid] && state.factions[losingFid].lord === gid;
+    if (isLord && refuge.length) continue;   // 마지막 성이 아니면 군주는 도주한다
+    const chance = isLord ? 1 : clamp(0.62 - (g.loyalty || 0) / 400, 0.18, 0.74);
+    if (isLord || rng() < chance) out.push({ gid, isLord });
+  }
+  return out;
+}
+
+/* 포로를 붙잡아 둔다. 플레이어가 이겼으면 처분 대기, AI가 이겼으면 기존처럼 자동 처리 */
+export function holdPrisoners(state, { gids, losingFid, homeCityId, holdCityId, playerWon }) {
+  const held = [];
+  for (const { gid, isLord } of gids) {
+    const g = state.generals[gid];
+    if (!g) continue;
+    const t = generalOf(state, gid);
+    if (playerWon) {
+      g.captive = true;
+      g.city = holdCityId;
+      const rec = { gid, faction: losingFid, homeCity: homeCityId, city: holdCityId, isLord: !!isLord, turn: state.turn };
+      state.pendingPrisoners.push(rec);
+      state.stats.captured++;
+      held.push(rec);
+      log(state, `${withJosa(t ? t.ko : gid, '을')} 사로잡았습니다.`);
+    }
+    // 플레이어가 진 쪽의 장수는 붙잡히지 않고 소속을 지킨 채 물러난다(기존 규칙)
+  }
+  return held;
+}
+
+/* 등용 성공률 — 군주 매력·명성 vs 대상 충성도·무력 */
+export function recruitChance(state, gid) {
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  if (!g || !t) return 0;
+  const f = state.factions[state.playerId];
+  const lord = lordOf(state, state.playerId);
+  const isLord = Object.values(state.factions).some((x) => x.lord === gid);
+  let c = 0.28 + (lord ? lord.cha : 60) / 300 + (f ? f.fame : 45) / 320 - (g.loyalty || 0) / 260 - (t.war || 0) / 1100;
+  if (isLord) c -= 0.22;
+  if (lord && lord.skill === 'indeok') c += 0.06;
+  if (t.skill === 'indeok') c += 0.03;
+  return clamp(c, 0.05, 0.92);
+}
+
+function dropPrisoner(state, gid) {
+  state.pendingPrisoners = (state.pendingPrisoners || []).filter((p) => p.gid !== gid);
+}
+
+/* 등용 — 거절당하면 다시 해방·참수를 고를 수 있다 */
+export function recruitPrisoner(state, gid, rng = Math.random) {
+  const rec = (state.pendingPrisoners || []).find((p) => p.gid === gid);
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  if (!rec || !g) return { ok: false, msg: '포로가 아닙니다.' };
+  const chance = recruitChance(state, gid);
+  if (rng() >= chance) {
+    rec.tried = true;
+    return { ok: true, accepted: false, chance, msg: `${t.ko}: "두 임금을 섬길 수 없습니다." — 등용에 응하지 않았습니다.` };
+  }
+  const lord = lordOf(state, state.playerId);
+  g.captive = false;
+  g.dead = false;
+  g.faction = state.playerId;
+  g.city = rec.city;
+  g.loyalty = clamp(46 + Math.round((lord ? lord.cha : 60) / 6) - (rec.isLord ? 12 : 0), 30, 88);
+  state.stats.recruited++;
+  dropPrisoner(state, gid);
+  log(state, `${withJosa(t.ko, '이')} ${state.factions[state.playerId].name}군에 합류했습니다. (충성 ${g.loyalty})`);
+  return { ok: true, accepted: true, chance, loyalty: g.loyalty, msg: `${withJosa(t.ko, '이')} 고개를 숙였습니다! 충성 ${g.loyalty}로 아군이 되었습니다.` };
+}
+
+/* 해방 — 명성 +5, 원 소속(없으면 재야)으로 돌려보낸다 */
+export function releasePrisoner(state, gid) {
+  const rec = (state.pendingPrisoners || []).find((p) => p.gid === gid);
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  if (!rec || !g) return { ok: false, msg: '포로가 아닙니다.' };
+  const home = factionCities(state, rec.faction);
+  const alive = home.length > 0 && state.factions[rec.faction] && state.factions[rec.faction].alive;
+  g.captive = false;
+  g.faction = alive ? rec.faction : null;
+  g.city = alive ? (home.some((c) => c.id === rec.homeCity) ? rec.homeCity : home[0].id) : rec.city;
+  g.loyalty = alive ? Math.max(g.loyalty || 0, 55) : 0;
+  state.stats.released = (state.stats.released || 0) + 1;
+  bumpFame(state, state.playerId, 5);
+  dropPrisoner(state, gid);
+  log(state, `${withJosa(t.ko, '을')} 풀어 주었습니다. 의를 베푼 이름이 퍼집니다. (명성 +5)`);
+  return { ok: true, msg: `${withJosa(t.ko, '을')} 풀어 주었습니다. 명성 +5`, fame: state.factions[state.playerId].fame };
+}
+
+/* 참수 — 영구 퇴장(다시 등장하지 않음), 명성 소폭 하락과 원한 */
+export function executePrisoner(state, gid) {
+  const rec = (state.pendingPrisoners || []).find((p) => p.gid === gid);
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  if (!rec || !g) return { ok: false, msg: '포로가 아닙니다.' };
+  g.captive = false;
+  g.dead = true;
+  g.faction = null;
+  g.city = null;
+  g.loyalty = 0;
+  state.stats.executed = (state.stats.executed || 0) + 1;
+  for (const o of Object.values(state.generals)) {
+    if (o.id === gid || o.dead || o.captive) continue;
+    if (o.faction === rec.faction) o.loyalty = clamp((o.loyalty || 0) + 4, 0, 100);
+  }
+  bumpFame(state, state.playerId, rec.isLord ? -4 : -2);
+  dropPrisoner(state, gid);
+  checkFactionDeath(state, rec.faction);
+  log(state, `${withJosa(t.ko, '의')} 목을 베었습니다. 그 이름은 이제 기록에만 남습니다.`);
+  return { ok: true, msg: `${withJosa(t.ko, '을')} 참수했습니다. 다시는 나타나지 않습니다.` };
 }
 
 export function bumpFame(state, fid, n) {
@@ -747,7 +882,7 @@ export function endTurnPhase2(state) {
   }
   // 충성도 이탈
   for (const g of Object.values(state.generals)) {
-    if (!g.faction || g.captive) continue;
+    if (!g.faction || g.captive || g.dead) continue;
     if (g.faction === state.playerId) continue;
     if (g.loyalty < 40 && rng() < 0.05) {
       g.faction = null; g.loyalty = 0;
@@ -777,45 +912,60 @@ export function checkVictory(state) {
 }
 
 /* ---------- 전투 결과 반영 ---------- */
-export function applyBattleResult(state, result) {
-  // result: {fromCityId, toCityId, winner: 'attacker'|'defender', atkLoss, defLoss, capturedGenerals:[], duelResult}
+/* result: {fromCityId, toCityId, winner, atkLoss, defLoss, defeatedGenerals, playerSide, duelResult}
+   플레이어가 이겼으면 잡힌 장수를 state.pendingPrisoners 에 쌓아 처분 화면으로 넘긴다. */
+export function applyBattleResult(state, result, rng = null) {
+  const R = rng || rngOf(state);
   const from = state.cities[result.fromCityId];
   const to = state.cities[result.toCityId];
   const atkFid = from.owner;
   const defFid = to.owner;
-  from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
-  to.troops = Math.max(200, to.troops - (result.defLoss || 0));
+  const playerSide = result.playerSide || null;
+  const playerWon = !!playerSide && (
+    (result.winner === 'attacker' && playerSide === 'atk') ||
+    (result.winner === 'defender' && playerSide === 'def')
+  );
   state.stats.battles++;
+  state.pendingPrisoners = state.pendingPrisoners || [];
+  const out = { prisoners: [], cityCaptured: false, playerWon, winner: result.winner };
+  // 패배측 궤멸 부대의 장수
+  const beaten = result.defeatedGenerals || result.capturedGenerals || [];
+
   if (result.winner === 'attacker') {
     state.stats.wins++;
+    const losingFid = defFid;
     to.owner = atkFid;
     to.troops = Math.max(500, Math.round(result.atkSurvivors || from.troops * 0.6));
     to.order = clamp(to.order - 12, 10, 100);
     to.def = clamp(to.def - 8, 20, 99);
-    moveGeneralsOnCapture(state, to.id, defFid, atkFid, rngOf(state));
+    from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
+    // 포로를 먼저 붙잡아 두고, 남은 장수를 피난시킨다
+    const cands = captureCandidates(state, beaten, losingFid, R);
+    out.prisoners = holdPrisoners(state, {
+      gids: cands, losingFid, homeCityId: to.id, holdCityId: to.id, playerWon,
+    });
+    moveGeneralsOnCapture(state, to.id, losingFid, atkFid, R);
     bumpFame(state, atkFid, 6);
     bumpFame(state, defFid, -4);
-    log(state, `${state.factions[atkFid].name}군이 ${cityName(to.id)}을(를) 함락시켰습니다!`);
-    for (const gid of result.capturedGenerals || []) {
-      const g = state.generals[gid];
-      if (!g) continue;
-      if (atkFid === state.playerId) {
-        g.faction = state.playerId; g.city = to.id; g.loyalty = 50;
-        state.stats.captured++;
-        log(state, `${generalOf(state, gid).ko}을(를) 사로잡아 부하로 삼았습니다.`);
-      } else {
-        g.faction = null; g.city = to.id; g.loyalty = 0;
-      }
-    }
+    log(state, `${state.factions[atkFid].name}군이 ${withJosa(cityName(to.id), '을')} 함락시켰습니다!`);
+    out.cityCaptured = true;
   } else {
+    from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
+    to.troops = Math.max(200, to.troops - (result.defLoss || 0));
+    const losingFid = atkFid;
+    const cands = captureCandidates(state, beaten, losingFid, R);
+    out.prisoners = holdPrisoners(state, {
+      gids: cands, losingFid, homeCityId: from.id, holdCityId: to.id, playerWon,
+    });
     bumpFame(state, defFid, 4);
     if (atkFid === state.playerId) bumpFame(state, atkFid, -2);
     log(state, `${cityName(to.id)} 수비군이 공격을 물리쳤습니다.`);
   }
+  result.capturedGenerals = out.prisoners.map((p) => p.gid);
   checkFactionDeath(state, defFid);
   checkFactionDeath(state, atkFid);
   checkVictory(state);
-  return result;
+  return out;
 }
 
 /* ---------- 저장/불러오기 ---------- */
@@ -826,13 +976,18 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전 양식. 열어서 새 양식으로 옮긴다.
-  if (!s || (s.version !== SAVE_VERSION && s.version !== 3)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전 양식, 4 = 포로 처분 이전 양식. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];
+  s.pendingPrisoners = s.pendingPrisoners || [];
   s.log = s.log || [];
-  s.stats = s.stats || { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0 };
+  s.stats = { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0, executed: 0, released: 0, ...(s.stats || {}) };
+  for (const g of Object.values(s.generals || {})) {
+    if (g.dead === undefined) g.dead = false;
+    if (g.captive === undefined) g.captive = false;
+  }
   return s;
 }
 

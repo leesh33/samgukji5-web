@@ -1,9 +1,55 @@
-/* 전술 전투 — 격자 전장 · 진형 · 계략 (순수 로직, DOM 비의존) */
-import { GENERAL_BY_ID, FORMATIONS, CITIES, CITY_BY_ID } from './data.js';
+/* 전술 전투 — 격자 전장 · 진형 · 방향 · 계략 (순수 로직, DOM 비의존) */
+import { GENERAL_BY_ID, FORMATIONS, CITIES, CITY_BY_ID, formationRelation } from './data.js';
 import { mulberry32, randInt, clamp } from './engine.js';
 
-export const BW = 13;
-export const BH = 9;
+/* ---------- 방향(정면·측면·배후) ---------- */
+export const DIRS = { N: { x: 0, y: -1 }, E: { x: 1, y: 0 }, S: { x: 0, y: 1 }, W: { x: -1, y: 0 } };
+export const DIR_ANGLE = { E: 0, S: 90, W: 180, N: 270 };
+export const OPPOSITE_DIR = { E: 'W', W: 'E', N: 'S', S: 'N' };
+/* 정면 < 측면 < 배후 */
+export const SIDE_MULT = { front: 1.0, flank: 1.25, rear: 1.5 };
+export const SIDE_KO = { front: '정면', flank: '측면', rear: '배후' };
+/* 진형 상성 배율 */
+export const FORM_MULT = { advantage: 1.25, disadvantage: 0.85, neutral: 1.0 };
+export const FORM_KO = { advantage: '진형 유리!', disadvantage: '진형 불리', neutral: '' };
+
+/* a → b 로 향하는 주된 방향 (격자 기준) */
+export function dirBetween(a, b) {
+  const dx = (b.x || 0) - (a.x || 0);
+  const dy = (b.y || 0) - (a.y || 0);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'E' : 'W';
+  return dy >= 0 ? 'S' : 'N';
+}
+
+/* 피격자(t)가 바라보는 방향 기준으로 공격자(u)가 서 있는 쪽 */
+export function attackSide(u, t) {
+  const ang = DIR_ANGLE[t.dir] ?? 0;
+  const bearing = ((Math.atan2((u.y || 0) - t.y, (u.x || 0) - t.x) * 180) / Math.PI + 360) % 360;
+  const diff = Math.abs(((bearing - ang + 540) % 360) - 180);
+  if (diff <= 45) return 'front';
+  if (diff <= 135) return 'flank';
+  return 'rear';
+}
+
+/* 공격 한 번의 배율과 표시 문구 */
+export function attackEdge(u, t) {
+  const side = attackSide(u, t);
+  const relation = formationRelation(u.formation, t.formation);
+  return {
+    side,
+    relation,
+    sideMult: SIDE_MULT[side],
+    formMult: FORM_MULT[relation],
+    mult: SIDE_MULT[side] * FORM_MULT[relation],
+    tags: [
+      side === 'flank' ? '[측면 공격!]' : side === 'rear' ? '[배후 기습!]' : '',
+      relation === 'advantage' ? '[진형 유리!]' : relation === 'disadvantage' ? '[진형 불리]' : '',
+    ].filter(Boolean),
+  };
+}
+
+export const BW = 11;
+export const BH = 8;
 
 export const TERRAIN = {
   plain: { ko: '평지', cost: 1, def: 1.0, color: '#3a4a33' },
@@ -86,7 +132,9 @@ export function createBattle(opts) {
       const isCastleDef = side === 'def';
       const x = side === 'atk' ? 1 + (i % 2) : BW - 2 - (i % 2);
       const y = isCastleDef ? clamp(Math.floor(BH / 2) - 2 + i, 0, BH - 1) : clamp(Math.floor(BH / 2) - 2 + i, 0, BH - 1);
-      const formId = (g.formations && g.formations[0]) || 'eorin';
+      const own = (g.formations && g.formations) || ['eorin'];
+      const asked = opts.formations && opts.formations[gid];
+      const formId = (asked && own.includes(asked) ? asked : own[0]) || 'eorin';
       battle.units.push({
         id: `${side}-${gid}`,
         side, gid, name: g.ko,
@@ -95,6 +143,8 @@ export function createBattle(opts) {
         morale: clamp(58 + Math.round(g.lead / 4) + (isCastleDef ? 6 : 0), 40, 100),
         formation: formId,
         x: clamp(x, 0, BW - 1), y,
+        // 아군은 적 쪽을, 적은 아군 쪽을 바라보고 전장에 선다
+        dir: side === 'atk' ? 'E' : 'W',
         acted: false, moved: false, alive: true,
       });
     });
@@ -172,8 +222,10 @@ export function moveUnit(b, u, x, y) {
   const reach = reachable(b, u);
   const k = y * b.w + x;
   if (!reach.has(k)) return { ok: false, msg: '이동할 수 없는 타일입니다.' };
+  const moved = (x !== u.x || y !== u.y);
+  if (moved) u.dir = dirBetween(u, { x, y });
   u.x = x; u.y = y; u.moved = true;
-  return { ok: true };
+  return { ok: true, dir: u.dir };
 }
 
 export function attackRange(u) {
@@ -203,6 +255,9 @@ export function resolveAttack(b, u, t, rng) {
   const ga = unitSpec(u), gd = unitSpec(t);
   const fa = formOf(u), fd = formOf(t);
   const ter = TERRAIN[tileAt(b, t.x, t.y).t];
+  // 공격자는 대상을 향해 돌아선다(피격자의 방향은 그대로 — 등 뒤를 노리는 맛)
+  u.dir = dirBetween(u, t);
+  const edge = attackEdge(u, t);
   let atk = u.troops * 0.16 * (1 + ga.war / 140) * fa.atk * (0.65 + u.morale / 160) * (0.9 + ga.lead / 600);
   if (ga.skill === 'dolgyeok') atk *= 1.2;
   if (ga.skill === 'jeogyeok' && fa.range > 1) atk *= 1.25;
@@ -210,6 +265,7 @@ export function resolveAttack(b, u, t, rng) {
   if (ga.skill === 'pokgyeok') atk *= 1.15;
   if (ga.skill === 'yongmaeng') atk *= 1.08;
   if (ga.skill === 'bigyeok') atk *= 1.1;
+  atk *= edge.mult;                       // 정면 1.0 · 측면 1.25 · 배후 1.5 × 진형 상성
   let def = (1 + (gd.lead + gd.war) / 420) * fd.def * ter.def;
   if (gd.skill === 'cheolbyeok') def *= 1.2;
   if (gd.skill === 'gyeonsu') def *= 1.1;
@@ -217,21 +273,25 @@ export function resolveAttack(b, u, t, rng) {
   dmg = Math.max(30, dmg);
   t.troops -= dmg;
   let moraleLoss = 4 + Math.round(dmg / Math.max(400, t.troops + dmg) * 30);
+  if (edge.side === 'rear') moraleLoss += 3;   // 배후 기습은 사기도 크게 꺾는다
   if (ga.skill === 'wieom') moraleLoss += 2;
   t.morale = clamp(t.morale - moraleLoss, 0, 100);
 
-  const lines = [`${u.name}의 공격! ${t.name}에게 ${dmg.toLocaleString()} 피해.`];
-  // 반격(근접, 생존 시)
+  const tag = edge.tags.length ? ' ' + edge.tags.join(' ') : '';
+  const mult = edge.mult !== 1 ? ` (×${edge.mult.toFixed(2)})` : '';
+  const lines = [`${u.name}의 공격!${tag} ${t.name}에게 ${dmg.toLocaleString()} 피해.${mult}`];
+  // 반격(근접, 생존 시) — 반격에도 방향·상성이 걸린다
   if (t.troops > 0 && t.morale > 0 && dist(u, t) === 1) {
     const f2 = formOf(t);
     everyBit: {
-      let cAtk = t.troops * 0.1 * (1 + gd.war / 160) * f2.atk * (0.55 + t.morale / 180);
+      const back = attackEdge(t, u);
+      let cAtk = t.troops * 0.1 * (1 + gd.war / 160) * f2.atk * (0.55 + t.morale / 180) * (back.mult > 1 ? 1 + (back.mult - 1) * 0.5 : back.mult);
       let cDef = (1 + (ga.lead + ga.war) / 420) * fa.def * TERRAIN[tileAt(b, u.x, u.y).t].def;
       if (ga.skill === 'cheolbyeok') cDef *= 1.2;
       const cDmg = Math.max(20, Math.round((cAtk / cDef) * (0.8 + rng() * 0.3) * 0.6));
       u.troops -= cDmg;
       u.morale = clamp(u.morale - 2, 0, 100);
-      lines.push(`${t.name}의 반격 — ${cDmg.toLocaleString()} 피해.`);
+      lines.push(`${t.name}의 반격${back.tags.length ? ' ' + back.tags.join(' ') : ''} — ${cDmg.toLocaleString()} 피해.`);
     }
   }
   const dead = [];
@@ -244,7 +304,10 @@ export function resolveAttack(b, u, t, rng) {
     }
   }
   b.log.push(...lines);
-  return { damage: dmg, dead: dead.map((d) => d.id), lines };
+  return {
+    damage: dmg, dead: dead.map((d) => d.id), lines,
+    side: edge.side, relation: edge.relation, mult: edge.mult, tags: edge.tags,
+  };
 }
 
 /* 계략 */
@@ -332,16 +395,21 @@ export function checkEnd(b) {
   return null;
 }
 
-/* AI 부대 행동 */
+/* AI 부대 행동 — 측면·배후와 진형 상성을 노린다 */
 export function aiUnitAct(b, u, rng) {
   if (u.acted || !u.alive) return;
   const foes = unitsOf(b, u.side === 'atk' ? 'def' : 'atk');
   if (!foes.length) return;
-  // 타겟: 가장 약한 적 (병력*거리)
   const g = unitSpec(u);
+
+  // 한 번 칠 때의 기대값: 약한 부대 · 측면/배후 · 진형 상성
+  const hitScore = (t, from = u) => {
+    const e = attackEdge(from, t);
+    return e.mult * (9000 / Math.max(600, t.troops));
+  };
   const inRange = foes.filter((f) => canAttack(b, u, f));
   if (inRange.length) {
-    inRange.sort((a, c) => a.troops - c.troops);
+    inRange.sort((a, c) => hitScore(c) - hitScore(a));
     if (g.int > 75 && rng() < 0.28) {
       const kind = g.skill === 'hwagye' ? 'fire' : g.skill === 'hollan' ? 'confuse' : (g.int > 85 ? 'confuse' : 'fire');
       const r = tactic(b, u, inRange[0], kind, Math.floor(rng() * 9999));
@@ -350,19 +418,32 @@ export function aiUnitAct(b, u, rng) {
     attack(b, u, inRange[0], Math.floor(rng() * 9999));
     return;
   }
-  // 접근: 도달 가능 타일 중 적과 가까워지는 곳
+  // 접근: 도달 가능 타일 중 '적의 옆·뒤에서 칠 수 있는 곳'을 우선
   const reach = reachable(b, u);
-  let best = null, bestScore = -Infinity;
+  const range = attackRange(u);
   const nearest = foes.reduce((m, f) => Math.min(m, dist(u, f)), 99);
+  const nearFoe = foes.reduce((m, f) => (dist(u, f) < dist(u, m) ? f : m), foes[0]);
+  let best = null, bestScore = -Infinity;
   for (const k of reach.keys()) {
     const x = k % b.w, y = Math.floor(k / b.w);
     const d = Math.min(...foes.map((f) => Math.abs(f.x - x) + Math.abs(f.y - y)));
-    const score = -d * 10 - reach.get(k) * 0.2 + (d < nearest ? 5 : 0);
+    let score = -d * 10 - reach.get(k) * 0.2 + (d < nearest ? 5 : 0);
+    for (const f of foes) {
+      if (Math.abs(f.x - x) + Math.abs(f.y - y) <= range) {
+        const e = attackEdge({ x, y }, f);
+        score += 30 + (e.mult - 1) * 80 + (e.relation === 'advantage' ? 12 : e.relation === 'disadvantage' ? -10 : 0);
+      }
+    }
     if (score > bestScore) { bestScore = score; best = { x, y }; }
   }
   if (best) moveUnit(b, u, best.x, best.y);
   const again = foes.filter((f) => canAttack(b, u, f));
-  if (again.length) { attack(b, u, again[0], Math.floor(rng() * 9999)); return; }
+  if (again.length) {
+    again.sort((a, c) => hitScore(c) - hitScore(a));
+    attack(b, u, again[0], Math.floor(rng() * 9999));
+    return;
+  }
+  // 측면·배후 방어: 사기가 낮은 아군을 고무
   if (g.int > 70 && rng() < 0.15) {
     const allies = unitsOf(b, u.side).filter((a) => a.morale < 70);
     if (allies.length) { tactic(b, u, allies[0], 'rally', Math.floor(rng() * 9999)); return; }
@@ -393,12 +474,9 @@ export function battleResult(b) {
   const atkSurvivors = atkAlive.reduce((s, u) => s + u.troops, 0);
   const defSurvivors = defAlive.reduce((s, u) => s + u.troops, 0);
   const winner = b.over === 'atk' ? 'attacker' : 'defender';
-  const captured = [];
-  const rng = mulberry32(hashStr(b.fromCityId + b.toCityId) + b.round * 7 + 3);
   const losingSide = winner === 'attacker' ? 'def' : 'atk';
-  for (const u of b.units.filter((x) => x.side === losingSide && !x.alive)) {
-    if (rng() < 0.28) captured.push(u.gid);
-  }
+  // 전장에서 궤멸한 패배측 부대의 장수 — 실제 사로잡힘은 엔진이 판정한다
+  const defeatedGenerals = b.units.filter((x) => x.side === losingSide && !x.alive).map((x) => x.gid);
   return {
     fromCityId: b.fromCityId, toCityId: b.toCityId,
     winner,
@@ -406,7 +484,8 @@ export function battleResult(b) {
     defLoss: Math.max(0, b.initial.def - defSurvivors),
     atkSurvivors,
     defSurvivors,
-    capturedGenerals: captured,
+    defeatedGenerals,
+    capturedGenerals: [],
     rounds: b.round,
     playerSide: b.playerSide,
   };

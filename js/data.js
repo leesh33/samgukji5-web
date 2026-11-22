@@ -73,9 +73,9 @@ export const CITIES = CITY_ROWS.map((r) => ({
 
 export const CITY_BY_ID = Object.fromEntries(CITIES.map((c) => [c.id, c]));
 
-/* 진형 9종: [id, 한글, 공격, 방어, 기동, 사거리, 설명] */
+/* 진형 11종(핵심 9종 + 안행·수진): [id, 한글, 공격, 방어, 기동, 사거리, 설명] */
 export const FORMATIONS = {
-  eorin: { id: 'eorin', ko: '어린', hanja: '魚鱗', atk: 1.15, def: 1.0, move: 1.0, range: 1, desc: '공격에 치중한 기본 진형. 정면 돌파에 강하다.' },
+  eorin: { id: 'eorin', ko: '어린', hanja: '魚鱗', atk: 1.15, def: 1.0, move: 1.0, range: 1, desc: '비늘처럼 겹친 쐐기. 정면 돌파에 강하다.' },
   hakyik: { id: 'hakyik', ko: '학익', hanja: '鶴翼', atk: 0.9, def: 1.1, move: 0.9, range: 2, desc: '좌우로 날개를 펼쳐 원거리에서 협공한다.' },
   bongsi: { id: 'bongsi', ko: '봉시', hanja: '鋒矢', atk: 1.25, def: 0.85, move: 1.2, range: 1, desc: '화살촉처럼 돌격하는 공격 특화 진형.' },
   bangwon: { id: 'bangwon', ko: '방원', hanja: '方円', atk: 0.8, def: 1.3, move: 0.8, range: 1, desc: '원형 방진. 수비와 버티기에 최적.' },
@@ -84,7 +84,52 @@ export const FORMATIONS = {
   anhaeng: { id: 'anhaeng', ko: '안행', hanja: '雁行', atk: 0.85, def: 1.15, move: 1.0, range: 2, desc: '기러기 대형. 사거리가 길고 방어가 두텁다.' },
   guhaeng: { id: 'guhaeng', ko: '구행', hanja: '鉤行', atk: 1.0, def: 1.0, move: 1.25, range: 1, desc: '갈고리 대형. 측면 우회에 능하다.' },
   sujin: { id: 'sujin', ko: '수진', hanja: '水陣', atk: 1.1, def: 1.1, move: 1.0, range: 1, desc: '수상 전투용 진형. 물 위에서 위력을 발휘한다.' },
+  chuhaeng: { id: 'chuhaeng', ko: '추행', hanja: '錐行', atk: 1.2, def: 0.9, move: 1.15, range: 1, desc: '송곳처럼 길게 뚫는 돌격진. 좁은 정면에 힘을 모은다.' },
+  hyeongaek: { id: 'hyeongaek', ko: '형액', hanja: '衡軛', atk: 0.85, def: 1.25, move: 0.9, range: 1, desc: '두 줄 횡대로 멱을 걸어 막는 방어진. 정면 방어가 두겁다.' },
 };
+
+/* 진형 상성: 돌격 → 포위 → 방어 → 돌격 삼각 순환
+   - 돌격진(어린·봉시·추행·장사)은 포위진의 벌린 날개를 뚫는다(유리) / 방어진에 막힌다(불리)
+   - 포위진(학익·언월·구행·안행)은 방어진의 측면을 흔든다(유리) / 돌격진에 뚫린다(불리)
+   - 방어진(방원·형액·수진)은 돌격을 받아낸다(유리) / 포위에 흔들린다(불리) */
+export const FORMATION_GROUPS = {
+  charge: { id: 'charge', ko: '돌격', hanja: '突', beats: 'pincer', forms: ['eorin', 'bongsi', 'chuhaeng', 'jangsa'] },
+  pincer: { id: 'pincer', ko: '포위', hanja: '翼', beats: 'guard', forms: ['hakyik', 'eonwol', 'guhaeng', 'anhaeng'] },
+  guard: { id: 'guard', ko: '방어', hanja: '陣', beats: 'charge', forms: ['bangwon', 'hyeongaek', 'sujin'] },
+};
+
+/* 상성표를 함께 쓰는 핵심 9종 */
+export const CORE_FORMATIONS = ['hakyik', 'eorin', 'bongsi', 'bangwon', 'jangsa', 'eonwol', 'chuhaeng', 'guhaeng', 'hyeongaek'];
+
+export const FORMATION_GROUP_OF = (() => {
+  const map = {};
+  for (const g of Object.values(FORMATION_GROUPS)) for (const f of g.forms) map[f] = g.id;
+  return map;
+})();
+
+export function formationGroup(formId) {
+  const gid = FORMATION_GROUP_OF[formId];
+  return gid ? FORMATION_GROUPS[gid] : null;
+}
+
+/* 공격 진형이 수비 진형에 대해 유리(advantage) / 불리(disadvantage) / 무상성(neutral) */
+export function formationRelation(atkForm, defForm) {
+  const a = FORMATION_GROUP_OF[atkForm];
+  const d = FORMATION_GROUP_OF[defForm];
+  if (!a || !d || a === d) return 'neutral';
+  if (FORMATION_GROUPS[a].beats === d) return 'advantage';
+  if (FORMATION_GROUPS[d].beats === a) return 'disadvantage';
+  return 'neutral';
+}
+
+/* 상성 문구: '학익' → '방어진에 강함 · 돌격진에 약함' */
+export function formationCounterText(formId) {
+  const g = formationGroup(formId);
+  if (!g) return '';
+  const strong = FORMATION_GROUPS[g.beats];
+  const weakId = Object.values(FORMATION_GROUPS).find((x) => x.beats === g.id);
+  return `${strong.ko}진에 강함 · ${weakId ? weakId.ko + '진에 약함' : '약점 없음'}`;
+}
 
 export const SKILLS = {
   hwagye: { ko: '화계', desc: '불을 질러 적 부대를 태운다(전술).', tactic: 'fire' },
@@ -121,15 +166,15 @@ function G(id, ko, hanja, lead, war, int, pol, cha, arms, skill, forms) {
 export const GENERALS = [
   // 위(魏) · 조조군
   G('cao_cao', '조조', '曹操', 99, 72, 91, 94, 96, '보병', 'tongsol', '어린학익봉시방원언월'),
-  G('xiahou_dun', '하후돈', '夏侯惇', 90, 94, 61, 70, 76, '기병', 'dolgyeok', '어린봉시장사'),
+  G('xiahou_dun', '하후돈', '夏侯惇', 90, 94, 61, 70, 76, '기병', 'dolgyeok', '어린봉시추행'),
   G('xiahou_yuan', '하후연', '夏侯淵', 88, 92, 68, 62, 74, '기병', 'dolgyeok', '봉시학익'),
-  G('cao_ren', '조인', '曹仁', 91, 86, 68, 70, 72, '보병', 'cheolbyeok', '방원학익'),
+  G('cao_ren', '조인', '曹仁', 91, 86, 68, 70, 72, '보병', 'cheolbyeok', '방원형액학익'),
   G('cao_hong', '조홍', '曹洪', 76, 82, 40, 55, 66, '기병', 'dolgyeok', '봉시'),
   G('zhang_liao', '장료', '張遼', 95, 92, 78, 58, 78, '기병', 'yongmaeng', '학익봉시어린'),
   G('xu_huang', '서황', '徐晃', 91, 89, 74, 68, 74, '보병', 'cheolbyeok', '어린방원'),
   G('yue_jin', '악진', '樂進', 84, 86, 62, 54, 66, '보병', 'dolgyeok', '어린'),
-  G('yu_jin', '우금', '于禁', 85, 78, 68, 74, 62, '보병', 'gyeonsu', '방원'),
-  G('dian_wei', '전위', '典韋', 78, 96, 38, 26, 68, '보병', 'hogwi', '어린'),
+  G('yu_jin', '우금', '于禁', 85, 78, 68, 74, 62, '보병', 'gyeonsu', '방원형액'),
+  G('dian_wei', '전위', '典韋', 78, 96, 38, 26, 68, '보병', 'hogwi', '어린추행'),
   G('xu_chu', '허저', '許褚', 76, 96, 32, 28, 70, '보병', 'hogwi', '어린'),
   G('xun_yu', '순욱', '荀彧', 70, 32, 95, 96, 88, '궁병', 'sinsan', '방원'),
   G('xun_you', '순유', '荀攸', 68, 30, 94, 88, 80, '궁병', 'hwagye', '방원'),
@@ -153,7 +198,7 @@ export const GENERALS = [
   // 촉(蜀) · 유비군
   G('liu_bei', '유비', '劉備', 82, 74, 78, 84, 99, '보병', 'indeok', '어린학익'),
   G('guan_yu', '관우', '關羽', 98, 97, 75, 64, 92, '기병', 'wieom', '언월어린봉시'),
-  G('zhang_fei', '장비', '張飛', 95, 98, 40, 22, 64, '기병', 'pokgyeok', '봉시장사'),
+  G('zhang_fei', '장비', '張飛', 95, 98, 40, 22, 64, '기병', 'pokgyeok', '봉시추행장사'),
   G('zhao_yun', '조운', '趙雲', 96, 97, 76, 66, 88, '기병', 'cheolbyeok', '학익봉시방원'),
   G('zhuge_liang', '제갈량', '諸葛亮', 92, 38, 100, 96, 92, '궁병', 'sinsan', '방원학익'),
   G('xu_shu', '서서', '徐庶', 76, 60, 90, 76, 76, '궁병', 'hwagye', '방원'),
