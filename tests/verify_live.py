@@ -164,7 +164,7 @@ with sync_playwright() as p:
     page.click('.sheet-head [data-act="sheet-close"]')
     page.wait_for_timeout(280)
 
-    for g, ko, n in (("civil", "내정", 6), ("people", "인사", 6), ("army", "군사", 3)):
+    for g, ko, n in (("civil", "내정", 6), ("people", "인사", 6), ("army", "군사", 4)):
         page.click(f'[data-act="cmd-group"][data-group="{g}"]')
         page.wait_for_timeout(220)
         cnt = page.locator("#cmdp:not(.hidden) .btn").count()
