@@ -118,6 +118,7 @@ python3 tests/verify_minimal_tournament.py http://127.0.0.1:4173/index.html loca
 python3 tests/verify_formation_learn.py http://127.0.0.1:4173/index.html local  # 진형 전수(스승·제자·숙련도 3~4회 습득) 라이브 검증
 python3 tests/verify_hire_cap.py http://127.0.0.1:4173/index.html local  # 허창 등용 — 낯섦(친밀 40 미만) 상한 12% 라이브 검증
 python3 tests/verify_advisor_lord.py http://127.0.0.1:4173/index.html local  # 참모 임명 시트 군주 제외·옛 세이브 보정·부하 0명 안내 라이브 검증
+python3 tests/verify_title_tracking.py http://127.0.0.1:4173/index.html local  # 타이틀 로고·메뉴 버튼 자간(letter-spacing) 좁힘 검증
 ```
 
 ### ☁ 로그인 · 클라우드 저장

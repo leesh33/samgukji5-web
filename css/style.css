@@ -201,12 +201,14 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .title-mark::after { bottom: 0; }
 .title-mark h1 {
   margin: 0; font-family: var(--font-head); font-weight: 600;
-  font-size: 40px; letter-spacing: 10px; text-indent: 10px;
+  font-size: 40px; letter-spacing: 0.01em; text-indent: 0; word-spacing: -0.08em;
   color: #ffe7bb;
   text-shadow: 0 1px 0 #6a3f14, 0 2px 0 #3c2208, 0 3px 10px rgba(0, 0, 0, 0.8),
                0 0 30px rgba(255, 172, 84, 0.45), 0 0 60px rgba(214, 116, 40, 0.3);
 }
 .title-menu { display: flex; flex-direction: column; gap: 10px; }
+/* 타이틀 버튼은 한글 자간을 자연스럽게 — 앱 안의 다른 큰 버튼(3px)과 따로 둔다 */
+.title-menu .btn.big { letter-spacing: 0.02em; word-spacing: -0.1em; }
 .title-foot {
   display: flex; align-items: center; justify-content: flex-end;
   color: #8d7a5e; font-size: 10px; letter-spacing: 1px;
