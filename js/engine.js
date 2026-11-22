@@ -2,7 +2,7 @@
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -64,6 +64,11 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     pendingBattles: [],
     pendingPrisoners: [],
     talked: {},
+    diplomacy: { rel: {}, ally: {}, truce: {} },
+    offices: {},
+    scouted: {},
+    pendingEvent: null,
+    lastPromotions: [],
     gameOver: null,
     stats: { battles: 0, wins: 0, duels: 0, duelWins: 0, captured: 0, recruited: 0, executed: 0, released: 0 },
   };
@@ -167,6 +172,8 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     if (!g.dead && !g.faction && !g.city) { g.city = 'luoyang'; }
   }
 
+  initDiplomacy(state);
+  syncOffices(state);
   state.maxActionPoints = calcActionPoints(state, factionId);
   state.actionPoints = state.maxActionPoints;
   const playerFac = state.factions[factionId];
@@ -331,25 +338,730 @@ export function cityPower(state, cityId, defensive = true) {
   if (defensive) p *= 1 + c.def / 420 + c.order / 700;
   return Math.round(p);
 }
+/* 적 성 — 동맹·정전 중인 세력의 성은 공격 대상에서 빠진다 */
 export function adjacentEnemies(state, cityId) {
   const own = ownerOf(state, cityId);
-  return neighbors(cityId).filter((n) => ownerOf(state, n) && ownerOf(state, n) !== own);
+  return neighbors(cityId).filter((n) => {
+    const o = ownerOf(state, n);
+    if (!o || o === own) return false;
+    return !isPacified(state, own, o);
+  });
+}
+/* 외교와 상관없이 이웃한 다른 세력의 성 (외교·계략 화면에서 쓴다) */
+export function neighborFoes(state, cityId) {
+  const own = ownerOf(state, cityId);
+  return neighbors(cityId).filter((n) => { const o = ownerOf(state, n); return !!o && o !== own; });
 }
 export function adjacentFriends(state, cityId) {
   const own = ownerOf(state, cityId);
   return neighbors(cityId).filter((n) => ownerOf(state, n) === own);
 }
+
+/* ---------- 관직 ---------- */
+/* 성 수 + 명성으로 오르는 관직 — 행동력과 세금 보너스를 준다 */
+export const OFFICES = [
+  { ko: '현령', cities: 1, fame: 0, ap: 0, tax: 0 },
+  { ko: '자사', cities: 2, fame: 50, ap: 1, tax: 0.03 },
+  { ko: '주목', cities: 4, fame: 57, ap: 1, tax: 0.05 },
+  { ko: '대장군', cities: 7, fame: 64, ap: 2, tax: 0.07 },
+  { ko: '승상', cities: 11, fame: 72, ap: 2, tax: 0.10 },
+  { ko: '왕', cities: 16, fame: 80, ap: 3, tax: 0.13 },
+  { ko: '황제', cities: 24, fame: 90, ap: 3, tax: 0.16 },
+];
+export const MAX_OFFICE = OFFICES.length - 1;
+
+export function officeLevel(state, fid) {
+  const f = state.factions[fid];
+  if (!f) return 0;
+  const cs = factionCities(state, fid).length;
+  let lv = 0;
+  for (let i = 0; i < OFFICES.length; i++) {
+    if (cs >= OFFICES[i].cities && f.fame >= OFFICES[i].fame) lv = i;
+  }
+  return lv;
+}
+export function officeOf(state, fid) {
+  return OFFICES[officeLevel(state, fid)] || OFFICES[0];
+}
+/* 다음 관직과 그 조건 — 화면에 남은 조건을 보여 준다 */
+export function nextOffice(state, fid) {
+  const lv = officeLevel(state, fid);
+  const nx = OFFICES[lv + 1];
+  if (!nx) return null;
+  const cs = factionCities(state, fid).length;
+  const fame = state.factions[fid] ? state.factions[fid].fame : 0;
+  return { ko: nx.ko, cities: nx.cities, fame: nx.fame, needCities: Math.max(0, nx.cities - cs), needFame: Math.max(0, Math.ceil(nx.fame - fame)), ap: nx.ap, tax: nx.tax };
+}
+
+/* 관직을 다시 계산하고, 오른 세력은 알림 목록에 쌓는다 */
+export function syncOffices(state) {
+  state.offices = state.offices || {};
+  state.lastPromotions = state.lastPromotions || [];
+  for (const fid of Object.keys(state.factions || {})) {
+    const f = state.factions[fid];
+    if (!f || !f.alive) continue;
+    const lv = officeLevel(state, fid);
+    const prev = typeof state.offices[fid] === 'number' ? state.offices[fid] : lv;
+    state.offices[fid] = lv;
+    if (lv > prev) {
+      const rec = { factionId: fid, level: lv, from: OFFICES[prev].ko, to: OFFICES[lv].ko, ap: OFFICES[lv].ap, tax: OFFICES[lv].tax };
+      state.lastPromotions.push(rec);
+      if (fid === state.playerId) {
+        log(state, `관직이 ${OFFICES[prev].ko}에서 ${withJosa(OFFICES[lv].ko, '로')} 올랐습니다. 행동력 +${OFFICES[lv].ap} · 세금 +${Math.round(OFFICES[lv].tax * 100)}%`);
+      }
+    }
+  }
+  return state.lastPromotions.filter((p) => p.factionId === state.playerId);
+}
+export function clearPromotions(state) { state.lastPromotions = []; }
+
 export function calcActionPoints(state, fid) {
   const f = state.factions[fid];
   if (!f) return 0;
   const cs = factionCities(state, fid).length;
-  return clamp(4 + Math.floor(f.fame / 22) + Math.min(3, Math.floor(cs / 3)), 4, 10);
+  const office = OFFICES[officeLevel(state, fid)] || OFFICES[0];
+  return clamp(4 + Math.floor(f.fame / 22) + Math.min(3, Math.floor(cs / 3)) + office.ap, 4, 13);
 }
 export function bestOfficer(state, cityId, key, exclude = []) {
   const gens = generalsInCity(state, cityId).filter((g) => !g.acted && !exclude.includes(g.id));
   if (!gens.length) return null;
   gens.sort((a, b) => ((generalOf(state, b.id) || {})[key] || 0) - ((generalOf(state, a.id) || {})[key] || 0));
   return generalOf(state, gens[0].id);
+}
+
+/* ---------- 외교 ---------- */
+export const ALLIANCE_MONTHS = 12;
+export const TRUCE_MONTHS = 6;
+export const DIPLO = {
+  envoy: { ko: '친선 사절', gold: 300, ap: 1, desc: '사신을 보내 우호도를 올립니다(+15~25).' },
+  alliance: { ko: '동맹 제의', gold: 500, ap: 1, desc: '12개월 동맹 — 서로 공격하지 않고 원군을 받습니다.' },
+  truce: { ko: '정전 협정', gold: 400, ap: 1, desc: '6개월 정전 — 공격을 유예합니다.' },
+  break: { ko: '동맹 파기', gold: 0, ap: 0, desc: '즉시 공격할 수 있게 되지만 명성 -15, 타 세력 우호도 하락.' },
+};
+
+export function pairKey(a, b) { return a < b ? `${a}|${b}` : `${b}|${a}`; }
+
+/* 옛 저장에 외교 칸이 없어도 안전하게 채운다 */
+export function ensureDiplomacy(state) {
+  state.diplomacy = state.diplomacy || {};
+  const d = state.diplomacy;
+  d.rel = d.rel || {}; d.ally = d.ally || {}; d.truce = d.truce || {};
+  const ids = Object.keys(state.factions || {}).filter((id) => state.factions[id] && state.factions[id].alive !== false);
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const k = pairKey(ids[i], ids[j]);
+      if (typeof d.rel[k] !== 'number') d.rel[k] = 40;
+      if (typeof d.ally[k] !== 'number') d.ally[k] = 0;
+      if (typeof d.truce[k] !== 'number') d.truce[k] = 0;
+    }
+  }
+  return d;
+}
+
+export function initDiplomacy(state) {
+  state.diplomacy = { rel: {}, ally: {}, truce: {} };
+  const ids = Object.keys(state.factions);
+  const rng = mulberry32((state.seed || 1) + 271);
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const k = pairKey(ids[i], ids[j]);
+      state.diplomacy.rel[k] = 32 + Math.floor(rng() * 26);
+      state.diplomacy.ally[k] = 0;
+      state.diplomacy.truce[k] = 0;
+    }
+  }
+  return state.diplomacy;
+}
+
+export function relationOf(state, a, b) {
+  const d = ensureDiplomacy(state);
+  const v = d.rel[pairKey(a, b)];
+  return typeof v === 'number' ? v : 40;
+}
+export function allyMonths(state, a, b) {
+  const d = ensureDiplomacy(state);
+  return d.ally[pairKey(a, b)] || 0;
+}
+export function truceMonths(state, a, b) {
+  const d = ensureDiplomacy(state);
+  return d.truce[pairKey(a, b)] || 0;
+}
+export const isAllied = (state, a, b) => !!a && !!b && a !== b && allyMonths(state, a, b) > 0;
+export const isTruce = (state, a, b) => !!a && !!b && a !== b && truceMonths(state, a, b) > 0;
+/* 서로 칠 수 없는 사이 — 동맹 또는 정전 */
+export const isPacified = (state, a, b) => isAllied(state, a, b) || isTruce(state, a, b);
+
+export function relationLabel(state, a, b) {
+  if (isAllied(state, a, b)) return '동맹';
+  if (isTruce(state, a, b)) return '정전';
+  const rel = relationOf(state, a, b);
+  if (rel >= 60) return '우호';
+  if (rel < 30) return '적대';
+  return '중립';
+}
+
+/* 매달 동맹·정전 잔여 개월을 줄이고, 끝난 관계는 문구를 남긴다 */
+export function tickDiplomacy(state) {
+  const d = ensureDiplomacy(state);
+  for (const k of Object.keys(d.ally)) {
+    if (d.ally[k] <= 0) continue;
+    d.ally[k] -= 1;
+    if (d.ally[k] === 0) {
+      d.rel[k] = clamp((d.rel[k] || 40) - 10, 0, 100);
+      const [a, b] = k.split('|');
+      if (a === state.playerId || b === state.playerId) {
+        const other = a === state.playerId ? b : a;
+        if (state.factions[other]) log(state, `${state.factions[other].name}군과의 동맹이 기한이 다해 끝났습니다.`);
+      }
+    }
+  }
+  for (const k of Object.keys(d.truce)) {
+    if (d.truce[k] <= 0) continue;
+    d.truce[k] -= 1;
+    if (d.truce[k] === 0) {
+      const [a, b] = k.split('|');
+      if (a === state.playerId || b === state.playerId) {
+        const other = a === state.playerId ? b : a;
+        if (state.factions[other]) log(state, `${state.factions[other].name}군과의 정전이 끝났습니다.`);
+      }
+    }
+  }
+}
+
+/* 멸망한 세력의 외교 기록 정리 */
+export function cleanDiplomacy(state) {
+  const d = ensureDiplomacy(state);
+  for (const shelf of [d.rel, d.ally, d.truce]) {
+    for (const k of Object.keys(shelf)) {
+      const [a, b] = k.split('|');
+      if (!state.factions[a] || !state.factions[b] || !state.factions[a].alive || !state.factions[b].alive) delete shelf[k];
+    }
+  }
+  ensureDiplomacy(state);
+}
+
+export function factionGold(state, fid) {
+  return factionCities(state, fid).reduce((s, c) => s + c.gold, 0);
+}
+/* 세력 전체 금에서 꺼낸다 — 금이 많은 성부터 */
+export function spendFactionGold(state, fid, amount) {
+  let left = amount;
+  const cs = factionCities(state, fid).sort((a, b) => b.gold - a.gold);
+  for (const c of cs) {
+    const take = Math.min(c.gold, left);
+    c.gold -= take; left -= take;
+    if (left <= 0) break;
+  }
+  return amount - left;
+}
+
+/* 외교 화면에 세울 다른 세력 목록 */
+export function diplomacyView(state) {
+  const me = state.playerId;
+  return Object.keys(state.factions)
+    .filter((fid) => fid !== me && state.factions[fid].alive && factionCities(state, fid).length)
+    .map((fid) => {
+      const f = state.factions[fid];
+      const lord = lordOf(state, fid);
+      const cs = factionCities(state, fid);
+      return {
+        id: fid, name: f.name, color: f.color, mark: f.mark,
+        lordId: f.lord, lordName: lord ? lord.ko : f.name, lordCha: lord ? lord.cha : 60,
+        cities: cs.length, troops: cs.reduce((s, c) => s + c.troops, 0), fame: Math.round(f.fame),
+        rel: relationOf(state, me, fid), label: relationLabel(state, me, fid),
+        allied: isAllied(state, me, fid), truce: isTruce(state, me, fid),
+        allyMonths: allyMonths(state, me, fid), truceMonths: truceMonths(state, me, fid),
+      };
+    })
+    .sort((a, b) => b.cities - a.cities);
+}
+
+export function diplomacyCheck(state, kind, targetFid) {
+  const me = state.playerId;
+  const f = state.factions[me];
+  const t = state.factions[targetFid];
+  const cost = DIPLO[kind];
+  if (!cost) return { ok: false, why: '알 수 없는 외교입니다.' };
+  if (!f || !f.alive) return { ok: false, why: '아군 세력이 없습니다.' };
+  if (!t || !t.alive || targetFid === me) return { ok: false, why: '대상 세력이 없습니다.' };
+  if (isAllied(state, me, targetFid) && (kind === 'envoy' || kind === 'alliance')) return { ok: false, why: '이미 동맹 중입니다.' };
+  if (kind === 'truce' && isTruce(state, me, targetFid)) return { ok: false, why: '이미 정전 중입니다.' };
+  if (kind === 'break' && !isAllied(state, me, targetFid)) return { ok: false, why: '동맹 중인 세력이 아닙니다.' };
+  if (state.actionPoints < cost.ap) return { ok: false, why: '행동력이 부족합니다.' };
+  if (factionGold(state, me) < cost.gold) return { ok: false, why: `금이 부족합니다(${cost.gold} 필요).` };
+  return { ok: true };
+}
+
+/* 친선 사절 — 금 300 · 행동력 1 → 우호도 +15~25 */
+export function sendEnvoy(state, targetFid) {
+  const c = diplomacyCheck(state, 'envoy', targetFid);
+  if (!c.ok) return { ok: false, msg: c.why };
+  spendFactionGold(state, state.playerId, DIPLO.envoy.gold);
+  state.actionPoints -= DIPLO.envoy.ap;
+  const d = ensureDiplomacy(state);
+  const k = pairKey(state.playerId, targetFid);
+  const before = d.rel[k] || 40;
+  const gain = randInt(rngOf(state), 15, 25);
+  d.rel[k] = clamp(before + gain, 0, 100);
+  bumpRng(state, 2);
+  const msg = `${state.factions[targetFid].name}군에 사신을 보냈습니다. 우호도 ${before} → ${d.rel[k]} (+${d.rel[k] - before})`;
+  log(state, msg);
+  return { ok: true, msg, rel: d.rel[k], gain: d.rel[k] - before, label: relationLabel(state, state.playerId, targetFid) };
+}
+
+export function allianceChance(state, targetFid) {
+  const rel = relationOf(state, state.playerId, targetFid);
+  const me = state.factions[state.playerId];
+  const t = state.factions[targetFid];
+  const lord = lordOf(state, state.playerId);
+  let c = 0.12 + rel / 240 + (lord ? lord.cha : 60) / 520 + (me ? me.fame : 45) / 520 - (t ? t.fame : 45) / 700;
+  if (isTruce(state, state.playerId, targetFid)) c += 0.1;
+  return clamp(c, 0.05, 0.9);
+}
+export function truceChance(state, targetFid) {
+  const rel = relationOf(state, state.playerId, targetFid);
+  const lord = lordOf(state, state.playerId);
+  const t = state.factions[targetFid];
+  return clamp(0.32 + rel / 210 + (lord ? lord.cha : 60) / 620 - (t ? t.fame : 45) / 900, 0.1, 0.95);
+}
+
+/* 동맹 제의 — 금 500 · 행동력 1 */
+export function proposeAlliance(state, targetFid) {
+  const c = diplomacyCheck(state, 'alliance', targetFid);
+  if (!c.ok) return { ok: false, msg: c.why };
+  const chance = allianceChance(state, targetFid);
+  spendFactionGold(state, state.playerId, DIPLO.alliance.gold);
+  state.actionPoints -= DIPLO.alliance.ap;
+  const d = ensureDiplomacy(state);
+  const k = pairKey(state.playerId, targetFid);
+  const before = d.rel[k] || 40;
+  const ok = rngOf(state)() < chance;
+  bumpRng(state, 3);
+  if (ok) {
+    d.ally[k] = ALLIANCE_MONTHS;
+    d.truce[k] = 0;
+    d.rel[k] = Math.max(before, 70);
+    const msg = `${state.factions[targetFid].name}군과 ${ALLIANCE_MONTHS}개월 동맹을 맺었습니다! 서로 치지 않고, 원군도 함께합니다.`;
+    log(state, msg);
+    return { ok: true, accepted: true, chance, msg, rel: d.rel[k], months: ALLIANCE_MONTHS };
+  }
+  d.rel[k] = clamp(before - 5, 0, 100);
+  const msg = `${state.factions[targetFid].name}군이 동맹을 사양했습니다. 우호도 ${before} → ${d.rel[k]}`;
+  log(state, msg);
+  return { ok: true, accepted: false, chance, msg, rel: d.rel[k] };
+}
+
+/* 정전 협정 — 금 400 · 행동력 1 */
+export function proposeTruce(state, targetFid) {
+  const c = diplomacyCheck(state, 'truce', targetFid);
+  if (!c.ok) return { ok: false, msg: c.why };
+  const chance = truceChance(state, targetFid);
+  spendFactionGold(state, state.playerId, DIPLO.truce.gold);
+  state.actionPoints -= DIPLO.truce.ap;
+  const d = ensureDiplomacy(state);
+  const k = pairKey(state.playerId, targetFid);
+  const ok = rngOf(state)() < chance;
+  bumpRng(state, 4);
+  if (ok) {
+    d.truce[k] = TRUCE_MONTHS;
+    const msg = `${state.factions[targetFid].name}군과 ${TRUCE_MONTHS}개월 정전에 합의했습니다.`;
+    log(state, msg);
+    return { ok: true, accepted: true, chance, msg, months: TRUCE_MONTHS };
+  }
+  const msg = `${state.factions[targetFid].name}군이 정전을 받아들이지 않았습니다.`;
+  log(state, msg);
+  return { ok: true, accepted: false, chance, msg };
+}
+
+/* 동맹 파기 — 즉시 공격 가능, 명성 -15, 타 세력 우호도 -6 */
+export function breakAlliance(state, targetFid) {
+  const c = diplomacyCheck(state, 'break', targetFid);
+  if (!c.ok) return { ok: false, msg: c.why };
+  const d = ensureDiplomacy(state);
+  const me = state.playerId;
+  const k = pairKey(me, targetFid);
+  d.ally[k] = 0;
+  d.truce[k] = 0;
+  d.rel[k] = clamp((d.rel[k] || 70) - 30, 0, 100);
+  bumpFame(state, me, -15);
+  for (const other of Object.keys(state.factions)) {
+    if (other === me || other === targetFid || !state.factions[other].alive) continue;
+    const kk = pairKey(me, other);
+    d.rel[kk] = clamp((d.rel[kk] || 40) - 6, 0, 100);
+  }
+  const msg = `${state.factions[targetFid].name}군과의 동맹을 깨뜨렸습니다. 명성 -15, 천하가 그대를 의심합니다.`;
+  log(state, msg);
+  return { ok: true, msg, fame: state.factions[me].fame };
+}
+
+/* ---------- 전략 계략 (이간·정탐·유언비어) ---------- */
+export const PLOTS = {
+  sow: { ko: '이간계', gold: 300, desc: '적 장수 한 명의 충성을 떨어뜨립니다(-10~20).' },
+  scout: { ko: '정탐', gold: 200, desc: '적 성의 장수·충성·훈련을 3턴 동안 들여다봅니다.' },
+  rumor: { ko: '유언비어', gold: 250, desc: '적 성의 치안·훈련·금·식량을 흔듭니다.' },
+};
+export const SCOUT_TURNS = 3;
+
+export function isScouted(state, cityId) {
+  const s = (state.scouted || {})[cityId];
+  return !!s && s.until > state.turn;
+}
+export function scoutTurnsLeft(state, cityId) {
+  const s = (state.scouted || {})[cityId];
+  return s && s.until > state.turn ? s.until - state.turn : 0;
+}
+/* 정탐한 성의 속내 — 장수 능력치·충성도·진형까지 */
+export function scoutedInfo(state, cityId) {
+  const c = state.cities[cityId];
+  if (!c) return null;
+  return {
+    cityId, ko: cityName(cityId), owner: c.owner, ownerName: c.owner && state.factions[c.owner] ? state.factions[c.owner].name : '재야',
+    troops: c.troops, train: c.train, order: c.order, water: c.water, def: c.def,
+    gold: Math.round(c.gold), food: Math.round(c.food), agri: c.agri, comm: c.comm,
+    generals: generalsInCity(state, cityId).map((g) => {
+      const t = generalOf(state, g.id);
+      return {
+        gid: g.id, ko: t.ko, lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha,
+        loyalty: Math.round(g.loyalty || 0), arms: t.arms, skill: t.skill, skillKo: (SKILLS[t.skill] || {}).ko || t.skill,
+        formation: (t.formations && t.formations[0]) || 'eorin',
+      };
+    }),
+  };
+}
+
+export function cityBestInt(state, cityId) {
+  return generalsInCity(state, cityId).reduce((m, g) => Math.max(m, generalOf(state, g.id).int || 0), 40);
+}
+
+/* 성공률 — 파견 장수 지력 vs 적 성 최고 지력 (+신산) */
+export function plotChance(state, fromCityId, toCityId, kind, gid) {
+  const t = generalOf(state, gid);
+  const myInt = t ? t.int : 50;
+  const theirs = cityBestInt(state, toCityId);
+  let c = 0.42 + (myInt - theirs) / 190;
+  if (t && t.skill === 'sinsan') c += 0.12;
+  if (kind === 'scout') c += 0.1;
+  if (kind === 'rumor') c += 0.04;
+  const best = generalsInCity(state, toCityId).map((g) => generalOf(state, g.id)).find((x) => x && x.skill === 'sinsan');
+  if (best) c -= 0.08;
+  return clamp(c, 0.15, 0.95);
+}
+
+export function plotCheck(state, fromCityId, toCityId, kind, gid) {
+  const me = state.playerId;
+  const plot = PLOTS[kind];
+  if (!plot) return { ok: false, why: '알 수 없는 계략입니다.' };
+  const from = state.cities[fromCityId];
+  const to = state.cities[toCityId];
+  if (!from || from.owner !== me) return { ok: false, why: '아군 성이 아닙니다.' };
+  if (!to || !to.owner || to.owner === me) return { ok: false, why: '적 성이 아닙니다.' };
+  if (!isAdjacent(fromCityId, toCityId)) return { ok: false, why: '인접한 성에만 계략을 쓸 수 있습니다.' };
+  if (isPacified(state, me, to.owner)) return { ok: false, why: '동맹·정전 중인 세력에는 계략을 쓸 수 없습니다.' };
+  const g = state.generals[gid];
+  if (!g || g.city !== fromCityId || g.faction !== me || g.captive || g.dead) return { ok: false, why: '이 성에 있는 아군 장수가 아닙니다.' };
+  if (g.acted) return { ok: false, why: '이번 달에 이미 움직였습니다.' };
+  if (state.actionPoints < 1) return { ok: false, why: '행동력이 부족합니다.' };
+  if (from.gold < plot.gold) return { ok: false, why: `이 성의 금이 부족합니다(${plot.gold} 필요).` };
+  if (kind === 'sow' && !generalsInCity(state, toCityId).length) return { ok: false, why: '적 성에 이간할 장수가 없습니다.' };
+  return { ok: true };
+}
+
+/* 계략 실행 — 행동력 1 · 성의 금 · 지력 높은 장수 파견 */
+export function runPlot(state, fromCityId, toCityId, kind, gid) {
+  const check = plotCheck(state, fromCityId, toCityId, kind, gid);
+  if (!check.ok) return { ok: false, msg: check.why };
+  const from = state.cities[fromCityId];
+  const to = state.cities[toCityId];
+  const g = state.generals[gid];
+  const t = generalOf(state, gid);
+  const plot = PLOTS[kind];
+  const chance = plotChance(state, fromCityId, toCityId, kind, gid);
+  const rng = rngOf(state);
+  const success = rng() < chance;
+  from.gold -= plot.gold;
+  state.actionPoints -= 1;
+  g.acted = true;
+  let msg = '';
+  const out = { ok: true, success, chance, kind, msg: '' };
+  if (!success) {
+    msg = `${t.ko}의 ${plot.ko}가 적에게 들켰습니다. (금 ${plot.gold}만 잃었습니다)`;
+  } else if (kind === 'scout') {
+    state.scouted = state.scouted || {};
+    state.scouted[toCityId] = { until: state.turn + SCOUT_TURNS, by: gid, turn: state.turn };
+    msg = `${t.ko}가 ${cityName(toCityId)}의 속내를 살피고 돌아왔습니다. ${SCOUT_TURNS}턴 동안 장수·충성·훈련을 볼 수 있습니다.`;
+  } else if (kind === 'sow') {
+    const gens = generalsInCity(state, toCityId);
+    gens.sort((a, b) => (a.loyalty || 0) - (b.loyalty || 0));
+    const victim = gens[0];
+    const vt = generalOf(state, victim.id);
+    const before = victim.loyalty || 0;
+    const dec = randInt(rngOf(state), 10, 20);
+    victim.loyalty = clamp(before - dec, 0, 100);
+    out.victim = { gid: victim.id, ko: vt.ko, before, after: victim.loyalty };
+    msg = `이간계가 통해 ${cityName(toCityId)}의 ${vt.ko} 충성도가 ${before} → ${victim.loyalty}로 떨어졌습니다.`;
+  } else if (kind === 'rumor') {
+    const rr = rngOf(state);
+    const order = randInt(rr, 8, 14);
+    const train = randInt(rr, 6, 12);
+    to.order = clamp(to.order - order, 0, 100);
+    to.train = clamp(to.train - train, 10, 100);
+    to.gold = Math.round(to.gold * 0.85);
+    to.food = Math.round(to.food * 0.9);
+    out.effect = { order, train };
+    msg = `${cityName(toCityId)}에 유언비어가 퍼졌습니다. 치안 -${order} · 훈련 -${train} · 금·식량이 흔들렸습니다.`;
+  }
+  out.msg = msg;
+  log(state, msg);
+  bumpRng(state, 5);
+  return out;
+}
+
+/* ---------- 월간 이벤트 ---------- */
+export const EVENT_CHANCE = 0.3;
+const seasonOf = (m) => (m === 12 || m <= 2 ? 'winter' : m <= 5 ? 'spring' : m <= 8 ? 'summer' : 'autumn');
+const SEASON_KO = { spring: '봄', summer: '여름', autumn: '가을', winter: '겨울' };
+
+export function wandererCandidate(state) {
+  const mine = factionCities(state, state.playerId).map((c) => c.id);
+  return Object.values(state.generals).find((g) => !g.faction && !g.captive && !g.dead && g.city && !mine.includes(g.city)) || null;
+}
+
+export function monthlyEventPool(state) {
+  const season = seasonOf(state.month);
+  return ['harvest', 'bandits', 'wanderer', 'plague', 'drought', 'doctor'].filter((id) => {
+    if (id === 'harvest') return season === 'spring' || season === 'autumn';
+    if (id === 'plague' || id === 'drought') return season === 'summer';
+    if (id === 'doctor') return season === 'winter';
+    if (id === 'wanderer') return !!wandererCandidate(state);
+    return true;
+  });
+}
+
+export function buildEvent(state, id, rng = Math.random) {
+  const fid = state.playerId;
+  const f = state.factions[fid];
+  const cs = factionCities(state, fid);
+  const lordG = f && state.generals[f.lord] ? state.generals[f.lord] : null;
+  const lordCity = lordG && lordG.city ? lordG.city : (cs[0] ? cs[0].id : null);
+  const season = SEASON_KO[seasonOf(state.month)];
+  const ev = { id, title: '', text: '', options: [], data: {} };
+  if (id === 'harvest') {
+    const total = cs.reduce((s, c) => s + Math.round(c.agri * 14 + 120), 0);
+    ev.title = '풍작';
+    ev.text = `${season} 날씨가 곱게 들어 곡창이 가득 찼습니다. 곳간마다 식량이 ${fmtOr(total)} 더 쌓였습니다.`;
+    ev.options = [{ id: 'rejoice', ko: '기뻐한다' }];
+    ev.data = { total };
+    return ev;
+  }
+  if (id === 'wanderer') {
+    const cand = wandererCandidate(state);
+    const t = cand ? generalOf(state, cand.id) : null;
+    if (!cand || !t) return null;
+    ev.title = '유랑 무장';
+    ev.text = `떠돌던 무장 ${withJosa(t.ko, '이')} 성문을 두드리며 휘하에 들기를 청합니다. (통 ${t.lead}·무 ${t.war}·지 ${t.int})`;
+    ev.options = [{ id: 'accept', ko: '받아들인다', hint: `충성 62로 합류 · 명성 +2` }, { id: 'refuse', ko: '돌려보낸다', hint: '명성 변화 없음' }];
+    ev.data = { gid: cand.id, ko: t.ko, city: lordCity };
+    return ev;
+  }
+  if (id === 'bandits') {
+    const gold = 400 + Math.round(rng() * 200);
+    ev.title = '도적 소탕';
+    ev.text = `산길에 도적이 들끓어 상로가 막혔습니다. 토벌에 나서면 병사 몇을 잃는 대신 금과 이름을 얻습니다.`;
+    ev.options = [
+      { id: 'sweep', ko: '토벌한다', hint: `병력 -400 · 금 +${fmtOr(gold)} · 명성 +3` },
+      { id: 'ignore', ko: '그냥 둔다', hint: '모든 성 치안 -6' },
+    ];
+    ev.data = { gold, city: lordCity };
+    return ev;
+  }
+  if (id === 'plague') {
+    ev.title = '역병';
+    ev.text = `더위 속에 역병이 돌았습니다. 의원을 불러 막을 수 있지만 약값이 듭니다.`;
+    ev.options = [
+      { id: 'treat', ko: '의원을 부른다', hint: '금 300 · 피해 절반' },
+      { id: 'endure', ko: '견딘다', hint: '모든 성 치안 -8 · 병력 -5% · 식량 -12%' },
+    ];
+    ev.data = {};
+    return ev;
+  }
+  if (id === 'drought') {
+    ev.title = '가뭄';
+    ev.text = `비가 오지 않아 논바닥이 갈라졌습니다. 수리 시설을 손보면 피해를 줄일 수 있습니다.`;
+    ev.options = [
+      { id: 'irrigate', ko: '수리를 손본다', hint: '금 250 · 수리 +4 · 식량 -6%' },
+      { id: 'endure', ko: '견딘다', hint: '수리 -6 · 농업 -3 · 식량 -15%' },
+    ];
+    ev.data = {};
+    return ev;
+  }
+  if (id === 'doctor') {
+    ev.title = '명의 방문';
+    ev.text = `이름난 의원이 찾아와 군중의 상처를 돌봐 주겠다고 합니다. 병력이 회복됩니다.`;
+    ev.options = [{ id: 'welcome', ko: '맞이한다', hint: '모든 성 병력 +7% · 명성 +1' }];
+    ev.data = {};
+    return ev;
+  }
+  return null;
+}
+
+/* 달이 바뀔 때 30% 확률로 이벤트 */
+export function rollMonthlyEvent(state, rng = Math.random) {
+  if (state.pendingEvent) return state.pendingEvent;
+  if (rng() >= EVENT_CHANCE) return null;
+  const pool = monthlyEventPool(state);
+  if (!pool.length) return null;
+  const pickId = pool[Math.floor(rng() * pool.length)];
+  const ev = buildEvent(state, pickId, rng);
+  if (!ev) return null;
+  ev.turn = state.turn;
+  ev.year = state.year;
+  ev.month = state.month;
+  state.pendingEvent = ev;
+  log(state, `${ev.title} — ${ev.text}`);
+  return ev;
+}
+
+export function resolveEvent(state, choiceId = null) {
+  const ev = state.pendingEvent;
+  if (!ev) return { ok: false, msg: '진행 중인 이벤트가 없습니다.' };
+  const opts = ev.options || [];
+  const opt = opts.find((o) => o.id === choiceId) || opts[0];
+  const fid = state.playerId;
+  const cs = factionCities(state, fid);
+  let msg = '';
+  if (ev.id === 'harvest') {
+    let total = 0;
+    for (const c of cs) { const add = Math.round(c.agri * 14 + 120); c.food += add; total += add; }
+    msg = `풍작으로 식량 ${fmtOr(total)}을 거두었습니다.`;
+  } else if (ev.id === 'wanderer') {
+    if (opt.id === 'accept') {
+      const g = state.generals[ev.data.gid];
+      const t = generalOf(state, ev.data.gid);
+      if (g) {
+        g.faction = fid; g.city = ev.data.city; g.loyalty = 62; g.acted = true;
+        bumpFame(state, fid, 2);
+        msg = `${t ? t.ko : '무장'}이 아군이 되었습니다. (충성 62 · 명성 +2)`;
+      }
+    } else {
+      msg = `${withJosa(ev.data.ko, '을')} 돌려보냈습니다.`;
+    }
+  } else if (ev.id === 'bandits') {
+    if (opt.id === 'sweep') {
+      const c = state.cities[ev.data.city] || cs[0];
+      if (c) { c.troops = Math.max(500, c.troops - 400); c.gold += ev.data.gold; }
+      bumpFame(state, fid, 3);
+      msg = `도적을 소탕해 금 ${fmtOr(ev.data.gold)}을 얻고 명성 +3을 쌓았습니다.`;
+    } else {
+      for (const c of cs) c.order = clamp(c.order - 6, 0, 100);
+      msg = `도적을 그냥 두어 모든 성의 치안이 6씩 떨어졌습니다.`;
+    }
+  } else if (ev.id === 'plague') {
+    const treat = opt.id === 'treat' && factionGold(state, fid) >= 300;
+    if (treat) spendFactionGold(state, fid, 300);
+    for (const c of cs) {
+      if (treat) { c.order = clamp(c.order - 3, 0, 100); c.food = Math.round(c.food * 0.95); }
+      else { c.order = clamp(c.order - 8, 0, 100); c.troops = Math.max(300, Math.round(c.troops * 0.95)); c.food = Math.round(c.food * 0.88); }
+    }
+    msg = treat ? '의원을 불러 역병을 수습했습니다. (금 300)' : '역병이 돌아 병력과 식량을 잃었습니다.';
+  } else if (ev.id === 'drought') {
+    const irrigate = opt.id === 'irrigate' && factionGold(state, fid) >= 250;
+    if (irrigate) spendFactionGold(state, fid, 250);
+    for (const c of cs) {
+      if (irrigate) { c.water = clamp(c.water + 4, 0, 100); c.food = Math.round(c.food * 0.94); }
+      else { c.water = clamp(c.water - 6, 0, 100); c.agri = clamp(c.agri - 3, 0, 100); c.food = Math.round(c.food * 0.85); }
+    }
+    msg = irrigate ? '수리 시설을 손보아 가뭄 피해를 줄였습니다. (금 250)' : '가뭄으로 수리와 농업이 메말랐습니다.';
+  } else if (ev.id === 'doctor') {
+    let add = 0;
+    for (const c of cs) { const inc = Math.round(c.troops * 0.07); c.troops += inc; add += inc; }
+    bumpFame(state, fid, 1);
+    msg = `명의가 병사 ${fmtOr(add)}명을 되살렸습니다. 명성 +1`;
+  }
+  state.pendingEvent = null;
+  log(state, msg);
+  syncOffices(state);
+  bumpRng(state, 6);
+  return { ok: true, msg, event: ev, choice: opt.id };
+}
+
+const fmtOr = (n) => Math.round(n).toLocaleString('ko-KR');
+
+/* ---------- 전투 원군 ---------- */
+export const REINFORCE_MAX = 2;
+export const REINFORCE_RATIO = 0.35;
+
+/* 원군 후보 — 기준 성에 인접한 아군·동맹 성 중 병력과 장수가 남은 곳 */
+export function reinforcementCandidates(state, baseCityIds, fid, exclude = []) {
+  const seen = new Set();
+  const out = [];
+  for (const base of baseCityIds) {
+    if (!CITY_BY_ID[base]) continue;
+    for (const n of neighbors(base)) {
+      if (seen.has(n) || exclude.includes(n)) continue;
+      const c = state.cities[n];
+      if (!c || !c.owner) continue;
+      const ally = c.owner !== fid;
+      if (ally && !isAllied(state, c.owner, fid)) continue;
+      if (isPacified(state, fid, c.owner)) continue;
+      if (c.troops < 1600) continue;
+      const ownLord = state.factions[c.owner] ? state.factions[c.owner].lord : null;
+      const gens = generalsInCity(state, n).filter((g) => !g.acted && g.id !== ownLord);
+      if (!gens.length) continue;
+      gens.sort((a, b) => {
+        const ta = generalOf(state, a.id), tb = generalOf(state, b.id);
+        return (tb.lead + tb.war) - (ta.lead + ta.war);
+      });
+      const g = gens[0];
+      const t = generalOf(state, g.id);
+      const troops = Math.min(Math.round(c.troops * REINFORCE_RATIO), 4200, c.troops - 800);
+      if (troops < 500) continue;
+      seen.add(n);
+      out.push({
+        cityId: n, city: cityName(n), owner: c.owner,
+        ownerName: state.factions[c.owner] ? state.factions[c.owner].name : '',
+        ally, gid: g.id, gname: t.ko, troops,
+        spec: { id: t.id, ko: t.ko, lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha, arms: t.arms, skill: t.skill, formations: t.formations || ['eorin'] },
+      });
+    }
+  }
+  return out.sort((a, b) => b.troops - a.troops);
+}
+
+/* 원군으로 빠져나가는 병력을 출발 성에서 덜어 낸다 */
+export function takeReinforcements(state, list) {
+  for (const r of list || []) {
+    const c = state.cities[r.cityId];
+    if (!c) continue;
+    c.troops = Math.max(300, c.troops - r.troops);
+  }
+}
+
+/* 어느 쪽에 원군이 붙는가 — 방어측은 자동, 공격측은 플레이어가 고른 성 */
+export function planReinforcements(state, fromCityId, toCityId, opts = {}) {
+  const rng = opts.rng || rngOf(state);
+  const atkFid = ownerOf(state, fromCityId);
+  const defFid = ownerOf(state, toCityId);
+  const me = state.playerId;
+  const plan = { atk: [], def: [] };
+
+  const defCands = reinforcementCandidates(state, [toCityId], defFid, [fromCityId, toCityId]);
+  if (defFid === me) plan.def = defCands.slice(0, REINFORCE_MAX);
+  else plan.def = defCands.filter(() => rng() < 0.65).slice(0, 1);
+
+  if (atkFid === me) {
+    const want = (opts.atkReinforcements || []).slice(0, REINFORCE_MAX);
+    if (want.length) {
+      const cands = reinforcementCandidates(state, [fromCityId], atkFid, [fromCityId, toCityId]);
+      plan.atk = cands.filter((c) => want.includes(c.cityId));
+    }
+  } else if (opts.aiReinforce !== false) {
+    const cands = reinforcementCandidates(state, [fromCityId], atkFid, [fromCityId, toCityId]);
+    plan.atk = cands.filter(() => rng() < 0.5).slice(0, 1);
+  }
+  // 동맹 원군은 우호도가 받쳐야 온다
+  plan.atk = plan.atk.filter((r) => !r.ally || relationOf(state, atkFid, r.owner) >= 55);
+  plan.def = plan.def.filter((r) => !r.ally || relationOf(state, defFid, r.owner) >= 55);
+  return plan;
 }
 
 /* ---------- 내정 명령 ---------- */
@@ -649,25 +1361,31 @@ export function canAttack(state, fromCityId, toCityId) {
   if (!isAdjacent(fromCityId, toCityId)) return { ok: false, why: '인접한 성이 아닙니다.' };
   const to = state.cities[toCityId];
   if (to.owner === state.playerId) return { ok: false, why: '아군 성입니다.' };
+  if (to.owner && isPacified(state, state.playerId, to.owner)) {
+    return { ok: false, why: `${isAllied(state, state.playerId, to.owner) ? '동맹' : '정전'} 중인 세력입니다.` };
+  }
   if (from.troops < 1000) return { ok: false, why: '병력이 부족합니다(1000 이상).' };
   if (!generalsInCity(state, fromCityId).length) return { ok: false, why: '출진할 장수가 없습니다.' };
   return { ok: true };
 }
 
-export function battleSetup(state, fromCityId, toCityId) {
+export function battleSetup(state, fromCityId, toCityId, opts = {}) {
   const from = state.cities[fromCityId];
   const to = state.cities[toCityId];
   const atkGens = generalsInCity(state, fromCityId);
   const defGens = generalsInCity(state, toCityId);
+  const plan = planReinforcements(state, fromCityId, toCityId, opts);
+  takeReinforcements(state, [...plan.atk, ...plan.def]);
   return {
     fromCityId, toCityId,
     attackerFaction: from.owner,
     defenderFaction: to.owner,
-    atkGenerals: atkGens.map((g) => g.id),
+    atkGenerals: (opts.atkGenerals || atkGens.map((g) => g.id)).slice(0, MAX_ARMY),
     defGenerals: defGens.map((g) => g.id),
-    atkTroops: from.troops,
+    atkTroops: typeof opts.atkTroops === 'number' ? opts.atkTroops : from.troops,
     defTroops: to.troops,
     defBonus: to.def,
+    reinforcements: plan,
   };
 }
 
@@ -774,13 +1492,21 @@ function aiEconomy(state, fid, rng) {
 }
 
 export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
-  const atkPower = cityPower(state, from, false);
-  const defPower = cityPower(state, to, true);
+  const atkBase = cityPower(state, from, false);
+  const defBase = cityPower(state, to, true);
+  const plan = planReinforcements(state, from, to, { rng });
+  takeReinforcements(state, [...plan.atk, ...plan.def]);
+  const atkRe = plan.atk.reduce((s, r) => s + r.troops, 0);
+  const defRe = plan.def.reduce((s, r) => s + r.troops, 0);
+  const atkPower = atkBase + atkRe * 0.75;
+  const defPower = defBase + defRe * 0.85;
   const roll = atkPower * (0.85 + rng() * 0.4) - defPower * (0.85 + rng() * 0.3);
   const fromC = state.cities[from];
   const toC = state.cities[to];
   const atkFid = fromC.owner;
   const defFid = toC.owner;
+  if (defRe) log(state, `[원군 도착!] ${cityName(to)} 수비에 ${plan.def.map((r) => r.gname).join(', ')} 부대가 합류했습니다.`);
+  if (atkRe) log(state, `[원군 도착!] 공격측에도 ${plan.atk.map((r) => r.gname).join(', ')} 부대가 붙었습니다.`);
   const attackerWins = roll > 0;
   if (attackerWins) {
     toC.owner = atkFid;
@@ -802,6 +1528,7 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
   }
   checkFactionDeath(state, defFid);
   checkFactionDeath(state, atkFid);
+  cleanDiplomacy(state);
   bumpRng(state, 5);
   return attackerWins;
 }
@@ -974,6 +1701,7 @@ export function checkFactionDeath(state, fid) {
   if (!factionCities(state, fid).length) {
     f.alive = false;
     log(state, `${f.name} 세력이 멸망했습니다.`);
+    cleanDiplomacy(state);
   }
   if (fid === state.playerId && !f.alive) {
     state.gameOver = { type: 'defeat', text: `${f.name} 세력이 멸망했습니다.` };
@@ -984,7 +1712,9 @@ export function endTurnPhase2(state) {
   // 월 수입·소비
   for (const c of Object.values(state.cities)) {
     if (!c.owner) continue;
-    const gold = Math.round(c.comm * 5 + c.order * 0.8);
+    const office = OFFICES[officeLevel(state, c.owner)] || OFFICES[0];
+    const tax = 1 + office.tax;
+    const gold = Math.round((c.comm * 5 + c.order * 0.8) * tax);
     const food = Math.round(c.agri * 7 + c.water * 1.5);
     c.gold += gold;
     c.food += food - Math.ceil(c.troops / 18);
@@ -1030,10 +1760,20 @@ export function endTurnPhase2(state) {
   if (state.month > 12) { state.month = 1; state.year++; }
   for (const g of Object.values(state.generals)) { g.acted = false; g.movedThisTurn = false; }
   state.talked = {};
+  // 외교 기한 · 정탐 기한 · 관직
+  tickDiplomacy(state);
+  state.scouted = state.scouted || {};
+  for (const cid of Object.keys(state.scouted)) {
+    if (!(state.scouted[cid].until > state.turn)) delete state.scouted[cid];
+  }
+  for (const fid of Object.keys(state.factions)) if (state.factions[fid].alive) checkFactionDeath(state, fid);
+  cleanDiplomacy(state);
+  syncOffices(state);
   state.maxActionPoints = calcActionPoints(state, state.playerId);
   state.actionPoints = state.maxActionPoints;
 
   checkVictory(state);
+  if (!state.gameOver) rollMonthlyEvent(state, rngOf(state));
   bumpRng(state, 11);
   return state;
 }
@@ -1100,6 +1840,8 @@ export function applyBattleResult(state, result, rng = null) {
   result.capturedGenerals = out.prisoners.map((p) => p.gid);
   checkFactionDeath(state, defFid);
   checkFactionDeath(state, atkFid);
+  cleanDiplomacy(state);
+  syncOffices(state);
   checkVictory(state);
   return out;
 }
@@ -1112,14 +1854,18 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전 양식, 4 = 포로 처분 이전 양식, 5 = 대화·이동 이전 양식. 열어서 새 양식으로 옮긴다.
-  if (!s || ![3, 4, 5, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, 5, 6, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];
   s.pendingPrisoners = s.pendingPrisoners || [];
   s.talked = s.talked || {};
   s.log = s.log || [];
+  s.scouted = s.scouted || {};
+  s.offices = s.offices || {};
+  s.pendingEvent = s.pendingEvent || null;
+  s.lastPromotions = [];
   s.stats = { battles: 0, wins: 0, duelWins: 0, duels: 0, captured: 0, recruited: 0, executed: 0, released: 0, ...(s.stats || {}) };
   // 옛 저장의 깃발 글자(한자)는 버리고 한글 한 글자로 바꿔 둔다
   for (const f of Object.values(s.factions || {})) {
@@ -1132,6 +1878,9 @@ export function deserialize(json) {
     if (g.captive === undefined) g.captive = false;
     if (g.movedThisTurn === undefined) g.movedThisTurn = false;
   }
+  ensureDiplomacy(s);
+  syncOffices(s);
+  s.lastPromotions = [];
   return s;
 }
 

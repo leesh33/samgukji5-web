@@ -90,6 +90,8 @@ export function createBattle(opts) {
     playerSide, seed, defBonus,
     initial: { atk: atkTroops, def: defTroops },
     terrainName: CITY_BY_ID[toCityId] ? CITY_BY_ID[toCityId].ko : '',
+    // R2에 합류할 원군 — 엔진이 미리 뽑아 둔다
+    reinforcements: opts.reinforcements ? { atk: [...(opts.reinforcements.atk || [])], def: [...(opts.reinforcements.def || [])] } : { atk: [], def: [] },
   };
 
   // 지형 생성
@@ -160,6 +162,57 @@ export function createBattle(opts) {
 
   battle.log.push(`${battle.terrainName} 전장 — ${sideName(battle, 'atk')}군의 공격이 시작되었다.`);
   return battle;
+}
+
+/* ---------- 원군 ---------- */
+const SIDE_KO_LONG = { atk: '공격측', def: '수비측' };
+
+/* 원군 한 부대를 전장 가장자리에 세운다 */
+export function addReinforcement(b, side, r) {
+  const spec = r.spec || GENERAL_BY_ID[r.gid];
+  if (!spec || !(r.troops > 0)) return null;
+  const edge = side === 'atk' ? 0 : b.w - 1;
+  let pos = null;
+  for (let dx = 0; dx < 3 && !pos; dx++) {
+    const x = side === 'atk' ? Math.min(b.w - 1, edge + dx) : Math.max(0, edge - dx);
+    for (let y = 0; y < b.h; y++) {
+      if (!b.units.some((o) => o.alive && o.x === x && o.y === y)) { pos = { x, y }; break; }
+    }
+  }
+  if (!pos) return null;
+  const unit = {
+    id: `${side}-${r.gid}-re`,
+    side, gid: r.gid, name: spec.ko,
+    spec: { id: spec.id || r.gid, ko: spec.ko, lead: spec.lead, war: spec.war, int: spec.int, pol: spec.pol, cha: spec.cha, arms: spec.arms, skill: spec.skill, formations: spec.formations || ['eorin'] },
+    troops: Math.max(300, Math.round(r.troops)),
+    morale: clamp(62 + Math.round((spec.lead || 50) / 5), 45, 100),
+    formation: (spec.formations && spec.formations[0]) || 'eorin',
+    x: pos.x, y: pos.y,
+    dir: side === 'atk' ? 'E' : 'W',
+    acted: false, moved: false, alive: true, reinforcement: true,
+  };
+  b.units.push(unit);
+  b.initial[side] += unit.troops;
+  return unit;
+}
+
+/* 라운드가 바뀔 때 예약된 원군이 도착한다 */
+export function arriveReinforcements(b) {
+  const plan = b.reinforcements;
+  if (!plan) return [];
+  const out = [];
+  for (const side of ['atk', 'def']) {
+    const list = plan[side] || [];
+    if (!list.length) continue;
+    const names = [];
+    for (const r of list) {
+      const u = addReinforcement(b, side, r);
+      if (u) { out.push(u); names.push(`${u.name} ${u.troops.toLocaleString()}`); }
+    }
+    plan[side] = [];
+    if (names.length) b.log.push(`[원군 도착!] ${SIDE_KO_LONG[side]} 가장자리에 원군 ${names.join(', ')} 부대가 합류했습니다!`);
+  }
+  return out;
 }
 
 export const sideName = (b, side) => (side === 'atk' ? '공격' : '수비');
@@ -382,6 +435,8 @@ export function nextPhase(b) {
     b.phase = 'atk';
     b.round++;
     for (const u of b.units) { u.acted = false; u.moved = false; }
+    // 2라운드부터 예약된 원군이 들어온다
+    arriveReinforcements(b);
   }
   checkEnd(b);
   return b;
