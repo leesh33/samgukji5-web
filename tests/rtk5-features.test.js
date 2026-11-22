@@ -309,6 +309,7 @@ test('참모: 계략·등용 성공률이 참모의 보정만큼 오른다', () 
   assert.ok(withAdvisor > without, `${withAdvisor} > ${without}`);
 
   const free = E.freeGeneralsInCity(s, 'xuchang')[0];
+  s.affinity[free.id] = 60; // 낯섦 상한(12%)에 걸리지 않는 알음 구간에서 참모 보정 확인
   const hired0 = E.hireChance(s, 'xuchang', free.id);
   s.advisorId = E.recommendAdvisor(s);
   const hired1 = E.hireChance(s, 'xuchang', free.id);

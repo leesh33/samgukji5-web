@@ -1899,7 +1899,7 @@ export function hireChance(state, cityId, gid, officerGid) {
     // 재야 — 친밀도가 낯설면 좀처럼 고개를 숙이지 않는다
     c = aff / 240 + charm / 500 + fame / 700 - ((t.war || 0) + (t.int || 0)) / 2400;
     c += advisorBonus(state); // 참모의 조언
-    if (aff < 40) c = Math.min(c, 0.3);
+    if (aff < 40) c = Math.min(c, 0.12);
     if (aff >= 60) c += 0.12;
     if (aff >= 80) c += 0.12;
   } else {
@@ -1913,6 +1913,8 @@ export function hireChance(state, cityId, gid, officerGid) {
   }
   if (lord && lord.skill === 'indeok') c += 0.05;
   if (t.skill === 'indeok') c += 0.02;
+  // 인덕 보정까지 더해도 재야 낯섦(친밀 40 미만) 구간은 12%를 넘지 않는다
+  if (isFree && aff < 40) c = Math.min(c, 0.12);
   return clamp(c, 0.01, isFree ? 0.9 : 0.6);
 }
 

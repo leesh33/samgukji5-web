@@ -105,7 +105,7 @@ test('친교: 금 200·행동력 1로 친밀도가 12~18 오른다', () => {
   assert.equal(E.befriendCheck(s, own.id).ok, false);
 });
 
-test('재야 등용 성공률: 친밀도가 낮으면 30% 이하, 높으면 크게 오른다', () => {
+test('재야 등용 성공률: 친밀도가 낮으면 12% 이하, 높으면 크게 오른다', () => {
   const s = newGame(23);
   const city = firstCity(s);
   const free = E.freeGeneralsInCity(s, city.id)[0];
@@ -117,11 +117,45 @@ test('재야 등용 성공률: 친밀도가 낮으면 30% 이하, 높으면 크�
   const mid = E.hireChance(s, city.id, free.id);
   s.affinity[free.id] = 85;
   const high = E.hireChance(s, city.id, free.id);
-  assert.ok(low <= 0.3, '낮은 친밀도 ' + low);
-  assert.ok(lowMid >= low, '친밀도가 오르면 성공률도 오른다');
+  assert.ok(low <= 0.12, '낮은 친밀도 ' + low);
+  assert.ok(lowMid <= 0.12, '친밀 40 미만은 12% 상한 ' + lowMid);
   assert.ok(mid > low + 0.15, `${low} → ${mid}`);
   assert.ok(high > mid, `${mid} → ${high}`);
   assert.ok(high >= 0.6, '높은 친밀도 ' + high);
+});
+
+test('재야 낯섦 구간 등용 상한 12%: 인덕 보정이 있어도 넘지 않고, 친교로 40을 넘기면 상승', () => {
+  const s = newGame(23);
+  const city = firstCity(s);
+  const free = E.freeGeneralsInCity(s, city.id)[0];
+  // 지도 위 모든 재야 장수를 낯섦으로 두고 12% 상한을 확인
+  for (const g of Object.values(s.generals)) {
+    if (g.faction || g.dead || g.captive) continue;
+    if (!g.city || !s.cities[g.city]) continue;
+    s.affinity[g.id] = 35;
+    const c = E.hireChance(s, g.city, g.id);
+    assert.ok(c <= 0.12, `${g.id} 낯섦 등용 성공률 ${c}`);
+  }
+  // 군주·대상이 인덕이어도 상한은 그대로
+  const lord = E.lordOf(s, s.playerId);
+  const lordSkill = lord.skill;
+  lord.skill = 'indeok';
+  const t = E.generalOf(s, free.id);
+  const targetSkill = t.skill;
+  t.skill = 'indeok';
+  s.affinity[free.id] = 38;
+  assert.ok(E.hireChance(s, city.id, free.id) <= 0.12, '인덕 보정 후에도 12% 상한');
+  lord.skill = lordSkill;
+  t.skill = targetSkill;
+  // 친교로 친밀 40을 넘기면 상한이 풀린다
+  s.affinity[free.id] = 30;
+  const before = E.hireChance(s, city.id, free.id);
+  const r = E.befriend(s, free.id);
+  assert.ok(r.ok, r.msg);
+  assert.ok(r.aff >= 40, '친교 후 친밀 ' + r.aff);
+  const after = E.hireChance(s, city.id, free.id);
+  assert.ok(after > before, `친교 후 상승 ${before} → ${after}`);
+  assert.ok(after > 0.12, '알음 구간은 12% 상한이 없다 ' + after);
 });
 
 test('타국 장수: 충성 85 이상에 친밀도 60 미만이면 성공률 5% 이하', () => {
