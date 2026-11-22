@@ -89,7 +89,7 @@ with sync_playwright() as p:
     errors.clear()
     page.click('[data-act="new"]')
     page.wait_for_timeout(400)
-    page.click('#scenario-list .sc-card >> nth=0')
+    page.click('#scenario-list .sc-card:not(.sc-custom) >> nth=0')  # 신군주 생성 카드 제외한 실제 시나리오
     page.wait_for_timeout(300)
     page.click('#lord-list .lord-card >> nth=0')
     page.wait_for_timeout(1000)
@@ -112,7 +112,9 @@ with sync_playwright() as p:
     # 저장 → 클라우드 업로드 경로는 로그인 전엔 조용히 넘어가야 한다
     page.click('[data-act="endturn"]')
     page.wait_for_timeout(1200)
-    step("③ 비로그인 턴 진행 정상", not page.locator("#scr-game").is_hidden())
+    # 턴 종료 후 AI가 공격해 오면 전술 전투 화면(#scr-battle)으로 넘어가는 것이 정상 흐름이다
+    step("③ 비로그인 턴 진행 정상",
+         not page.locator("#scr-game").is_hidden() or not page.locator("#scr-battle").is_hidden())
     step("③ 콘솔 0", len(errors) == 0, " / ".join(errors[:3]))
 
     # ④ 만료된 세션이 남아 있을 때 — 스스로 정리하고 다시 로그인할 수 있게 안내
