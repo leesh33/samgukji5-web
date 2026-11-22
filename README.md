@@ -98,7 +98,7 @@
 
 ```bash
 python3 -m http.server 4173      # http://127.0.0.1:4173
-node --test 'tests/*.test.js'     # 엔진·전투·방향·진형 상성·포로·일기토·데이터·신군주(전설 주사위 포함)·이동·대화·친밀도·등용·외교·계략·관직·달의 소식·원군·교역·특수·보물·참모(군주 제외)·위임·정보·전투 계략 확장·한자 0자·대회·진형 전수·클라우드 동기화 테스트 212개
+node --test 'tests/*.test.js'     # 엔진·전투·방향·진형 상성·포로·일기토·데이터·신군주(전설 주사위 포함)·이동·대화·친밀도·등용·외교·계략·관직·달의 소식·원군·교역·특수·보물·참모(군주 제외)·위임·정보·전투 계략 확장·한자 0자·대회·진형 전수·클라우드 동기화 테스트 214개
 python3 tests/verify_live.py http://127.0.0.1:4173/index.html local   # Playwright 390×844 검증
 python3 tests/verify_sheet.py http://127.0.0.1:4173/index.html local  # 하단 시트 펼침·스와이프 도시 전환 검증
 python3 tests/verify_popover.py http://127.0.0.1:4173/index.html local  # 1차 메뉴 팝오버·시트 높이 고정·▲ 성 메뉴 손잡이 검증

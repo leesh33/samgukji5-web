@@ -140,8 +140,8 @@ with sync_playwright() as p:
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)
     step("시트 한자 0자", hanja(page)["n"] == 0, hanja(page))
-    page.screenshot(path=os.path.join(OUT, f"{TAG}-advisor-sheet.png"))
-    print("SHOT " + os.path.basename(f"{TAG}-advisor-sheet.png"), flush=True)
+    page.screenshot(path=os.path.join(OUT, f"{TAG}-advisor-no-lord.png"))
+    print("SHOT " + os.path.basename(f"{TAG}-advisor-no-lord.png"), flush=True)
 
     # ---------- 2. 옛 세이브: 군주가 참모 ----------
     expect = page.evaluate("""async (lord) => {

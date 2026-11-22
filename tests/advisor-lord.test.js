@@ -85,3 +85,37 @@ test('참모: 군주를 참모로 둔 채로는 보정이 붙지 않고, 턴이 
   assert.notEqual(s.advisorId, lord);
   assert.ok(E.advisorOf(s), '턴이 바뀌면 부하 장수가 앉는다');
 });
+
+/* ---------- 신군주(커스텀 세력) ---------- */
+const customDraft = (over = {}) => ({
+  name: '오돌', mark: '오', color: '#c8a15a',
+  cityId: E.customStartCities('s194')[0].cityId,
+  stats: { lead: 70, war: 60, int: 100, pol: 90, cha: 80 },
+  skill: 'sinan', arms: '보병', retinue: 2,
+  style: { hat: 2, beard: 3, skin: 2 },
+  ...over,
+});
+
+test('참모: 신군주(지력 100 오돌)도 참모에 오르지 않고 휘하 장수가 앉는다', () => {
+  const custom = E.buildCustomLord(customDraft());
+  const s = E.createGame('s194', custom.faction.id, 999, { custom });
+  const lord = s.factions[s.playerId].lord;
+  assert.equal(E.generalOf(s, lord).ko, '오돌');
+  const ids = E.advisorCandidates(s).map((g) => g.id);
+  assert.ok(!ids.includes(lord), '신군주가 후보에 없음');
+  assert.ok(ids.length >= 1, '휘하 장수가 후보');
+  assert.notEqual(s.advisorId, lord);
+  assert.ok(E.advisorOf(s));
+  const r = E.appointAdvisor(s, lord);
+  assert.equal(r.ok, false);
+  assert.equal(r.msg, '군주는 참모로 임명할 수 없습니다.');
+});
+
+test('참모: 휘하가 없는 신군주는 군주 말고 사람이 없어 참모도 없다', () => {
+  const custom = E.buildCustomLord(customDraft({ retinue: 0 }));
+  const s = E.createGame('s194', custom.faction.id, 777, { custom });
+  assert.deepEqual(E.advisorCandidates(s), []);
+  assert.equal(s.advisorId, null);
+  assert.equal(E.advisorBonus(s), 0);
+  assert.match(E.advisorAdvice(s), /참모로 앉힐 부하 장수가 없습니다/);
+});
