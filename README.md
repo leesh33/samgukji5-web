@@ -68,6 +68,7 @@ python3 tests/verify_sync_e2e.py http://127.0.0.1:4173/index.html    # 로그인
 python3 tests/verify_login_live.py https://dotsamguk.vercel.app  # 라이브: 구글·카카오 OAuth 이동·만료 세션
 python3 tests/verify_battle_v5.py http://127.0.0.1:4173/index.html local  # 진형 도트·방향 대미지·상성·포로 처분 검증
 python3 tests/verify_move_talk.py http://127.0.0.1:4173/index.html local  # 도시간 장수 이동·장수 대화·한자 0자 검증
+python3 tests/verify_save_v5_live.py https://dotsamguk.vercel.app      # 옛 v5 저장 이어하기 호환 검증
 ```
 
 ### ☁ 로그인 · 클라우드 저장
