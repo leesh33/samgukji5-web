@@ -121,15 +121,26 @@ with sync_playwright() as p:
     page.click('[data-act="cst-arms"][data-v="기병"]')
     page.click('[data-act="cst-retinue"][data-v="2"]')
     page.wait_for_timeout(300)
-    # 능력치: 주사위 → + 버튼
-    page.click('[data-act="cst-dice"]')
-    page.wait_for_timeout(250)
-    stats0 = page.evaluate("() => Array.from(document.querySelectorAll('[data-stat]')).map(e => +e.textContent)")
-    page.click('[data-act="cst-stat"][data-k="war"][data-d="1"]')
-    page.click('[data-act="cst-stat"][data-k="war"][data-d="1"]')
-    page.wait_for_timeout(200)
+    # 능력치: 주사위 여러 번 → 총합이 255 이하에서 매번 달라지는지 → + 버튼으로 수동 보정
+    dice_sums = []
+    stats0 = []
+    for _ in range(8):
+        page.click('[data-act="cst-dice"]')
+        page.wait_for_timeout(180)
+        stats0 = page.evaluate("() => Array.from(document.querySelectorAll('[data-stat]')).map(e => +e.textContent)")
+        dice_sums.append(sum(stats0))
+    stats_ok = all(165 <= x <= 255 for x in dice_sums)
+    stat_range_ok = all(20 <= v <= 96 for v in stats0)
+    step("주사위 총합 165~255·매번 다른 값", stats_ok and stat_range_ok and len(set(dice_sums)) >= 3, dice_sums)
+    lab = page.evaluate("() => document.querySelector('#cst-left').parentElement.textContent")
+    step("최대 255·합계 표기", "최대 255" in lab and f"합계 {sum(stats0)}" in lab, lab.strip())
+    for _ in range(4):
+        page.click('[data-act="cst-stat"][data-k="pol"][data-d="1"]')
+        page.wait_for_timeout(80)
     stats1 = page.evaluate("() => Array.from(document.querySelectorAll('[data-stat]')).map(e => +e.textContent)")
-    step("능력치 총합 유지(배분)", sum(stats0) == sum(stats1) == 225, f"{stats0} -> {stats1}")
+    lab1 = page.evaluate("() => document.querySelector('#cst-left').parentElement.textContent")
+    step("수동 + 반영·255 이하 유지", sum(stats1) <= 255 and sum(stats1) >= sum(stats0) and f"합계 {sum(stats1)}" in lab1,
+         f"{stats0} -> {stats1} · {lab1.strip()}")
     # 시작 성 (첫 후보 그대로)
     city = page.evaluate("() => document.querySelector('#cst-city').value")
     city_ko = page.evaluate("() => document.querySelector('#cst-city').selectedOptions[0].textContent.split(' ')[0]")

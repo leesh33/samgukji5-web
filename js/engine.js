@@ -183,7 +183,8 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
 
 export const CUSTOM_STAT_MIN = 20;
 export const CUSTOM_STAT_MAX = 96;
-export const CUSTOM_STAT_BUDGET = 225; // 5능력치 평균 45 — 총합 고정, 분배만 자유
+export const CUSTOM_STAT_BUDGET = 255; // 능력치 총합 상한 — 주사위도 이 안에서 나오고 수동 배분도 여기까지
+export const CUSTOM_STAT_DICE_MIN = 165; // 주사위 최소 총합 — 이 아래로는 안 나온다
 export const CUSTOM_NAME_MIN = 2;
 export const CUSTOM_NAME_MAX = 6;
 export const CUSTOM_RETINUE_PRESETS = [
@@ -192,22 +193,56 @@ export const CUSTOM_RETINUE_PRESETS = [
 ];
 const STAT_KEYS = ['lead', 'war', 'int', 'pol', 'cha'];
 
-/* 주사위: 총합 예산을 다섯 능력치에 무작위로 나눈다 */
+/* 주사위: 먼저 이번 굴림의 총합을 뽑는다 — 최소 165부터 최대 255까지, 위쪽이 조금 더 잘 나오고
+   가끔 만점(255)이 뜬다 */
+export function rollCustomTotal(rand = Math.random) {
+  const r = clamp(rand(), 0, 1);
+  if (r < 0.06) return CUSTOM_STAT_BUDGET; // 가끔 만점(255)
+  const span = CUSTOM_STAT_BUDGET - CUSTOM_STAT_DICE_MIN;
+  const t = Math.pow((r - 0.06) / 0.94, 0.8); // 위쪽으로 살짝 기운 분포
+  return Math.min(CUSTOM_STAT_BUDGET, CUSTOM_STAT_DICE_MIN + Math.round(span * t));
+}
+
+/* 주사위: 뽑힌 총합을 다섯 능력치에 무작위로 나눈다 — 한 항목이 확 치솟는 굴림도 나오게 */
 export function rollCustomStats(rand = Math.random) {
-  const stats = {};
-  let left = CUSTOM_STAT_BUDGET;
+  const target = rollCustomTotal(rand);
+  const cap = CUSTOM_STAT_MAX - CUSTOM_STAT_MIN;
+  let extra = target - STAT_KEYS.length * CUSTOM_STAT_MIN; // 최소치 위로 더 얹을 몫
+  const add = STAT_KEYS.map(() => 0);
+  // 굴림마다 성격이 달라지도록 가중치를 크게 흔린다
+  const w = STAT_KEYS.map(() => 0.2 + rand() * rand() * 3);
+  const wsum = w.reduce((a, b) => a + b, 0);
   STAT_KEYS.forEach((k, i) => {
-    const rest = STAT_KEYS.length - i - 1;
-    if (rest === 0) { stats[k] = clamp(left, CUSTOM_STAT_MIN, CUSTOM_STAT_MAX); return; }
-    const avg = left / (rest + 1);
-    const hi = Math.min(CUSTOM_STAT_MAX, left - rest * CUSTOM_STAT_MIN);
-    const v = clamp(Math.round(avg + (rand() - 0.5) * 30), CUSTOM_STAT_MIN, hi);
-    stats[k] = v;
-    left -= v;
+    if (extra <= 0) return;
+    const want = Math.min(cap, extra, Math.round((target - STAT_KEYS.length * CUSTOM_STAT_MIN) * w[i] / wsum));
+    add[i] = Math.max(0, want);
+    extra -= add[i];
   });
-  const sum = STAT_KEYS.reduce((n, k) => n + stats[k], 0);
-  stats.cha = clamp(stats.cha + (CUSTOM_STAT_BUDGET - sum), CUSTOM_STAT_MIN, CUSTOM_STAT_MAX);
+  // 반올림·상한에 걸려 남은 몫은 여유가 있는 항목에 무작위로 하나씩
+  while (extra > 0) {
+    const open = STAT_KEYS.map((_, i) => i).filter((i) => add[i] < cap);
+    if (!open.length) break;
+    const pick = open[Math.floor(clamp(rand(), 0, 0.999999) * open.length)];
+    add[pick] += 1;
+    extra -= 1;
+  }
+  const stats = {};
+  STAT_KEYS.forEach((k, i) => { stats[k] = CUSTOM_STAT_MIN + add[i]; });
   return stats;
+}
+
+/* 수동 ＋/－: 항목 범위와 총합 상한(255)을 지키며 한 칸 조정한다 */
+export function adjustCustomStat(stats, k, delta) {
+  const next = {};
+  for (const key of STAT_KEYS) next[key] = clamp(Math.round(Number(stats[key]) || 0), CUSTOM_STAT_MIN, CUSTOM_STAT_MAX);
+  if (!STAT_KEYS.includes(k)) return { stats: next, ok: false, reason: 'key' };
+  const cur = next[k];
+  const want = clamp(cur + delta, CUSTOM_STAT_MIN, CUSTOM_STAT_MAX);
+  if (want === cur) return { stats: next, ok: false, reason: 'limit' };
+  const sum = STAT_KEYS.reduce((n, key) => n + next[key], 0);
+  if (want > cur && sum + (want - cur) > CUSTOM_STAT_BUDGET) return { stats: next, ok: false, reason: 'budget' };
+  next[k] = want;
+  return { stats: next, ok: true, reason: null };
 }
 
 /* 입력을 실제 지휘 가능한 장수 정의로 다듬는다 */

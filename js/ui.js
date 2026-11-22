@@ -243,7 +243,7 @@ function renderCustomBody() {
     </div>
 
     <div class="cst-sec">
-      <label>능력치 <small>총 ${E.CUSTOM_STAT_BUDGET} · 남은 <span id="cst-left">${leftHTML}</span></small></label>
+      <label>능력치 <small>최대 ${E.CUSTOM_STAT_BUDGET} · 합계 <span id="cst-sum">${customSum()}</span> · 남은 <span id="cst-left">${leftHTML}</span></small></label>
       <div class="cst-stats">
         ${STAT_LABELS.map(([k, ko]) => `<div class="cst-stat"><span>${ko}</span>
           <button data-act="cst-stat" data-k="${k}" data-d="-1" aria-label="${ko} 줄이기">－</button>
@@ -251,6 +251,7 @@ function renderCustomBody() {
           <button data-act="cst-stat" data-k="${k}" data-d="1" aria-label="${ko} 늘리기">＋</button></div>`).join('')}
       </div>
       <button class="btn ghost cst-dice" data-act="cst-dice">🎲 주사위로 다시 굴리기</button>
+      <p class="note">주사위는 ${E.CUSTOM_STAT_DICE_MIN}~${E.CUSTOM_STAT_BUDGET} 사이 총합으로 나옵니다. 남은 점수는 ＋로 직접 더 넣을 수 있습니다.</p>
     </div>
 
     <div class="cst-sec">
@@ -282,20 +283,21 @@ function renderCustomBody() {
 }
 
 function adjustCustomStat(k, delta) {
-  const cur = customDraft.stats[k] || 0;
-  const next = Math.max(E.CUSTOM_STAT_MIN, Math.min(E.CUSTOM_STAT_MAX, cur + delta));
-  if (next === cur) return;
-  if (delta > 0 && customSum() + (next - cur) > E.CUSTOM_STAT_BUDGET) {
-    toast('배분할 수 있는 능력치를 모두 썼습니다. 다른 항목을 줄이세요.');
+  const r = E.adjustCustomStat(customDraft.stats, k, delta);
+  if (!r.ok) {
+    if (r.reason === 'limit') return;
+    if (r.reason === 'budget') toast('배분할 수 있는 능력치를 모두 썼습니다. 다른 항목을 줄이세요.');
     sfx.fail();
     return;
   }
-  customDraft.stats[k] = next;
+  customDraft.stats = r.stats;
   const cell = $(`[data-stat="${k}"]`);
-  if (cell) cell.textContent = next;
+  if (cell) cell.textContent = customDraft.stats[k];
   const left = E.CUSTOM_STAT_BUDGET - customSum();
   const lab = $('#cst-left');
   if (lab) lab.innerHTML = left > 0 ? `<b style="color:#8ed18e">+${left}</b>` : left < 0 ? `<b style="color:#e08a7a">${left}</b>` : '<b>0</b>';
+  const sumEl = $('#cst-sum');
+  if (sumEl) sumEl.textContent = customSum();
   sfx.click();
 }
 

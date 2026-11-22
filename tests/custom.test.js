@@ -94,14 +94,59 @@ test('신군주: 이름·색 검증과 기본값', () => {
 
 test('신군주: 주사위 능력치 총합·범위', () => {
   const keys = ['lead', 'war', 'int', 'pol', 'cha'];
-  for (let i = 0; i < 300; i++) {
+  const sumOf = (st) => keys.reduce((n, k) => n + st[k], 0);
+  assert.equal(E.CUSTOM_STAT_BUDGET, 255);
+  const sums = new Set();
+  let high = 0;
+  let full = 0;
+  for (let i = 0; i < 600; i++) {
     const st = E.rollCustomStats();
-    const sum = keys.reduce((n, k) => n + st[k], 0);
-    assert.equal(sum, E.CUSTOM_STAT_BUDGET, `총합 ${sum}`);
+    const sum = sumOf(st);
+    assert.ok(sum >= E.CUSTOM_STAT_DICE_MIN && sum <= E.CUSTOM_STAT_BUDGET, `총합 ${sum}`);
+    assert.ok(sum <= 255, `총합 상한 ${sum}`);
     for (const k of keys) {
       assert.ok(st[k] >= E.CUSTOM_STAT_MIN && st[k] <= E.CUSTOM_STAT_MAX, `${k}=${st[k]}`);
     }
+    sums.add(sum);
+    if (sum >= 240) high++;
+    if (sum === E.CUSTOM_STAT_BUDGET) full++;
   }
+  // 여러 번 굴리면 총합이 매번 같지 않고 넓게 퍼진다(낮은 쪽·높은 쪽 모두)
+  assert.ok(sums.size >= 20, `총합 종류 ${sums.size}가지`);
+  assert.ok(Math.min(...sums) <= E.CUSTOM_STAT_DICE_MIN + 15, `낮은 총합 ${Math.min(...sums)}`);
+  assert.ok(high >= 20, `240 이상 ${high}회`);
+  // 가끔 만점(255)이 뜬다
+  assert.ok(full >= 1, `만점 ${full}회`);
+  // 주사위 총합 자체의 경계
+  assert.equal(E.rollCustomTotal(() => 0), E.CUSTOM_STAT_BUDGET); // 낮은 난수는 만점
+  const lowest = E.rollCustomTotal(() => 0.06);
+  assert.equal(lowest, E.CUSTOM_STAT_DICE_MIN);
+  const top = E.rollCustomTotal(() => 0.999999);
+  assert.equal(top, E.CUSTOM_STAT_BUDGET);
+  // 수동 보정: 210이 나왔다면 남은 45점을 직접 더해 255까지 채울 수 있다
+  let st = { lead: 60, war: 50, int: 40, pol: 30, cha: 30 }; // 210
+  assert.equal(sumOf(st), 210);
+  while (sumOf(st) < 255) {
+    const k = keys.find((key) => st[key] < 96);
+    const r = E.adjustCustomStat(st, k, 1);
+    assert.ok(r.ok, r.reason);
+    st = r.stats;
+  }
+  assert.equal(sumOf(st), 255);
+  assert.equal(st.lead, 96);
+  // 255를 채운 뒤에는 더 못 늘리고, 줄인 만큼만 다시 넣을 수 있다
+  const blocked = E.adjustCustomStat(st, 'war', 1);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.reason, 'budget');
+  assert.equal(sumOf(blocked.stats), 255);
+  const lowered = E.adjustCustomStat(st, 'lead', -5);
+  assert.equal(sumOf(lowered.stats), 250);
+  const refill = E.adjustCustomStat(lowered.stats, 'war', 5);
+  assert.ok(refill.ok, refill.reason);
+  assert.equal(sumOf(refill.stats), 255);
+  // 항목 상한·하한은 총합과 별개로 지켜진다
+  assert.equal(E.adjustCustomStat({ lead: 96, war: 40, int: 40, pol: 40, cha: 39 }, 'lead', 1).ok, false);
+  assert.equal(E.adjustCustomStat({ lead: 20, war: 40, int: 40, pol: 40, cha: 39 }, 'lead', -1).ok, false);
 });
 
 test('신군주: 저장 → 불러오기 → 이어하기에 신세력이 그대로 살아난다', () => {
