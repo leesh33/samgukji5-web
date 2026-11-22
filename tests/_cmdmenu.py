@@ -1,13 +1,14 @@
 """성 패널 카테고리 메뉴 헬퍼 (내정 · 인사 · 군사 · 계략).
 
-하단 성 시트의 1차 버튼은 4개(내정·인사·군사·계략)로 묶여 있고,
-개발·징병·이동·출진 같은 세부 명령은 해당 카테고리를 연 뒤에 나타난다.
+하단 성 시트의 1차 버튼은 5개(내정·인사·군사·외교·계략)로 묶여 있고,
+개발·징병·이동·출진 같은 세부 명령은 해당 카테고리를 누르면 버튼 위에 뜨는
+팝오버(`#cmdp`) 안에 나타난다(시트 높이는 변하지 않는다).
 검증 스크립트는 이 헬퍼로 카테고리를 열고 세부 명령을 누른다.
 """
 
 GROUPS = {
     'agri': 'civil', 'comm': 'civil', 'order': 'civil', 'water': 'civil', 'trade': 'civil', 'transport': 'civil',
-    'move': 'people', 'talk': 'people', 'search': 'people', 'hire': 'people', 'reward': 'people',
+    'search': 'people', 'hire': 'people', 'move': 'people', 'talk': 'people', 'reward': 'people',
     'draft': 'army', 'train': 'army', 'march': 'army',
 }
 GROUP_LABELS = {'civil': '내정', 'people': '인사', 'army': '군사'}

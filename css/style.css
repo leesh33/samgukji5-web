@@ -523,19 +523,48 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gen-chip.done { opacity: 0.45; }
 .cp-gens .none { font-size: 10.5px; color: #8f7d63; padding: 6px 0; }
 .cp-cmds { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 5px; }
-.cp-cmds .btn, .cp-subcmds .btn { width: 100%; min-height: 42px; font-size: 12px; letter-spacing: 0.6px; padding: 4px 2px; flex-direction: column; gap: 0; }
-.cp-cmds .btn small, .cp-subcmds .btn small { font-size: 8.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
+.cp-cmds .btn, .cmdp .btn { width: 100%; min-height: 42px; font-size: 12px; letter-spacing: 0.6px; padding: 4px 2px; flex-direction: column; gap: 0; }
+.cp-cmds .btn small, .cmdp .btn small { font-size: 8.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
 .cp-cmds .btn.cmd-tab { color: #e2cfab; }
 .cp-cmds .btn.cmd-tab.on { border-color: var(--gold); color: #fff3d8; background: var(--wood-grain), linear-gradient(180deg, #4a3520, #2a1e12); box-shadow: inset 0 1px 0 rgba(255, 220, 160, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(232, 148, 60, 0.24); }
 .cp-cmds .btn.cmd-tab.on small { color: var(--gold-hi); }
-.cp-subcmds { display: flex; gap: 4px; margin-top: 4px; }
-.cp-subcmds .btn { flex: 1 1 0; min-width: 0; overflow: hidden; }
-.cp-cmds .btn.march, .cp-subcmds .btn.march { border-color: #8a4632; color: #ffcdba; background: var(--wood-grain), linear-gradient(180deg, #4a2a20, #2b1710); box-shadow: inset 0 1px 0 rgba(255, 190, 160, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(120, 30, 10, 0.25); }
-.cp-cmds .btn.move, .cp-subcmds .btn.move { border-color: #3f6580; color: #cfe6f8; background: var(--wood-grain), linear-gradient(180deg, #1d3342, #10202b); box-shadow: inset 0 1px 0 rgba(180, 220, 255, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(10, 40, 70, 0.3); }
-.cp-cmds .btn.move small, .cp-subcmds .btn.move small { color: #9fc2da; }
-.cp-cmds .btn.talk, .cp-subcmds .btn.talk { border-color: #7d5e2a; color: #ffe6b4; background: var(--wood-grain), linear-gradient(180deg, #3d3117, #231c0d); }
+.cp-cmds .btn.march, .cmdp .btn.march { border-color: #8a4632; color: #ffcdba; background: var(--wood-grain), linear-gradient(180deg, #4a2a20, #2b1710); box-shadow: inset 0 1px 0 rgba(255, 190, 160, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(120, 30, 10, 0.25); }
+.cp-cmds .btn.move, .cmdp .btn.move { border-color: #3f6580; color: #cfe6f8; background: var(--wood-grain), linear-gradient(180deg, #1d3342, #10202b); box-shadow: inset 0 1px 0 rgba(180, 220, 255, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.5), 0 2px 0 rgba(0, 0, 0, 0.5), 0 6px 14px rgba(10, 40, 70, 0.3); }
+.cp-cmds .btn.move small, .cmdp .btn.move small { color: #9fc2da; }
+.cp-cmds .btn.talk, .cmdp .btn.talk { border-color: #7d5e2a; color: #ffe6b4; background: var(--wood-grain), linear-gradient(180deg, #3d3117, #231c0d); }
 .cp-cmds .btn:disabled { opacity: 0.42; }
-.cp-subcmds .btn:disabled { opacity: 0.42; }
+.cmdp .btn:disabled { opacity: 0.42; }
+
+/* 1차 메뉴 위에 뜨는 플로팅 팝오버 — 시트 안 높이에 끼어들지 않는다 */
+.cmdp {
+  position: fixed; z-index: 40; display: flex; gap: 5px; padding: 6px;
+  border-radius: 6px;
+  background: var(--wood-grain), linear-gradient(180deg, #3c2b1b 0%, #241a11 60%, #1d150e 100%);
+  border: 1px solid rgba(240, 186, 110, 0.8);
+  box-shadow: inset 0 1px 0 rgba(255, 226, 176, 0.2), 0 2px 0 rgba(0, 0, 0, 0.45),
+              0 12px 30px rgba(0, 0, 0, 0.62), 0 0 24px rgba(232, 148, 60, 0.2);
+  animation: cmdpIn 0.12s ease-out;
+}
+.cmdp.hidden { display: none; }
+.cmdp::after {
+  content: ''; position: absolute; bottom: -6px; left: var(--tail, 50%); width: 10px; height: 10px;
+  transform: translateX(-50%) rotate(45deg);
+  background: linear-gradient(135deg, #1d150e 0%, #1d150e 50%, #241a11 50%);
+  border-right: 1px solid rgba(240, 186, 110, 0.8); border-bottom: 1px solid rgba(240, 186, 110, 0.8);
+}
+.cmdp .btn { flex: 1 1 0; min-width: 0; overflow: hidden; }
+@keyframes cmdpIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* 시트를 접었을 때 맨 아래에 남는 "▲ 성 메뉴" 탭 손잡이 */
+.cs-handle {
+  display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 30px; margin-top: 2px;
+  font-size: 11px; letter-spacing: 1.8px; color: #ffe9c2; border-radius: 4px;
+  background: var(--wood-grain), linear-gradient(180deg, #4c3721 0%, #2c2013 100%);
+  border: 1px solid #7a5a30;
+  box-shadow: inset 0 1px 0 rgba(255, 224, 170, 0.2), 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 14px rgba(232, 148, 60, 0.16);
+}
+.cs-handle span { font-size: 9px; color: var(--gold); }
+.cs-handle:active { background: var(--wood-grain), linear-gradient(180deg, #5c4326 0%, #362716 100%); border-color: var(--gold); color: #fff6e2; }
 
 /* ---------- 장수 이동 / 대화 ---------- */
 .officer-row.picked { border-color: var(--gold); background: linear-gradient(180deg, #3d2e1e, #241a11); }
@@ -921,7 +950,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   .citypanel { max-height: 60vh; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
   .cp-cmds { grid-template-columns: repeat(5, 1fr); }
-  .cp-subcmds .btn { min-height: 46px; }
+  .cmdp .btn { min-height: 46px; }
   .bt-cmds { grid-template-columns: repeat(5, 1fr); }
   /* 넓은 화면에서는 자원 칸이 늘어나지 않게 폭을 잡고 왼쪽으로 모은다 */
   .resbar { grid-template-columns: auto repeat(5, minmax(0, 128px)); justify-content: start; }

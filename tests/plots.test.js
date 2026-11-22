@@ -152,6 +152,30 @@ test('계략 조건: 비인접·아군 성·동맹 세력·아군 장수 아님�
   assert.match(poor.why, /금/);
 });
 
+test('계략 로그 조사: 이름 받침에 맞게 -이/가가 붙는다(하후돈이)', () => {
+  const { s, from, to } = setup(79);
+  s.customGenerals = { ...(s.customGenerals || {}), josa_gen: { id: 'josa_gen', ko: '하후돈', lead: 82, war: 84, int: 78, pol: 60, cha: 62, arms: '기병', skill: 'dolgyeok', formations: ['eorin'] } };
+  s.generals.josa_gen = { id: 'josa_gen', faction: s.playerId, city: from, loyalty: 100, acted: false, captive: false, dead: false };
+  const chance = E.plotChance(s, from, to, 'scout', 'josa_gen');
+
+  // 실패 로그: <이름>의 <계략>이
+  forceRoll(s, (v) => v >= chance);
+  const miss = E.runPlot(s, from, to, 'scout', 'josa_gen');
+  assert.equal(miss.success, false, miss.msg);
+  assert.match(miss.msg, /하후돈의 정탐이 적에게 들켰습니다/);
+  assert.equal(/하후돈가|정탐가/.test(miss.msg), false, miss.msg);
+
+  // 성공 로그: 하후돈이
+  s.generals.josa_gen.acted = false;
+  s.actionPoints = 5;
+  s.cities[from].gold = 5000;
+  forceRoll(s, (v) => v < chance);
+  const hit = E.runPlot(s, from, to, 'scout', 'josa_gen');
+  assert.equal(hit.success, true, hit.msg);
+  assert.match(hit.msg, /^하후돈이 /);
+  assert.equal(hit.msg.includes('하후돈가'), false, hit.msg);
+});
+
 test('계략은 행동력과 장수의 달 행동을 소모한다', () => {
   const { s, from, to, gid } = setup(71);
   s.actionPoints = 1;

@@ -164,14 +164,14 @@ with sync_playwright() as p:
     page.click('.sheet-head [data-act="sheet-close"]')
     page.wait_for_timeout(280)
 
-    for g, ko, n in (("civil", "내정", 6), ("people", "인사", 5), ("army", "군사", 3)):
+    for g, ko, n in (("civil", "내정", 6), ("people", "인사", 6), ("army", "군사", 3)):
         page.click(f'[data-act="cmd-group"][data-group="{g}"]')
         page.wait_for_timeout(220)
-        cnt = page.locator(".cp-subcmds .btn").count()
-        step(f"{ko} 하위 명령 {n}개", cnt == n, f"{cnt}개")
+        cnt = page.locator("#cmdp:not(.hidden) .btn").count()
+        step(f"{ko} 팝오버 명령 {n}개", cnt == n, f"{cnt}개")
     page.click('[data-act="cmd-group"][data-group="army"]')
     page.wait_for_timeout(220)
-    step("카테고리 다시 누르면 접힘", page.locator(".cp-subcmds").count() == 0)
+    step("카테고리 다시 누르면 접힘", page.locator("#cmdp:not(.hidden)").count() == 0)
     ap0 = page.locator("#res-ap").inner_text()
     gold0 = page.locator("#res-gold").inner_text()
     click_cmd(page, "agri")

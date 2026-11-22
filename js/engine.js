@@ -1512,11 +1512,11 @@ export function runPlot(state, fromCityId, toCityId, kind, gid) {
   let msg = '';
   const out = { ok: true, success, chance, kind, msg: '' };
   if (!success) {
-    msg = `${t.ko}의 ${plot.ko}가 적에게 들켰습니다. (금 ${plot.gold}만 잃었습니다)`;
+    msg = `${t.ko}의 ${withJosa(plot.ko, '이')} 적에게 들켰습니다. (금 ${plot.gold}만 잃었습니다)`;
   } else if (kind === 'scout') {
     state.scouted = state.scouted || {};
     state.scouted[toCityId] = { until: state.turn + SCOUT_TURNS, by: gid, turn: state.turn };
-    msg = `${t.ko}가 ${cityName(toCityId)}의 속내를 살피고 돌아왔습니다. ${SCOUT_TURNS}턴 동안 장수·충성·훈련을 볼 수 있습니다.`;
+    msg = `${withJosa(t.ko, '이')} ${cityName(toCityId)}의 속내를 살피고 돌아왔습니다. ${SCOUT_TURNS}턴 동안 장수·충성·훈련을 볼 수 있습니다.`;
   } else if (kind === 'sow') {
     const gens = generalsInCity(state, toCityId);
     gens.sort((a, b) => (a.loyalty || 0) - (b.loyalty || 0));

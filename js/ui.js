@@ -40,6 +40,9 @@ function show(id) {
   if (id === 'scr-game') {
     setTimeout(() => mapView && mapView.resize(), 30);
     if (!tickTimer) tickTimer = setInterval(() => { if (game && !$('#scr-game').classList.contains('hidden') && !battle) mapView && mapView.render(); }, 800);
+  } else {
+    cityCmdGroup = null;
+    syncCmdPopover();
   }
 }
 function toast(msg, ms = 2200) {
@@ -714,7 +717,7 @@ function openReports() {
 
 /* ---------- 도시 패널 ---------- */
 function selectCity(id) {
-  if (id !== selectedCity) cityPanelOpen = true; // 새 성을 탭하면 다시 펼침
+  if (id !== selectedCity) { cityPanelOpen = true; cityCmdGroup = null; } // 새 성을 탭하면 다시 펼침
   selectedCity = id;
   sfx.select();
   if (mapView) { mapView.setSelected(id); }
@@ -731,6 +734,7 @@ function ownCityIds() {
 
 function stepCity(dir) {
   if (!game || !selectedCity) return false;
+  cityCmdGroup = null;
   const ids = ownCityIds();
   if (!ids.length) { toast('내 성이 없습니다.'); sfx.fail(); return false; }
   const cur = ids.indexOf(selectedCity);
@@ -815,22 +819,114 @@ function bindCityPanelSwipe() {
 }
 
 /* ---------- 성 명령 카테고리 (내정 · 인사 · 군사) ---------- */
+/* 세부 명령은 시트 안에 펼치지 않고 버튼 위에 뜨는 팝오버로 보여 준다(시트 높이 고정) */
 const CITY_CMD_GROUPS = [
   { id: 'civil', ko: '내정', hint: '개발·교역', subs: [
     ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'], ['trade', '교역'], ['transport', '수송'],
   ] },
   { id: 'people', ko: '인사', hint: '등용·이동', subs: [
-    ['move', '이동'], ['talk', '대화'], ['search', '탐색'], ['hire', '등용'], ['reward', '포상'],
+    ['search', '탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['advisor', '참모'],
   ] },
   { id: 'army', ko: '군사', hint: '징병·출진', subs: [
     ['draft', '징병', '2령'], ['train', '훈련'], ['march', '출진'],
   ] },
 ];
 let cityCmdGroup = null;
+let cmdCtx = null;       // 팝오버가 쓰는 현재 성의 조건(행동력·친밀도 등)
+let cmdPopEl = null;
+
+function cmdPopoverEl() {
+  if (!cmdPopEl) {
+    cmdPopEl = document.createElement('div');
+    cmdPopEl.id = 'cmdp';
+    cmdPopEl.className = 'cmdp hidden';
+    cmdPopEl.setAttribute('role', 'menu');
+    document.body.appendChild(cmdPopEl);
+  }
+  return cmdPopEl;
+}
+
+function hideCmdPopover() {
+  const pop = cmdPopoverEl();
+  pop.classList.add('hidden');
+  pop.innerHTML = '';
+  pop.dataset.group = '';
+}
+
+/* 팝오버 안의 세부 명령 버튼 — 예전 2차 줄과 같은 실행 경로(data-act)를 쓴다 */
+function cmdSubHTML(group, ctx) {
+  return group.subs.map(([k, ko, hint]) => {
+    const city = `data-city="${ctx.cityId}"`;
+    if (k === 'march') {
+      return ctx.enemies.length
+        ? `<button class="btn march" role="menuitem" data-act="march" ${city}>${ko}<small>${ctx.enemies.length}곳</small></button>`
+        : `<button class="btn" role="menuitem" disabled>${ko}<small>적 성 없음</small></button>`;
+    }
+    if (k === 'advisor') {
+      const adv = E.advisorOf(game);
+      return `<button class="btn" role="menuitem" data-act="advisor">${ko}<small>${adv ? adv.ko : '지력 최고'}</small></button>`;
+    }
+    const off = k === 'move' ? !ctx.moveReady
+      : k === 'talk' ? (!ctx.partners.length || !ctx.talkLeft || game.actionPoints < 1)
+      : k === 'trade' ? game.actionPoints < 1
+      : false;
+    const note = k === 'move' ? ctx.moveSub : k === 'talk' ? ctx.talkSub : k === 'trade' ? `쌀 ${E.ricePriceOf(game)}` : hint;
+    return `<button class="btn ${k === 'move' || k === 'talk' ? k : ''}" role="menuitem" data-act="cmd" data-cmd="${k}" ${city} ${off ? 'disabled' : ''}>${ko}${note ? `<small>${note}</small>` : ''}</button>`;
+  }).join('');
+}
+
+/* 열린 묶음의 팝오버를 그린다. 시트 안이 아니라 body에 fixed로 붙어 높이를 밀지 않는다 */
+function syncCmdPopover() {
+  const pop = cmdPopoverEl();
+  $$('#citypanel .cmd-tab').forEach((b) => {
+    const on = !!cityCmdGroup && b.dataset.group === cityCmdGroup;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const panel = $('#citypanel');
+  const group = CITY_CMD_GROUPS.find((g) => g.id === cityCmdGroup);
+  if (!group || !cmdCtx || !panel || panel.classList.contains('hidden') || !panel.classList.contains('open')) {
+    hideCmdPopover();
+    return;
+  }
+  pop.setAttribute('aria-label', `${group.ko} 명령`);
+  pop.dataset.group = group.id;
+  pop.innerHTML = cmdSubHTML(group, cmdCtx);
+  pop.classList.remove('hidden');
+  placeCmdPopover();
+}
+
+/* 누른 1차 버튼 바로 위에 붙이고, 꼬리가 버튼 가운데를 가리키게 한다 */
+function placeCmdPopover() {
+  if (!cmdPopEl || cmdPopEl.classList.contains('hidden') || !cityCmdGroup) return;
+  const anchor = document.querySelector(`#citypanel [data-act="cmd-group"][data-group="${cityCmdGroup}"]`);
+  if (!anchor) { hideCmdPopover(); return; }
+  const r = anchor.getBoundingClientRect();
+  if (!r.width) { hideCmdPopover(); return; }
+  const n = Math.max(1, cmdPopEl.children.length);
+  const vw = window.innerWidth;
+  const w = Math.min(vw - 16, n * 62 + (n - 1) * 5 + 12);
+  const left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2));
+  cmdPopEl.style.width = `${w}px`;
+  cmdPopEl.style.left = `${left}px`;
+  cmdPopEl.style.top = 'auto';
+  cmdPopEl.style.bottom = `${Math.max(8, window.innerHeight - r.top + 9)}px`;
+  const tail = Math.max(15, Math.min(w - 15, r.left + r.width / 2 - left));
+  cmdPopEl.style.setProperty('--tail', `${tail}px`);
+}
+
+/* 팝오버 바깥(지도·다른 버튼)을 누르면 닫힌다 */
+function onDocPointerDown(e) {
+  if (!cityCmdGroup) return;
+  if (cmdPopEl && cmdPopEl.contains(e.target)) return;
+  if (e.target.closest && e.target.closest('[data-act="cmd-group"]')) return;
+  cityCmdGroup = null;
+  syncCmdPopover();
+}
 
 function renderCityPanel(dir = 0) {
   const panel = $('#citypanel');
-  if (!selectedCity) { panel.classList.add('hidden'); return; }
+  if (!selectedCity) { panel.classList.add('hidden'); cmdCtx = null; syncCmdPopover(); return; }
   const c = game.cities[selectedCity];
   const base = CITY_BY_ID[selectedCity];
   const mine = c.owner === game.playerId;
@@ -863,24 +959,9 @@ function renderCityPanel(dir = 0) {
     const diploSub = game.actionPoints >= 1 ? '증정·동맹' : '행동력 부족';
     const diploTab = `<button class="btn diplo" data-act="diplomacy" data-city="${selectedCity}">외교<small>${diploSub}</small></button>`;
     cmdHTML = `<div class="cp-cmds">${tabs}${diploTab}<button class="btn ${plotReady ? 'plot' : ''}" data-act="cmd" data-cmd="plot" data-city="${selectedCity}" ${plotReady ? '' : 'disabled'}>계략<small>${plotSub}</small></button></div>`;
-    const group = CITY_CMD_GROUPS.find((g) => g.id === cityCmdGroup);
-    if (group) {
-      const subs = group.subs.map(([k, ko, hint]) => {
-        if (k === 'march') {
-          return enemies.length
-            ? `<button class="btn march" data-act="march" data-city="${selectedCity}">${ko}<small>${enemies.length}곳</small></button>`
-            : `<button class="btn" disabled>${ko}<small>적 성 없음</small></button>`;
-        }
-        const off = k === 'move' ? !moveReady
-          : k === 'talk' ? (!partners.length || !talkLeft || game.actionPoints < 1)
-          : k === 'trade' ? game.actionPoints < 1
-          : false;
-        const note = k === 'move' ? moveSub : k === 'talk' ? talkSub : k === 'trade' ? `쌀 ${E.ricePriceOf(game)}` : hint;
-        return `<button class="btn ${k === 'move' || k === 'talk' ? k : ''}" data-act="cmd" data-cmd="${k}" data-city="${selectedCity}" ${off ? 'disabled' : ''}>${ko}${note ? `<small>${note}</small>` : ''}</button>`;
-      }).join('');
-      cmdHTML += `<div class="cp-subcmds" role="group" aria-label="${group.ko} 명령">${subs}</div>`;
-    }
+    cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies };
   } else {
+    cmdCtx = null;
     const pacified = !!c.owner && E.isPacified(game, game.playerId, c.owner);
     const src = pacified ? [] : E.adjacentFriends(game, selectedCity).filter((id) => E.generalsInCity(game, id).length);
     const plotSrc = E.adjacentFriends(game, selectedCity).filter((id) => E.generalsInCity(game, id).length);
@@ -966,7 +1047,11 @@ function renderCityPanel(dir = 0) {
       ${scoutHTML}
       <div class="cp-cmds-wrap">${cmdHTML}</div>
     </div>
+    ${cityPanelOpen ? '' : `<button class="cs-handle" data-act="city-toggle" aria-label="성 메뉴 펼치기"><span>▲</span>성 메뉴</button>`}
   `;
+  const bodyEl = panel.querySelector('.cs-body');
+  if (bodyEl) bodyEl.addEventListener('scroll', placeCmdPopover, { passive: true });
+  syncCmdPopover();
   if (dir) {
     void panel.offsetWidth; // 애니메이션 재시작
     panel.classList.add(dir > 0 ? 'swipe-next' : 'swipe-prev');
@@ -2890,23 +2975,25 @@ function onClick(e) {
     case 'promo-ok': closeSheet(); break;
     case 'open-event': openEventSheet(); break;
     case 'open-reports': sfx.click(); openReports(); break;
-    case 'city-toggle': cityPanelOpen = !cityPanelOpen; sfx.click(); renderCityPanel(); break;
+    case 'city-toggle': cityPanelOpen = !cityPanelOpen; cityCmdGroup = null; sfx.click(); renderCityPanel(); break;
     case 'cmd-group': {
       const g = el.dataset.group;
       cityCmdGroup = cityCmdGroup === g ? null : g;
       sfx.click();
-      renderCityPanel();
+      syncCmdPopover();
       break;
     }
-    case 'city-prev': stepCity(-1); break;
-    case 'city-next': stepCity(1); break;
+    case 'city-prev': cityCmdGroup = null; stepCity(-1); break;
+    case 'city-next': cityCmdGroup = null; stepCity(1); break;
     case 'zoom-in': mapView.zoomBy(1.25); break;
     case 'zoom-out': mapView.zoomBy(0.8); break;
     case 'zoom-reset': mapView.resetView(); break;
-    case 'endturn': endTurn(); break;
-    case 'close-city': selectedCity = null; cityPanelOpen = false; mapView.setSelected(null); renderCityPanel(); break;
+    case 'endturn': cityCmdGroup = null; syncCmdPopover(); endTurn(); break;
+    case 'close-city': selectedCity = null; cityPanelOpen = false; cityCmdGroup = null; mapView.setSelected(null); renderCityPanel(); break;
     case 'cmd': {
       const cmd = el.dataset.cmd;
+      cityCmdGroup = null;
+      syncCmdPopover();
       if (cmd === 'move') openMoveSheet(el.dataset.city);
       else if (cmd === 'talk') openTalkSheet(el.dataset.city);
       else if (cmd === 'plot') openPlotSheet(null, el.dataset.city);
@@ -2924,7 +3011,7 @@ function onClick(e) {
     case 'treasure-pick': openTreasurePick(el.dataset.tid); break;
     case 'treasure-award': doTreasureAward(el.dataset.tid, el.dataset.gid); break;
     case 'treasure-revoke': doTreasureRevoke(el.dataset.tid); break;
-    case 'advisor': openAdvisorSheet(); break;
+    case 'advisor': cityCmdGroup = null; syncCmdPopover(); openAdvisorSheet(); break;
     case 'advisor-pick': doAdvisorPick(el.dataset.gid); break;
     case 'info': openInfoSheet(); break;
     case 'info-tab': infoTab = el.dataset.tab; renderInfoSheet(); sfx.click(); break;
@@ -2962,7 +3049,7 @@ function onClick(e) {
     }
     case 'tr-gold+': case 'tr-gold-': case 'tr-food+': case 'tr-food-': adjustTransport(act); break;
     case 'do-transport': doTransport(el.dataset.officer); break;
-    case 'march': pendingSetup = null; openMarchSheet(el.dataset.city); break;
+    case 'march': pendingSetup = null; cityCmdGroup = null; syncCmdPopover(); openMarchSheet(el.dataset.city); break;
     case 'attack-enemy': openAttackEnemySheet(el.dataset.city); break;
     case 'march-from': openMarchSheet(el.dataset.city, el.dataset.to); break;
     case 'march-target': pendingSetup.targetId = el.dataset.city; $('#sheet-body').innerHTML = marchSheetHTML(); break;
@@ -3089,6 +3176,7 @@ function doTransport(officerId) {
 export function boot() {
   $$('[data-act="mute"]').forEach((b) => { b.textContent = sfx.isMuted() ? '✕' : '♪'; });
   document.addEventListener('click', onClick);
+  document.addEventListener('pointerdown', onDocPointerDown, true);
   document.addEventListener('input', onCustomInput);
   document.addEventListener('change', onCustomInput);
   bindCityPanelSwipe();
@@ -3101,6 +3189,7 @@ export function boot() {
     if (!$('#scr-battle').classList.contains('hidden')) resizeBattleCanvas();
     if (!$('#scr-title').classList.contains('hidden')) drawTitleArt();
     fitResValues();
+    placeCmdPopover();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { closeSheet(); }
