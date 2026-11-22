@@ -200,6 +200,12 @@ export const CUSTOM_STAT_MIN = 20;
 export const CUSTOM_STAT_MAX = 96;
 export const CUSTOM_STAT_BUDGET = 255; // 능력치 총합 상한 — 주사위도 이 안에서 나오고 수동 배분도 여기까지
 export const CUSTOM_STAT_DICE_MIN = 165; // 주사위 최소 총합 — 이 아래로는 안 나온다
+/* 1% 전설 주사위 — 100번 중 1번, 총합 450~480에 항목마다 60~100으로 깔린다 */
+export const CUSTOM_STAT_LEGEND_CHANCE = 0.01;
+export const CUSTOM_STAT_LEGEND_TOTAL_MIN = 450;
+export const CUSTOM_STAT_LEGEND_TOTAL_MAX = 480;
+export const CUSTOM_STAT_LEGEND_FLOOR = 60;
+export const CUSTOM_STAT_HARD_MAX = 100; // 전설 굴림의 항목 상한(게임 절대 상한)
 export const CUSTOM_NAME_MIN = 2;
 export const CUSTOM_NAME_MAX = 6;
 export const CUSTOM_RETINUE_PRESETS = [
@@ -208,54 +214,101 @@ export const CUSTOM_RETINUE_PRESETS = [
 ];
 const STAT_KEYS = ['lead', 'war', 'int', 'pol', 'cha'];
 
-/* 주사위: 먼저 이번 굴림의 총합을 뽑는다 — 최소 165부터 최대 255까지, 위쪽이 조금 더 잘 나오고
-   가끔 만점(255)이 뜬다 */
-export function rollCustomTotal(rand = Math.random) {
-  const r = clamp(rand(), 0, 1);
-  if (r < 0.06) return CUSTOM_STAT_BUDGET; // 가끔 만점(255)
+/* 전설(1%) 총합 — 450~480 */
+function rollLegendTotal(rand) {
+  const span = CUSTOM_STAT_LEGEND_TOTAL_MAX - CUSTOM_STAT_LEGEND_TOTAL_MIN + 1;
+  return CUSTOM_STAT_LEGEND_TOTAL_MIN + Math.floor(clamp(rand(), 0, 1 - 1e-9) * span);
+}
+
+/* 일반(99%) 총합 — 165~255, 위쪽이 조금 더 잘 나오고 가끔 만점(255)이 뜬다
+   q는 일반 구간 안에서의 위치(0~1) */
+function rollNormalTotal(q) {
+  const pos = clamp(q, 0, 1 - 1e-9);
+  if (pos < 0.06) return CUSTOM_STAT_BUDGET; // 가끔 만점(255)
   const span = CUSTOM_STAT_BUDGET - CUSTOM_STAT_DICE_MIN;
-  const t = Math.pow((r - 0.06) / 0.94, 0.8); // 위쪽으로 살짝 기운 분포
+  const t = Math.pow((pos - 0.06) / 0.94, 0.8); // 위쪽으로 살짝 기운 분포
   return Math.min(CUSTOM_STAT_BUDGET, CUSTOM_STAT_DICE_MIN + Math.round(span * t));
 }
 
-/* 주사위: 뽑힌 총합을 다섯 능력치에 무작위로 나눈다 — 한 항목이 확 치솟는 굴림도 나오게 */
-export function rollCustomStats(rand = Math.random) {
-  const target = rollCustomTotal(rand);
-  const cap = CUSTOM_STAT_MAX - CUSTOM_STAT_MIN;
-  let extra = target - STAT_KEYS.length * CUSTOM_STAT_MIN; // 최소치 위로 더 얹을 몫
+/* 주사위: 먼저 이번 굴림의 총합을 뽑는다 — 1%는 전설(450~480), 나머지는 165~255 */
+export function rollCustomTotal(rand = Math.random) {
+  const r = clamp(rand(), 0, 1);
+  if (r < CUSTOM_STAT_LEGEND_CHANCE) return rollLegendTotal(rand);
+  // 전설 구간을 뺀 나머지 99%를 0~1로 다시 펴서 일반 분포를 그대로 쓴다
+  return rollNormalTotal((r - CUSTOM_STAT_LEGEND_CHANCE) / (1 - CUSTOM_STAT_LEGEND_CHANCE));
+}
+
+/* 뽑힌 총합을 다섯 능력치에 무작위로 나눈다 — 한 항목이 확 치솟는 굴림도 나오게 */
+function splitCustomStats(target, rand, floor, cap) {
+  const roomEach = cap - floor;
+  const pot = Math.max(0, target - STAT_KEYS.length * floor); // 최소치 위로 더 얹을 몫
+  let extra = pot;
   const add = STAT_KEYS.map(() => 0);
   // 굴림마다 성격이 달라지도록 가중치를 크게 흔린다
   const w = STAT_KEYS.map(() => 0.2 + rand() * rand() * 3);
-  const wsum = w.reduce((a, b) => a + b, 0);
+  const wsum = w.reduce((a, b) => a + b, 0) || 1;
   STAT_KEYS.forEach((k, i) => {
     if (extra <= 0) return;
-    const want = Math.min(cap, extra, Math.round((target - STAT_KEYS.length * CUSTOM_STAT_MIN) * w[i] / wsum));
+    const want = Math.min(roomEach, extra, Math.round(pot * w[i] / wsum));
     add[i] = Math.max(0, want);
     extra -= add[i];
   });
   // 반올림·상한에 걸려 남은 몫은 여유가 있는 항목에 무작위로 하나씩
   while (extra > 0) {
-    const open = STAT_KEYS.map((_, i) => i).filter((i) => add[i] < cap);
+    const open = STAT_KEYS.map((_, i) => i).filter((i) => add[i] < roomEach);
     if (!open.length) break;
     const pick = open[Math.floor(clamp(rand(), 0, 0.999999) * open.length)];
     add[pick] += 1;
     extra -= 1;
   }
   const stats = {};
-  STAT_KEYS.forEach((k, i) => { stats[k] = CUSTOM_STAT_MIN + add[i]; });
+  STAT_KEYS.forEach((k, i) => { stats[k] = floor + add[i]; });
   return stats;
 }
 
-/* 수동 ＋/－: 항목 범위와 총합 상한(255)을 지키며 한 칸 조정한다 */
-export function adjustCustomStat(stats, k, delta) {
+/* 주사위 한 번 — 능력치와 함께 전설 여부·총합을 돌려준다(연출·예산 표시에 쓴다) */
+export function rollCustomDice(rand = Math.random) {
+  const legend = clamp(rand(), 0, 1) < CUSTOM_STAT_LEGEND_CHANCE;
+  if (legend) {
+    const total = rollLegendTotal(rand);
+    return {
+      stats: splitCustomStats(total, rand, CUSTOM_STAT_LEGEND_FLOOR, CUSTOM_STAT_HARD_MAX),
+      total,
+      legend: true,
+    };
+  }
+  const total = rollNormalTotal(clamp(rand(), 0, 1));
+  return { stats: splitCustomStats(total, rand, CUSTOM_STAT_MIN, CUSTOM_STAT_MAX), total, legend: false };
+}
+
+/* 주사위: 능력치만 필요한 곳을 위한 얇은 껍질 */
+export function rollCustomStats(rand = Math.random) {
+  return rollCustomDice(rand).stats;
+}
+
+/* 이번 굴림에서 쓸 수 있는 총합 예산 — 일반은 255까지, 전설은 뽑힌 총합(450~480)을 그대로 */
+export function customStatBudget(total) {
+  return Math.max(CUSTOM_STAT_BUDGET, clamp(Math.round(Number(total) || 0), CUSTOM_STAT_BUDGET, CUSTOM_STAT_LEGEND_TOTAL_MAX));
+}
+
+/* 예산에 맞는 항목 상한 — 일반은 96, 전설 예산이면 100 */
+export function customStatCap(budget) {
+  return Number(budget) > CUSTOM_STAT_BUDGET ? CUSTOM_STAT_HARD_MAX : CUSTOM_STAT_MAX;
+}
+
+/* 수동 ＋/－: 항목 범위와 총합 상한을 지키며 한 칸 조정한다
+   (전설 주사위로 뽑힌 총합은 budget으로 넘겨 그 예산 안에서 다시 배분한다) */
+export function adjustCustomStat(stats, k, delta, budget = CUSTOM_STAT_BUDGET, cap = CUSTOM_STAT_MAX) {
+  const hi = clamp(Math.round(Number(cap) || 0) || CUSTOM_STAT_MAX, CUSTOM_STAT_MAX, CUSTOM_STAT_HARD_MAX);
+  const limit = Math.max(CUSTOM_STAT_BUDGET, Math.round(Number(budget) || 0));
   const next = {};
-  for (const key of STAT_KEYS) next[key] = clamp(Math.round(Number(stats[key]) || 0), CUSTOM_STAT_MIN, CUSTOM_STAT_MAX);
+  for (const key of STAT_KEYS) next[key] = clamp(Math.round(Number(stats[key]) || 0), CUSTOM_STAT_MIN, hi);
   if (!STAT_KEYS.includes(k)) return { stats: next, ok: false, reason: 'key' };
   const cur = next[k];
-  const want = clamp(cur + delta, CUSTOM_STAT_MIN, CUSTOM_STAT_MAX);
+  const want = clamp(cur + delta, CUSTOM_STAT_MIN, hi);
   if (want === cur) return { stats: next, ok: false, reason: 'limit' };
   const sum = STAT_KEYS.reduce((n, key) => n + next[key], 0);
-  if (want > cur && sum + (want - cur) > CUSTOM_STAT_BUDGET) return { stats: next, ok: false, reason: 'budget' };
+  if (want > cur && sum + (want - cur) > limit) return { stats: next, ok: false, reason: 'budget' };
   next[k] = want;
   return { stats: next, ok: true, reason: null };
 }

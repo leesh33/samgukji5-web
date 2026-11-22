@@ -100,8 +100,15 @@ test('신군주: 주사위 능력치 총합·범위', () => {
   let high = 0;
   let full = 0;
   for (let i = 0; i < 600; i++) {
-    const st = E.rollCustomStats();
+    const dice = E.rollCustomDice();
+    const st = dice.stats;
     const sum = sumOf(st);
+    if (dice.legend) {
+      // 1% 전설은 450~480
+      assert.ok(sum >= E.CUSTOM_STAT_LEGEND_TOTAL_MIN && sum <= E.CUSTOM_STAT_LEGEND_TOTAL_MAX, `전설 총합 ${sum}`);
+      for (const k of keys) assert.ok(st[k] >= E.CUSTOM_STAT_LEGEND_FLOOR && st[k] <= E.CUSTOM_STAT_HARD_MAX, `전설 ${k}=${st[k]}`);
+      continue;
+    }
     assert.ok(sum >= E.CUSTOM_STAT_DICE_MIN && sum <= E.CUSTOM_STAT_BUDGET, `총합 ${sum}`);
     assert.ok(sum <= 255, `총합 상한 ${sum}`);
     for (const k of keys) {
@@ -117,10 +124,13 @@ test('신군주: 주사위 능력치 총합·범위', () => {
   assert.ok(high >= 20, `240 이상 ${high}회`);
   // 가끔 만점(255)이 뜬다
   assert.ok(full >= 1, `만점 ${full}회`);
-  // 주사위 총합 자체의 경계
-  assert.equal(E.rollCustomTotal(() => 0), E.CUSTOM_STAT_BUDGET); // 낮은 난수는 만점
-  const lowest = E.rollCustomTotal(() => 0.06);
-  assert.equal(lowest, E.CUSTOM_STAT_DICE_MIN);
+  // 주사위 총합 자체의 경계 — 0.01 미만은 전설, 일반 구간의 6%는 만점
+  assert.equal(E.rollCustomTotal(() => 0), E.CUSTOM_STAT_LEGEND_TOTAL_MIN); // 전설 최소
+  assert.equal(E.rollCustomTotal(() => 0.0099), E.CUSTOM_STAT_LEGEND_TOTAL_MIN);
+  const qMid = E.CUSTOM_STAT_LEGEND_CHANCE + 0.02 * (1 - E.CUSTOM_STAT_LEGEND_CHANCE);
+  assert.equal(E.rollCustomTotal(() => qMid), E.CUSTOM_STAT_BUDGET); // 일반 구간 앞쪽은 만점(255)
+  const qLow = E.CUSTOM_STAT_LEGEND_CHANCE + 0.0601 * (1 - E.CUSTOM_STAT_LEGEND_CHANCE);
+  assert.equal(E.rollCustomTotal(() => qLow), E.CUSTOM_STAT_DICE_MIN);
   const top = E.rollCustomTotal(() => 0.999999);
   assert.equal(top, E.CUSTOM_STAT_BUDGET);
   // 수동 보정: 210이 나왔다면 남은 45점을 직접 더해 255까지 채울 수 있다

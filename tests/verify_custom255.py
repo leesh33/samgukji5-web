@@ -117,6 +117,11 @@ with sync_playwright() as p:
     page.reload(wait_until="networkidle")
     page.wait_for_timeout(900)
     step("타이틀 화면", page.locator(".title-mark h1").is_visible(), page.title())
+    # 이 스크립트는 일반(99%) 분포만 본다 — 1% 전설 구간을 빼고 난수를 돌린다
+    page.evaluate("""() => {
+      window.__rnd = Math.random;
+      Math.random = () => 0.01 + window.__rnd() * 0.99;
+    }""")
     page.click('[data-act="new"]')
     page.wait_for_timeout(450)
     page.click('.sc-card[data-act="open-custom"]')

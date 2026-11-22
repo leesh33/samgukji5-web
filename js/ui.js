@@ -423,7 +423,7 @@ function openCustomScreen(scenarioId) {
     mark: CUSTOM_MARKS[0],
     color: CUSTOM_COLORS[0].hex,
     style: { hat: 0, beard: 1, skin: 1 },
-    stats: E.rollCustomStats(),
+    ...customDiceFields(E.rollCustomDice()),
     skill: 'tongsol',
     arms: '보병',
     retinue: 0,
@@ -435,6 +435,16 @@ function openCustomScreen(scenarioId) {
 }
 
 const customSum = () => STAT_LABELS.reduce((n, [k]) => n + (customDraft.stats[k] || 0), 0);
+/* 주사위 결과를 초안에 붙인다 — 전설이면 예산이 뽑힌 총합(450~480)으로 올라간다 */
+function customDiceFields(dice) {
+  return {
+    stats: dice.stats,
+    diceTotal: dice.total,
+    legend: !!dice.legend,
+    budget: E.customStatBudget(dice.legend ? dice.total : 0),
+    flash: !!dice.legend,
+  };
+}
 
 function renderCustomBody() {
   const d = customDraft;
@@ -443,7 +453,11 @@ function renderCustomBody() {
   if (!cities.some((c) => c.cityId === d.cityId)) d.cityId = cities.length ? cities[0].cityId : null;
   const owner = cities.find((c) => c.cityId === d.cityId);
   const preview = { ...d.stats, style: d.style };
-  const left = E.CUSTOM_STAT_BUDGET - customSum();
+  const budget = d.budget || E.CUSTOM_STAT_BUDGET;
+  const cap = E.customStatCap(budget);
+  const flash = !!d.flash;
+  d.flash = false;
+  const left = budget - customSum();
   const leftHTML = left > 0 ? `<b style="color:#8ed18e">+${left}</b>` : left < 0 ? `<b style="color:#e08a7a">${left}</b>` : '<b>0</b>';
   const groups = {};
   for (const c of cities) (groups[c.region] = groups[c.region] || []).push(c);
@@ -487,15 +501,18 @@ function renderCustomBody() {
     </div>
 
     <div class="cst-sec">
-      <label>능력치 <small>최대 ${E.CUSTOM_STAT_BUDGET} · 합계 <span id="cst-sum">${customSum()}</span> · 남은 <span id="cst-left">${leftHTML}</span></small></label>
-      <div class="cst-stats">
+      <label>능력치 <small>최대 ${budget} · 합계 <span id="cst-sum">${customSum()}</span> · 남은 <span id="cst-left">${leftHTML}</span></small></label>
+      ${d.legend ? `<div class="cst-legend${flash ? ' pop' : ''}" id="cst-legend"><span class="cst-legend-tag">✨ 전설 탄생!</span><span class="cst-legend-sub">100번 중 1번 · 총합 ${d.diceTotal}</span></div>` : ''}
+      <div class="cst-stats${d.legend ? ' legend' : ''}">
         ${STAT_LABELS.map(([k, ko]) => `<div class="cst-stat"><span>${ko}</span>
           <button data-act="cst-stat" data-k="${k}" data-d="-1" aria-label="${ko} 줄이기">－</button>
           <b data-stat="${k}">${d.stats[k]}</b>
           <button data-act="cst-stat" data-k="${k}" data-d="1" aria-label="${ko} 늘리기">＋</button></div>`).join('')}
       </div>
-      <button class="btn ghost cst-dice" data-act="cst-dice">🎲 주사위로 다시 굴리기</button>
-      <p class="note">주사위는 ${E.CUSTOM_STAT_DICE_MIN}~${E.CUSTOM_STAT_BUDGET} 사이 총합으로 나옵니다. 남은 점수는 ＋로 직접 더 넣을 수 있습니다.</p>
+      <button class="btn ghost cst-dice${d.legend ? ' legend' : ''}" data-act="cst-dice">🎲 주사위로 다시 굴리기</button>
+      <p class="note">${d.legend
+        ? `전설 주사위입니다. 뽑힌 총합 ${d.diceTotal}을 항목 최대 ${cap}까지 그대로 나눠 씁니다. 남은 점수는 ＋로 넣습니다.`
+        : `주사위는 ${E.CUSTOM_STAT_DICE_MIN}~${E.CUSTOM_STAT_BUDGET} 사이 총합으로 나옵니다. 100번 중 1번, 총합 450~480 전설이 터집니다.`}</p>
     </div>
 
     <div class="cst-sec">
@@ -527,7 +544,8 @@ function renderCustomBody() {
 }
 
 function adjustCustomStat(k, delta) {
-  const r = E.adjustCustomStat(customDraft.stats, k, delta);
+  const budget = customDraft.budget || E.CUSTOM_STAT_BUDGET;
+  const r = E.adjustCustomStat(customDraft.stats, k, delta, budget, E.customStatCap(budget));
   if (!r.ok) {
     if (r.reason === 'limit') return;
     if (r.reason === 'budget') toast('배분할 수 있는 능력치를 모두 썼습니다. 다른 항목을 줄이세요.');
@@ -537,7 +555,7 @@ function adjustCustomStat(k, delta) {
   customDraft.stats = r.stats;
   const cell = $(`[data-stat="${k}"]`);
   if (cell) cell.textContent = customDraft.stats[k];
-  const left = E.CUSTOM_STAT_BUDGET - customSum();
+  const left = budget - customSum();
   const lab = $('#cst-left');
   if (lab) lab.innerHTML = left > 0 ? `<b style="color:#8ed18e">+${left}</b>` : left < 0 ? `<b style="color:#e08a7a">${left}</b>` : '<b>0</b>';
   const sumEl = $('#cst-sum');
@@ -2942,7 +2960,16 @@ function onClick(e) {
     case 'cst-color': customDraft.color = el.dataset.v; renderCustomBody(); break;
     case 'cst-style': customDraft.style[el.dataset.k] = Number(el.dataset.v); renderCustomBody(); break;
     case 'cst-stat': adjustCustomStat(el.dataset.k, Number(el.dataset.d)); break;
-    case 'cst-dice': customDraft.stats = E.rollCustomStats(); renderCustomBody(); sfx.click(); break;
+    case 'cst-dice': {
+      const dice = E.rollCustomDice();
+      Object.assign(customDraft, customDiceFields(dice));
+      renderCustomBody();
+      if (dice.legend) {
+        sfx.ok();
+        toast(`✨ 전설 탄생! 능력치 총합 ${dice.total} — 100번 중 1번의 대박입니다.`, 3200);
+      } else sfx.click();
+      break;
+    }
     case 'cst-skill': customDraft.skill = el.dataset.v; renderCustomBody(); break;
     case 'cst-arms': customDraft.arms = el.dataset.v; renderCustomBody(); break;
     case 'cst-retinue': customDraft.retinue = Number(el.dataset.v); renderCustomBody(); break;
