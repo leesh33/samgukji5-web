@@ -438,3 +438,40 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   .resbar { grid-template-columns: auto repeat(5, minmax(0, 128px)); justify-content: start; }
   .resbar-title { padding-right: 10px; }
 }
+
+/* ---------- ☁️ 로그인 · 클라우드 동기화 ---------- */
+.acc-box { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.acc-row { display: flex; gap: 8px; align-items: stretch; }
+.acc-pill {
+  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 40px; padding: 6px 8px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.4px; white-space: nowrap;
+  color: #cbbf9d; background: linear-gradient(180deg, #1b2434 0%, #121a27 100%);
+  border: 1px solid var(--gold-dim);
+  box-shadow: inset 0 0 0 1px #070b12, 0 2px 0 #060a10;
+  transition: transform 0.05s, filter 0.12s;
+}
+.acc-pill:active { transform: translateY(2px); box-shadow: inset 0 0 0 1px #070b12; filter: brightness(1.15); }
+.acc-badge {
+  width: 18px; height: 18px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  background: var(--parch); color: var(--navy2); border-radius: 2px;
+}
+.acc-pill.google .acc-badge { background: #f4f4f4; color: #4285f4; }
+.acc-pill.kakao .acc-badge { background: #fee500; color: #3b1e1e; }
+.acc-pill.on { color: #e6d9b3; border-color: #4a4128; }
+.acc-pill.on.err { border-color: #6d2a24; color: #f0b3a8; }
+.acc-badge.cloud { background: #16293d; color: #9fd0ff; border: 1px solid #2c4a68; }
+.acc-note { font-size: 10px; line-height: 1.5; color: #847a5c; letter-spacing: 0.2px; text-align: center; word-break: break-all; }
+.acc-note.warn { color: #e0a48f; }
+.acc-out {
+  flex: 0 0 auto; min-height: 40px; padding: 6px 11px;
+  font-size: 11px; color: #a2987a; background: #101724; border: 1px solid #3b3524;
+}
+.acc-out:active { filter: brightness(1.3); }
+.title-acc { margin-top: -6px; }
+.acc-menu { margin-bottom: 12px; padding: 10px 10px 8px; border: 1px solid var(--line); background: #0f1522; }
+.acc-menu .acc-pill { min-height: 42px; }
+.acc-menu .acc-note { text-align: left; }
+.acc-load-note { color: #9d967f; margin: 0 0 10px; }

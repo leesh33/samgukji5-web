@@ -6,6 +6,7 @@ import { createDuel, duelRound, DUEL_ACTIONS } from './duel.js';
 import { portraitURL } from './portrait.js';
 import { createMapView } from './mapview.js';
 import { sfx } from './audio.js';
+import * as Cloud from './sync.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -182,6 +183,7 @@ function afterGameInit() {
 function autoSave() {
   if (!game) return;
   try { localStorage.setItem(KEYS.auto, E.serialize(game)); } catch (e) { /* 저장 공간 부족 */ }
+  Cloud.noteSaved('auto');
 }
 
 /* ---------- HUD ---------- */
@@ -1066,6 +1068,7 @@ function endTurn() {
 /* ---------- 메뉴/저장 ---------- */
 function openMenu() {
   openSheet('군의(軍議)', `
+    <div class="acc-box acc-menu" id="menu-account"></div>
     <button class="btn big" data-act="save-slot" data-slot="1" style="margin-bottom:8px">슬롯 1에 저장</button>
     <button class="btn big" data-act="save-slot" data-slot="2" style="margin-bottom:8px">슬롯 2에 저장</button>
     <button class="btn big" data-act="save-slot" data-slot="3" style="margin-bottom:8px">슬롯 3에 저장</button>
@@ -1075,10 +1078,14 @@ function openMenu() {
     <button class="btn big ghost" data-act="open-help" style="margin-bottom:8px">게임 방법</button>
     <button class="btn big ghost" data-act="to-title">타이틀로</button>
   `);
+  Cloud.mount($('#menu-account'));
 }
 
 function openLoad() {
   const rows = [];
+  if (Cloud.state().signedIn) {
+    rows.push(`<p class="note acc-load-note">☁ ${Cloud.state().name} 님으로 로그인됨 — 기기 저장과 클라우드 저장을 합친 상태입니다.</p>`);
+  }
   for (let i = 1; i <= 3; i++) {
     const raw = localStorage.getItem(KEYS.slot(i));
     rows.push(loadRow(i, raw, `슬롯 ${i}`));
@@ -1261,8 +1268,12 @@ function onClick(e) {
     case 'open-help': openHelp(); break;
     case 'save-slot': {
       const slot = el.dataset.slot;
-      try { localStorage.setItem(KEYS.slot(slot), E.serialize(game)); toast(`슬롯 ${slot}에 저장했습니다.`); sfx.ok(); }
-      catch (err) { toast('저장 실패'); }
+      try {
+        localStorage.setItem(KEYS.slot(slot), E.serialize(game));
+        Cloud.noteSaved(slot);
+        toast(Cloud.state().signedIn ? `슬롯 ${slot}에 저장했습니다 · 클라우드로도 올립니다.` : `슬롯 ${slot}에 저장했습니다.`);
+        sfx.ok();
+      } catch (err) { toast('저장 실패'); }
       break;
     }
     case 'do-load': doLoad(el.dataset.slot); break;
@@ -1364,6 +1375,20 @@ export function boot() {
   renderScenarios();
   show('scr-title');
   drawTitleArt();
+  Cloud.mount($('#title-account'));
+  Cloud.start({
+    onStatus: () => { const b = $('#btn-continue'); if (b) b.disabled = !localStorage.getItem(KEYS.auto); },
+    onApplied: () => {
+      const b = $('#btn-continue');
+      if (b) b.disabled = !localStorage.getItem(KEYS.auto);
+      drawTitleArt();
+    },
+    onSignedIn: ({ name }) => toast(`${name} 님으로 로그인했습니다. 저장을 동기화합니다.`, 2600),
+  }).then((res) => {
+    if (res && Cloud.state().signedIn && !$('#scr-title').classList.contains('hidden')) {
+      toast('☁ 클라우드 저장과 동기화했습니다.', 1800);
+    }
+  });
   setTimeout(drawTitleArt, 100);
   setTimeout(() => { if (!$('#scr-title').classList.contains('hidden')) drawTitleArt(); }, 500);
 }

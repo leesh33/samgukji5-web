@@ -19,6 +19,7 @@
 | 일기토 | 무장 1:1 대결 — 강공·필살·방어·회피, 승리 시 상대 부대 사기 급락·포로 |
 | AI 군주 | 매월 내정·징병·등용 후 인접 약소 성을 실제로 공격 |
 | 저장 | localStorage 자동 저장 + 수동 슬롯 3개, 천하통일/멸망 엔딩 |
+| 클라우드 | Google · 카카오 로그인(선택) — 자동 저장·슬롯 1~3을 Supabase에 기기 간 동기화 (로그인 없이도 플레이 가능) |
 
 ## 조작
 
@@ -35,10 +36,21 @@
 
 ```bash
 python3 -m http.server 4173      # http://127.0.0.1:4173
-node --test 'tests/*.test.js'     # 엔진·전투·일기토·데이터 무결성 테스트 26개
+node --test 'tests/*.test.js'     # 엔진·전투·일기토·데이터·클라우드 동기화 테스트 42개
 python3 tests/verify_live.py http://127.0.0.1:4173/index.html local   # Playwright 390×844 검증
 python3 tests/verify_sheet.py http://127.0.0.1:4173/index.html local  # 하단 시트 펼침·스와이프 도시 전환 검증
+python3 tests/verify_cloud.py http://127.0.0.1:4173/index.html        # 로그인 버튼·메뉴 자리 확인
 ```
+
+### ☁ 로그인 · 클라우드 저장
+
+로그인은 **선택**입니다. 비로그인 상태에서는 기존처럼 localStorage 에만 저장되고, 로그인하면 자동 저장과 슬롯 1~3이 `public.samguk_saves` 로 합쳐집니다.
+
+- 화면: 타이틀 화면 버튼 아래, 게임 내 `≡` → 군의(軍議) 맨 위
+- 로그인: Supabase GoTrue OAuth(PKCE) — Google · 카카오 (`js/sync.js`)
+- 합치기: 슬롯마다 마지막 저장 시각이 최신인 쪽(같으면 더 진행된 쪽), 한쪽에만 있는 슬롯은 지우지 않음 (`js/sync-core.js`)
+- DB: `supabase/samguk_cloud_sync.sql` — RLS(본인 행만) + RPC `samguk_put_saves`(과거 revised_at 무시)
+- 공용 프로젝트 `zdcdvjlssncsawpqsjwe` (릴스핀·인생 한 턴과 같은 프로젝트, 테이블·함수 이름은 `samguk_` 접두사로 분리)
 
 ### 구조
 
@@ -53,7 +65,10 @@ js/mapview.js         도트 중국 전도 캔버스(드래그·핀치·탭)
 js/portrait.js        장수별 결정론적 도트 초상화 생성
 js/audio.js           Web Audio 8-bit 효과음
 js/ui.js              화면·HUD·지도/성 시트·전투/일기토 UI
+js/sync-core.js       클라우드 저장 합치기·세션 만료·리다이렉트 해석 (DOM 없음, node 테스트)
+js/sync.js            Google·카카오 로그인(Supabase OAuth PKCE) · 클라우드 동기화
 js/main.js            부트스트랩
+supabase/             samguk_cloud_sync.sql (테이블·RLS·RPC) + PGlite 검증 스크립트
 tests/                node 테스트 + Playwright 라이브 검증
 ```
 
