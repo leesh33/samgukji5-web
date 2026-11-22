@@ -66,10 +66,11 @@
 
 ```bash
 python3 -m http.server 4173      # http://127.0.0.1:4173
-node --test 'tests/*.test.js'     # 엔진·전투·방향·진형 상성·포로·일기토·데이터·신군주·이동·대화·외교·계략·관직·달의 소식·원군·한자 0자·클라우드 동기화 테스트 129개
+node --test 'tests/*.test.js'     # 엔진·전투·방향·진형 상성·포로·일기토·데이터·신군주·이동·대화·외교·계략·관직·달의 소식·원군·한자 0자·클라우드 동기화 테스트 130개
 python3 tests/verify_live.py http://127.0.0.1:4173/index.html local   # Playwright 390×844 검증
 python3 tests/verify_sheet.py http://127.0.0.1:4173/index.html local  # 하단 시트 펼침·스와이프 도시 전환 검증
 python3 tests/verify_custom.py http://127.0.0.1:4173/index.html local  # 시나리오 7종·신군주 생성/전투/저장·복원 검증
+python3 tests/verify_custom255.py https://dotsamguk.vercel.app live  # 신군주 주사위 총합 165~255 랜덤·수동 255 상한·시작·한자 0자 검증
 python3 tests/verify_cloud.py http://127.0.0.1:4173/index.html        # 로그인 버튼·메뉴 자리 확인
 python3 tests/verify_sync_e2e.py http://127.0.0.1:4173/index.html    # 로그인 후 동기화(가짜 Supabase 응답)
 python3 tests/verify_login_live.py https://dotsamguk.vercel.app  # 라이브: 구글·카카오 OAuth 이동·만료 세션
