@@ -209,6 +209,20 @@ with sync_playwright() as p:
     step("가로 넘침 0", len(of["bad"]) == 0, of)
     step("콘솔 오류 0", len(errors) == 0, errors[:3])
 
+    # 넓은 화면(데스크톱 사이드 패널)에서도 같은 방식으로 뜨는지
+    page.set_viewport_size({"width": 1280, "height": 900})
+    page.wait_for_timeout(450)
+    group_btn(page, "civil").first.click()
+    page.wait_for_timeout(320)
+    d = geom(page)
+    step("데스크톱 팝오버도 버튼 위·화면 안",
+         d["popVisible"] and d["popBottom"] <= d["tabTop"] and d["popRight"] <= 1280 and d["popLeft"] >= 0,
+         f"{d['popLeft']}~{d['popRight']} bottom={d['popBottom']} tabTop={d['tabTop']}")
+    shot(page, "pop-desktop")
+    group_btn(page, "civil").first.click()
+    page.wait_for_timeout(220)
+    step("데스크톱에서도 다시 누르면 닫힘", not geom(page)["popVisible"])
+
     browser.close()
 
 ok = all(s["ok"] for s in steps)
