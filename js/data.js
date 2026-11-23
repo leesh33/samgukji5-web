@@ -65,28 +65,33 @@ const CITY_ROWS = [
   ['jiaozhi', '교지', '교주', 62, 62, 40, 44, 56, 38, 4600, 1800, 6400, 0, ['nanhai']],
 ];
 
-/* ---------- 성 규모 — 소 · 중 · 대 · 특대 ----------
- * 성의 농업·상업·치안·수리가 모두 그 규모의 상한(cap)에 닿으면 다음 규모로 승격한다.
+/* ---------- 성 규모 — 소형 · 중형 · 대형 · 특대형 ----------
+ * 성의 농업·상업·수리가 그 규모의 상한(cap)에 닿고 치안이 100에 닿으면 다음 규모로 승격한다.
  * 승격해도 채운 수치는 그대로 남고 상한만 넓어지므로(100 → 130 → 160 → 200)
  * 다시 0부터 채우는 일 없이 "꽉 채우면 업"이 이어진다.
+ * 치안만은 성 규모와 무관하게 언제나 100이 상한이다(민심은 성이 커진다고 더 다스려지지 않는다).
  * 규모가 클수록 징병이 많이 모이고(draft), 금·식량 세입(income)과
  * 성의 주둔 병력 상한(troopCap)도 조금씩 오른다. */
 export const CITY_SIZES = [
-  { id: 0, ko: '소', cap: 100, draft: 1.0, income: 1.0, troopCap: 14000 },
-  { id: 1, ko: '중', cap: 130, draft: 1.25, income: 1.08, troopCap: 18000 },
-  { id: 2, ko: '대', cap: 160, draft: 1.5, income: 1.16, troopCap: 24000 },
-  { id: 3, ko: '특대', cap: 200, draft: 1.8, income: 1.25, troopCap: 30000 },
+  { id: 0, ko: '소형', cap: 100, draft: 1.0, income: 1.0, troopCap: 14000 },
+  { id: 1, ko: '중형', cap: 130, draft: 1.25, income: 1.08, troopCap: 18000 },
+  { id: 2, ko: '대형', cap: 160, draft: 1.5, income: 1.16, troopCap: 24000 },
+  { id: 3, ko: '특대형', cap: 200, draft: 1.8, income: 1.25, troopCap: 30000 },
 ];
 export const CITY_SIZE_MAX = CITY_SIZES.length - 1;
 export const citySize = (n) => CITY_SIZES[Math.max(0, Math.min(CITY_SIZE_MAX, Math.trunc(Number(n) || 0)))];
 export const citySizeKo = (n) => citySize(n).ko;
 export const sizeCap = (n) => citySize(n).cap;
+/* 치안 상한 — 성 규모와 무관하게 100 고정 */
+export const ORDER_CAP = 100;
+/* 수치별 상한 — 농업·상업·수리는 규모 상한(cap), 치안은 100 */
+export const statCap = (n, key) => (key === 'order' ? ORDER_CAP : sizeCap(n));
 export const sizeDraftMul = (n) => citySize(n).draft;
 export const sizeIncomeMul = (n) => citySize(n).income;
 export const sizeTroopCap = (n) => citySize(n).troopCap;
 
 /* 42성 초기 규모 — 역사적·전략적 위상에 맞춰
- * 대(2) 5성: 낙양·장안·업·성도·건업 / 중(1) 14성 / 소(0) 23성 */
+ * 대형(2) 5성: 낙양·장안·업·성도·건업 / 중형(1) 14성 / 소형(0) 23성 */
 export const CITY_SIZE_SEED = {
   luoyang: 2, changan: 2, ye: 2, chengdu: 2, jianye: 2,
   xuchang: 1, shouchun: 1, jiangling: 1, xiangyang: 1,

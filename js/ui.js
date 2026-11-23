@@ -1058,11 +1058,13 @@ function renderCityPanel(dir = 0) {
   const size = Number.isInteger(c.size) ? c.size : 0;
   const sizeKo = E.citySizeKoOf(game, selectedCity);
   const cap = E.cityStatCap(game, selectedCity);
+  const orderCap = E.cityStatCap(game, selectedCity, 'order');
   const remain = mine ? E.citySizeUpRemain(game, selectedCity) : null;
+  const capText = `농업·상업·수리 ${cap} · 치안 ${orderCap}`;
   const sizeTip = !mine
-    ? `규모 ${sizeKo} 성`
-    : (size >= 3 ? '규모 특대 — 가장 큰 성입니다'
-      : `규모 ${sizeKo} — 농업·상업·치안·수리를 모두 ${cap}까지 채우면 ${E.withJosa(CITY_SIZES[size + 1].ko, '로')} 승격 (남은 내정 ${remain})`);
+    ? `규모 ${sizeKo}인 성`
+    : (size >= 3 ? `규모 특대형 — 가장 큰 성입니다 (${capText})`
+      : `규모 ${sizeKo} — ${capText}까지 채우면 ${E.withJosa(CITY_SIZES[size + 1].ko, '로')} 승격 (남은 내정 ${remain})`);
   const delegHTML = mine
     ? `<div class="cs-deleg" role="group" aria-label="담당">
         <span class="dlg-label">담당</span>
@@ -1090,7 +1092,7 @@ function renderCityPanel(dir = 0) {
       <div class="cs-stats">
         <div class="stat"><i>농업</i><b>${c.agri}</b><em class="stat-cap">/${cap}</em></div>
         <div class="stat"><i>상업</i><b>${c.comm}</b><em class="stat-cap">/${cap}</em></div>
-        <div class="stat"><i>치안</i><b>${c.order}</b><em class="stat-cap">/${cap}</em></div>
+        <div class="stat"><i>치안</i><b>${c.order}</b><em class="stat-cap">/${orderCap}</em></div>
         <div class="stat"><i>수리</i><b>${c.water}</b><em class="stat-cap">/${cap}</em></div>
         <div class="stat"><i>병력</i><b>${fmt(c.troops)}</b></div>
         <div class="stat"><i>훈련</i><b>${c.train}</b></div>
@@ -1193,27 +1195,30 @@ function openCommandSheet(type, cityId) {
     const targets = gens.filter((g) => g.id !== game.factions[game.playerId].lord);
     const rows = targets.sort((a, b) => a.loyalty - b.loyalty).map((g) => {
       const t = gd(g.id);
-      return `<button class="officer-row" data-act="do-reward" data-officer="${g.id}" data-city="${cityId}">
+      const maxed = g.loyalty >= 100;
+      return `<button class="officer-row" data-act="do-reward" data-officer="${g.id}" data-city="${cityId}" ${maxed ? 'disabled' : ''}>
         <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
         <div class="or-main"><div class="or-name">${t.ko}</div>
         <div class="or-stats"><span>충성 <b>${g.loyalty}</b></span><span>친밀 <b>${E.affinityOf(game, g.id)}</b></span><span>매력 <b>${t.cha}</b></span></div></div>
-        <div class="or-go">포상</div></button>`;
+        <div class="or-go">${maxed ? '최대' : '포상'}</div></button>`;
     }).join('');
-    openSheet('포상 — 금 120', `<p class="note">포상할 장수를 고르면 충성이 오르고 친밀도도 조금 오릅니다.</p>${rows || '<p class="note">포상할 장수가 없습니다.</p>'}`);
+    openSheet('포상 — 금 120', `<p class="note">포상할 장수를 고르면 충성이 오르고 친밀도도 조금 오릅니다. 충성도는 100이 상한이므로 그만큼만 오르고, 오른 만큼을 알려 드립니다.</p>${rows || '<p class="note">포상할 장수가 없습니다.</p>'}`);
     return;
   }
   const sizeNote = (type === 'agri' || type === 'comm' || type === 'order' || type === 'water')
     ? (() => {
         const sz = E.citySizeOf(game, cityId);
         const cap = E.cityStatCap(game, cityId);
+        const orderCap = E.cityStatCap(game, cityId, 'order');
         const remain = E.citySizeUpRemain(game, cityId);
+        const capText = `농업·상업·수리 ${cap} · 치안 ${orderCap}`;
         return remain === null
-          ? `<p class="note size-note">이 성은 <b>특대</b> — 가장 큰 규모입니다. (내정 상한 ${cap})</p>`
-          : `<p class="note size-note">이 성은 <b>${E.citySizeKoOf(game, cityId)}</b> — 농업·상업·치안·수리를 모두 ${cap}까지 채우면 <b>${E.withJosa(CITY_SIZES[sz + 1].ko, '로')}</b> 승격합니다. (남은 내정 ${remain})</p>`;
+          ? `<p class="note size-note">이 성은 <b>특대형</b> — 가장 큰 규모입니다. (내정 상한 ${capText})</p>`
+          : `<p class="note size-note">이 성은 <b>${E.citySizeKoOf(game, cityId)}</b> — ${capText}까지 채우면 <b>${E.withJosa(CITY_SIZES[sz + 1].ko, '로')}</b> 승격합니다. (남은 내정 ${remain})</p>`;
       })()
     : '';
   const rows = gens.map((g) => officerRowHTML(g, 'do-command')).join('');
-  const extra = sizeNote + (type === 'draft' ? '<p class="note">징병: 금 250 · 식량 400 · 행동력 2. 징병한 장수의 통솔이 많을수록 병력이 많이 모이고, 성 규모가 클수록 더 많이 모입니다(소 ×1.0 · 중 ×1.25 · 대 ×1.5 · 특대 ×1.8).</p>'
+  const extra = sizeNote + (type === 'draft' ? '<p class="note">징병: 금 250 · 식량 400 · 행동력 2. 징병한 장수의 통솔이 많을수록 병력이 많이 모이고, 성 규모가 클수록 더 많이 모입니다(소형 ×1.0 · 중형 ×1.25 · 대형 ×1.5 · 특대형 ×1.8).</p>'
     : type === 'search' ? '<p class="note">탐색: 숨은 인재·금·식량을 찾습니다. 지력이 높을수록 유리합니다.</p>'
     : `<p class="note">${E.COMMANDS[type] ? E.COMMANDS[type].desc : ''} 행동력 1을 사용합니다.</p>`);
   openSheet(`${CITY_BY_ID[cityId].ko} — ${label}`, extra + rows);
@@ -1325,7 +1330,7 @@ function doCommand(type, officerId, cityId) {
   const promoteToast = () => {
     if (!up) return;
     sfx.win ? sfx.win() : sfx.ok();
-    toast(`${up.cityKo} — ${up.fromKo} → ${up.toKo} 승격! 내정 상한 ${up.capTo} · 징병 ×${up.draftTo}`, 3600);
+    toast(`${up.cityKo} — ${up.fromKo} → ${up.toKo} 승격! 농업·상업·수리 상한 ${up.capTo} · 치안 상한 100 · 징병 ×${up.draftTo}`, 3600);
   };
   if (!ANIMATED_COMMANDS.has(type)) { toast(res.msg); promoteToast(); return; }
   const fx = res.fx || {};
@@ -1650,15 +1655,15 @@ function renderArmySheet() {
       <div class="rg-k on"><i>배분 합계</i><b id="rg-assigned">${fmt(assigned)}</b></div>
       <div class="rg-k"><i>예비병</i><b id="rg-reserve">${fmt(reserve)}</b></div>
     </div>
-    ${armGuide}
-    <p class="note">장수마다 병력을 나눠 맡기고 병종을 바꿀 수 있습니다. <b>행동력은 쓰지 않습니다</b>(병종 변경은 금 ${E.ARM_CHANGE_GOLD}). 저장한 편성대로 <b>출진</b>하며, 맡기지 않은 병력은 예비병으로 성에 남습니다.</p>
-    ${over ? `<div class="warn-box">배분 합계가 성 총병력을 넘습니다 — 병력을 덜어내세요.</div>` : ''}
-    <div class="rg-list">${cards}</div>
     <div class="rg-acts">
       <button class="btn" data-act="reorg-plan" data-mode="even">균등 편성</button>
       <button class="btn" data-act="reorg-plan" data-mode="max">상한 채우기</button>
       <button class="btn" data-act="reorg-plan" data-mode="none">모두 해제</button>
     </div>
+    ${armGuide}
+    <p class="note">장수마다 병력을 나눠 맡기고 병종을 바꿀 수 있습니다. <b>행동력은 쓰지 않습니다</b>(병종 변경은 금 ${E.ARM_CHANGE_GOLD}). 저장한 편성대로 <b>출진</b>하며, 맡기지 않은 병력은 예비병으로 성에 남습니다.</p>
+    ${over ? `<div class="warn-box">배분 합계가 성 총병력을 넘습니다 — 병력을 덜어내세요.</div>` : ''}
+    <div class="rg-list">${cards}</div>
     <button class="btn big" id="rg-save" data-act="reorg-save" ${over ? 'disabled' : ''}>저장 — 배분 ${fmt(assigned)} · 예비 ${fmt(reserve)}</button>
     <p class="note" style="margin-top:6px">${ap ? '' : '행동력이 없어도 편성은 바꿀 수 있습니다. '}편성을 바꾼 뒤에는 출진 시트에서 장수별 병력이 그대로 나섭니다.</p>`);
 }
@@ -3086,10 +3091,10 @@ function infoTabHTML() {
       <button class="info-row city" data-act="info-city" data-city="${c.cityId}">
         <span class="ir-name">${c.ko}<em>${c.region}</em><i class="ir-size s${c.size}">${c.sizeKo}</i></span>
         <span class="ir-deleg ${c.delegation !== 'none' ? 'on' : ''}">${c.delegationKo}</span>
-        <span class="ir-na">농업 ${c.agri} · 상업 ${c.comm} · 치안 ${c.order} · 수리 ${c.water}<em class="ir-cap"> / ${c.cap}</em></span>
+        <span class="ir-na">농업 ${c.agri}/${c.cap} · 상업 ${c.comm}/${c.cap} · 치안 ${c.order}/${c.orderCap ?? 100} · 수리 ${c.water}/${c.cap}</span>
         <span class="ir-nb">병 ${fmt(c.troops)} · 장수 ${c.generals}명 · 금 ${fmt(c.gold)} · 량 ${fmt(c.food)}</span>
       </button>`).join('');
-    return `<p class="note">성 이름을 누르면 지도에서 그 성을 고릅니다. 위임한 성은 턴이 바뀔 때 스스로 내정·군사를 돌봅니다.<br>성 규모는 소 → 중 → 대 → 특대 — 농업·상업·치안·수리를 모두 상한까지 채우면 저절로 한 단계 오릅니다(징병도 늘어납니다).</p>${rows}`;
+    return `<p class="note">성 이름을 누르면 지도에서 그 성을 고릅니다. 위임한 성은 턴이 바뀔 때 스스로 내정·군사를 돌봅니다.<br>성 규모는 소형 → 중형 → 대형 → 특대형 — 농업·상업·수리를 그 규모의 상한(100→130→160→200)까지, 치안을 100까지 채우면 저절로 한 단계 오릅니다(징병도 늘어납니다).</p>${rows}`;
   }
   if (infoTab === 'generals') {
     const scope = `<div class="chip-row" style="margin:6px 0"><button class="pick-chip ${infoScope === 'mine' ? 'on' : ''}" data-act="info-scope" data-scope="mine">아군</button><button class="pick-chip ${infoScope === 'all' ? 'on' : ''}" data-act="info-scope" data-scope="all">전체</button></div>`;
@@ -3337,7 +3342,7 @@ function doPromote(gid) {
   const t = gd(gid);
   playActionFx({
     kind: 'promote', name: t.ko, line: `${res.to}에 임명되었습니다!`,
-    delta: `최대 지휘 ${fmt(res.cap)} · 충성 +${E.PROMOTE_LOYALTY}`,
+    delta: `최대 지휘 ${fmt(res.cap)} · 충성 +${res.loyaltyGain != null ? res.loyaltyGain : E.PROMOTE_LOYALTY}`,
     merit: 0, portrait: portraitURL(gid, t, 64, colorOf(game.playerId)),
   }).then(() => { if (game) openPromoteSheet(); });
 }
@@ -3462,7 +3467,7 @@ function openHelp() {
     <p class="note" style="line-height:1.9">
     <b style="color:#e6d9b3">1. 목표</b> — 전국 42개 성을 모두 차지하면 천하통일입니다.<br>
     <b style="color:#e6d9b3">2. 달마다</b> — 행동력만큼 명령을 내립니다. 장수는 한 달에 한 번만 움직입니다.<br>
-    <b style="color:#e6d9b3">3. 내정</b> — 개발(농업)·상업·치안·수리로 성을 키우고, 징병·훈련으로 군세를 만듭니다. 성에는 규모(소·중·대·특대)가 있어 농업·상업·치안·수리를 그 성의 상한(소 100 → 중 130 → 대 160 → 특대 200)까지 모두 채우면 저절로 다음 규모로 승격합니다. 규모가 클수록 징병이 많이 모이고(×1.0·1.25·1.5·1.8) 세입과 주둔 병력 상한도 올라갑니다.<br>
+    <b style="color:#e6d9b3">3. 내정</b> — 개발(농업)·상업·치안·수리로 성을 키우고, 징병·훈련으로 군세를 만듭니다. 성에는 규모(소형·중형·대형·특대형)가 있어 농업·상업·수리를 그 성의 상한(소형 100 → 중형 130 → 대형 160 → 특대형 200)까지, 치안을 100까지 채우면 저절로 다음 규모로 승격합니다. 규모가 클수록 징병이 많이 모이고(×1.0·1.25·1.5·1.8) 세입과 주둔 병력 상한도 올라갑니다.<br>
     <b style="color:#e6d9b3">4. 인사</b> — 탐색으로 인재를 찾고 등용합니다. 장수마다 친밀도가 있어 낯설면 등용이 어렵습니다. 친교(금 200·행동력 1)로 친밀도를 쌓고, 포상(금 120)으로 충성과 친밀도를 함께 올립니다.<br>
     <b style="color:#e6d9b3">5. 이동</b> — 아군 성끼리 장수를 옮깁니다. 행동력 1을 쓰고, 옮긴 장수는 그 달 행동을 마칩니다.<br>
     <b style="color:#e6d9b3">6. 대화</b> — 성의 장수와 이야기를 나누면 충성도와 친밀도가 오릅니다(행동력 1, 장수마다 한 달 1회, 금은 들지 않음).<br>

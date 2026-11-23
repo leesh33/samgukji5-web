@@ -3,7 +3,7 @@
    또렷한 도로선 · 세력 색 원형 거점 노드. 드래그·핀치 줌·탭 선택은 그대로. */
 import { CITIES, CITY_BY_ID, FACTION_COLORS } from './data.js';
 
-/* 성 규모(소·중·대·특대)별 노드 크기 배율 — 큰 성일수록 지도에서 크게 그린다 */
+/* 성 규모(소형·중형·대형·특대형)별 노드 크기 배율 — 큰 성일수록 지도에서 크게 그린다 */
 export const CITY_NODE_SCALE = [0.86, 1.0, 1.2, 1.42];
 /* 노드 반지름 — 배율을 곱한 화면 크기를 규모별 최소·최대 사이로 잡아 차이를 확실히 남긴다 */
 export function cityNodeRadius(size, sz) {
@@ -393,7 +393,7 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
   }
 
   /* ---------- 거점 노드 ---------- */
-  /* 반지름을 성 규모(소·중·대·특대)에 따라 확실하게 벌린다 — 지도에서 큰 성이 바로 눈에 띄게 */
+  /* 반지름을 성 규모(소형·중형·대형·특대형)에 따라 확실하게 벌린다 — 지도에서 큰 성이 바로 눈에 띄게 */
   function nodeRadius(sz, size) {
     return cityNodeRadius(size, sz);
   }

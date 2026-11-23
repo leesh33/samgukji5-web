@@ -1,5 +1,5 @@
 /* 삼국 한 턴 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
-import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_OWNERS, TREASURE_STAT_KO, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, citySize, citySizeKo, sizeCap, sizeDraftMul, sizeIncomeMul, sizeTroopCap } from './data.js';
+import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_OWNERS, TREASURE_STAT_KO, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, citySize, citySizeKo, sizeCap, statCap, ORDER_CAP, sizeDraftMul, sizeIncomeMul, sizeTroopCap } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 
 export const SAVE_VERSION = 12;
@@ -443,33 +443,37 @@ export function factionCities(state, fid) {
 export function neighbors(cityId) { return CITY_BY_ID[cityId].roads; }
 export function isAdjacent(a, b) { return CITY_BY_ID[a].roads.includes(b); }
 
-/* ---------- 성 규모 (소 · 중 · 대 · 특대) ---------- */
-/* 성의 내정 네 수치가 규모별 상한에 모두 닿으면 다음 규모로 승격한다(수치는 유지, 상한만 확장) */
+/* ---------- 성 규모 (소형 · 중형 · 대형 · 특대형) ---------- */
+/* 성의 농업·상업·수리가 규모 상한에, 치안이 100에 닿으면 다음 규모로 승격한다(수치는 유지, 상한만 확장) */
 export function citySizeOf(state, cityId) {
   const c = state && state.cities ? state.cities[cityId] : null;
   return c ? citySize(c.size).id : 0;
 }
-export function cityStatCap(state, cityId) { return state && state.cities && state.cities[cityId] ? sizeCap(state.cities[cityId].size) : sizeCap(0); }
+/* 수치 상한 — key를 주면 그 수치의 상한(치안은 100 고정), 주지 않으면 규모 상한 */
+export function cityStatCap(state, cityId, key) {
+  const size = state && state.cities && state.cities[cityId] ? state.cities[cityId].size : 0;
+  return key ? statCap(size, key) : sizeCap(size);
+}
 export function citySizeKoOf(state, cityId) { return citySizeKo(citySizeOf(state, cityId)); }
 export function cityTroopsCap(state, cityId) { return sizeTroopCap(citySizeOf(state, cityId)); }
 export function sizeDraftOf(state, cityId) { return sizeDraftMul(citySizeOf(state, cityId)); }
 export function sizeIncomeOf(state, cityId) { return sizeIncomeMul(citySizeOf(state, cityId)); }
-/* 다음 규모까지 남은 내정 합계 — 0이면 승격 조건을 채웠다(특대는 null) */
+/* 다음 규모까지 남은 내정 합계 — 0이면 승격 조건을 채웠다(특대형은 null) */
 export function citySizeUpRemain(state, cityId) {
   const c = state && state.cities ? state.cities[cityId] : null;
   if (!c) return null;
   const size = citySize(c.size).id;
   if (size >= CITY_SIZE_MAX) return null;
   const cap = sizeCap(size);
-  return Math.max(0, cap - c.agri) + Math.max(0, cap - c.comm) + Math.max(0, cap - c.order) + Math.max(0, cap - c.water);
+  return Math.max(0, cap - c.agri) + Math.max(0, cap - c.comm) + Math.max(0, ORDER_CAP - c.order) + Math.max(0, cap - c.water);
 }
 export function citySizeUpReady(state, cityId) {
   const c = state && state.cities ? state.cities[cityId] : null;
   if (!c || citySize(c.size).id >= CITY_SIZE_MAX) return false;
   const cap = sizeCap(c.size);
-  return c.agri >= cap && c.comm >= cap && c.order >= cap && c.water >= cap;
+  return c.agri >= cap && c.comm >= cap && c.order >= ORDER_CAP && c.water >= cap;
 }
-/* 승격 — 소 → 중 → 대 → 특대. 수치는 깎지 않고 상한만 넓힌다 */
+/* 승격 — 소형 → 중형 → 대형 → 특대형. 수치는 깎지 않고 상한만 넓힌다 */
 export function checkCitySizeUp(state, cityId) {
   const c = state && state.cities ? state.cities[cityId] : null;
   if (!c) return null;
@@ -483,7 +487,7 @@ export function checkCitySizeUp(state, cityId) {
     cityId: c.id, cityKo: ko, from, to, fromKo: a.ko, toKo: b.ko,
     capFrom: a.cap, capTo: b.cap, draftFrom: a.draft, draftTo: b.draft, troopCapTo: b.troopCap,
   };
-  log(state, `[규모 승격] ${withJosa(ko, '이')} ${a.ko}에서 ${withJosa(b.ko, '로')} 승격했습니다. (내정 상한 ${a.cap} → ${b.cap} · 징병 ×${a.draft} → ×${b.draft} · 주둔 상한 ${b.troopCap.toLocaleString()})`);
+  log(state, `[규모 승격] ${withJosa(ko, '이')} ${a.ko}에서 ${withJosa(b.ko, '로')} 승격했습니다. (농업·상업·수리 상한 ${a.cap} → ${b.cap} · 치안 상한 ${ORDER_CAP} · 징병 ×${a.draft} → ×${b.draft} · 주둔 상한 ${b.troopCap.toLocaleString()})`);
   return info;
 }
 /* 모든 성의 승격 여부를 한 번에 살핀다 — AI·위임·이벤트처럼 다른 경로로 수치가 오른 경우까지 */
@@ -903,10 +907,12 @@ export function promoteGeneral(state, gid) {
   const from = RANKS[clamp(g.rank | 0, 0, RANK_MAX)];
   g.rank = clamp((g.rank | 0) + 1, 0, RANK_MAX);
   const to = RANKS[g.rank];
-  g.loyalty = clamp((g.loyalty || 0) + PROMOTE_LOYALTY, 0, 100);
-  const msg = `${withJosa(t.ko, '을')} ${withJosa(to.ko, '로')} 임명했습니다! 최대 지휘 ${to.cap.toLocaleString()}명 · 전투 보정 +${Math.round(to.bonus * 100)}% · 충성 +${PROMOTE_LOYALTY}`;
+  const loyBefore = g.loyalty || 0;
+  g.loyalty = clamp(loyBefore + PROMOTE_LOYALTY, 0, 100);
+  const loyGain = g.loyalty - loyBefore;   // 100에서 멈춘 만큼은 빼고 알린다
+  const msg = `${withJosa(t.ko, '을')} ${withJosa(to.ko, '로')} 임명했습니다! 최대 지휘 ${to.cap.toLocaleString()}명 · 전투 보정 +${Math.round(to.bonus * 100)}% · 충성 +${loyGain}`;
   log(state, msg);
-  return { ok: true, msg, gid, ko: t.ko, from: from.ko, to: to.ko, rank: g.rank, cap: to.cap, bonus: to.bonus, loyalty: g.loyalty, merit: meritOf(state, gid) };
+  return { ok: true, msg, gid, ko: t.ko, from: from.ko, to: to.ko, rank: g.rank, cap: to.cap, bonus: to.bonus, loyalty: g.loyalty, loyaltyGain: loyGain, merit: meritOf(state, gid) };
 }
 
 /* ---------- 쌀 시세 · 교역 ---------- */
@@ -991,9 +997,9 @@ export function specialCheck(state, kind, cityId) {
   if (state.actionPoints < sp.ap) return { ok: false, why: '행동력이 부족합니다.' };
   if (sp.gold && c.gold < sp.gold) return { ok: false, why: `이 성의 금이 부족합니다(${sp.gold} 필요).` };
   if (sp.food && c.food < sp.food) return { ok: false, why: `이 성의 식량이 부족합니다(${sp.food} 필요).` };
-  if (kind === 'patrol' && c.order >= sizeCap(c.size)) return { ok: false, why: `치안이 이미 최대입니다(상한 ${sizeCap(c.size)}).` };
+  if (kind === 'patrol' && c.order >= ORDER_CAP) return { ok: false, why: `치안이 이미 최대입니다(상한 ${ORDER_CAP}).` };
   if (kind === 'banquet' && !generalsInCity(state, cityId).length) return { ok: false, why: '이 성에 장수가 없습니다.' };
-  if (kind === 'relief' && c.order >= sizeCap(c.size)) return { ok: false, why: `치안이 이미 최대입니다(상한 ${sizeCap(c.size)}).` };
+  if (kind === 'relief' && c.order >= ORDER_CAP) return { ok: false, why: `치안이 이미 최대입니다(상한 ${ORDER_CAP}).` };
   return { ok: true };
 }
 export function runSpecial(state, kind, cityId) {
@@ -1010,7 +1016,7 @@ export function runSpecial(state, kind, cityId) {
 
   if (kind === 'patrol') {
     const up = randInt(rng, 4, 7);
-    c.order = clamp(c.order + up, 0, sizeCap(c.size));
+    c.order = clamp(c.order + up, 0, ORDER_CAP);
     c.def = clamp(c.def + 1, 20, 99);
     bumpFame(state, me, 2);
     let msg = `${cityName(cityId)}을 순찰해 치안 +${up}, 명성 +2를 얻었습니다. (치안 ${c.order})`;
@@ -1038,13 +1044,13 @@ export function runSpecial(state, kind, cityId) {
     const gold = randInt(rng, 600, 1000);
     const order = randInt(rng, 10, 15);
     c.gold += gold;
-    c.order = clamp(c.order - order, 0, sizeCap(c.size));
+    c.order = clamp(c.order - order, 0, ORDER_CAP);
     bumpFame(state, me, -3);
     out.msg = `${cityName(cityId)}에서 금 ${fmtOr(gold)}을 징수했습니다. 대신 치안 -${order}, 명성 -3.`;
     out.gold = gold;
   } else if (kind === 'relief') {
     const up = randInt(rng, 8, 14);
-    c.order = clamp(c.order + up, 0, sizeCap(c.size));
+    c.order = clamp(c.order + up, 0, ORDER_CAP);
     bumpFame(state, me, 4);
     out.msg = `${cityName(cityId)}에 식량 ${fmtOr(sp.food)}을 풀어 백성을 구휼했습니다. 치안 +${up}, 명성 +4.`;
   }
@@ -1096,16 +1102,16 @@ export function runDelegations(state, rng = rngOf(state)) {
     const best = gens.reduce((m, g) => ((generalOf(state, g.id).pol + generalOf(state, g.id).lead) > (generalOf(state, m.id).pol + generalOf(state, m.id).lead) ? g : m), gens[0]);
     const t = generalOf(state, best.id);
     if (mode === 'domestic') {
-      const cap = sizeCap(c.size);
       const stats = [
         ['agri', c.agri, '농업'], ['comm', c.comm, '상업'],
         ['order', c.order, '치안'], ['water', c.water, '수리'],
-      ];
+      ].filter(([k, v]) => v < statCap(c.size, k));   // 수치마다 상한이 다르다 — 치안은 100, 나머지는 규모 상한
+      if (!stats.length) { c.train = clamp(c.train + 2, 0, 100); notes.push(`${cityName(c.id)} 훈련 +2`); continue; }
       stats.sort((a, b) => a[1] - b[1]);
       const [key, , ko] = stats[0];
-      if (c[key] >= cap) { c.train = clamp(c.train + 2, 0, 100); notes.push(`${cityName(c.id)} 훈련 +2`); continue; }
+      const keyCap = statCap(c.size, key);
       const gain = 2 + Math.floor(t.pol / 30) + randInt(rng, 0, 2);
-      c[key] = clamp(c[key] + gain, 0, cap);
+      c[key] = clamp(c[key] + gain, 0, keyCap);
       if (key === 'order') c.def = clamp(c.def + 1, 20, 99);
       notes.push(`${cityName(c.id)} ${ko} +${gain}`);
       const up = checkCitySizeUp(state, c.id);
@@ -1115,7 +1121,7 @@ export function runDelegations(state, rng = rngOf(state)) {
       if (wantDraft) {
         const add = Math.min(Math.round((600 + Math.floor(t.lead * 3)) * sizeDraftMul(c.size)), Math.max(0, sizeTroopCap(c.size) - c.troops));
         c.gold -= 250; c.food -= 400; c.troops += add;
-        c.order = clamp(c.order - 2, 0, sizeCap(c.size));
+        c.order = clamp(c.order - 2, 0, ORDER_CAP);
         notes.push(`${cityName(c.id)} 징병 +${fmtOr(add)}`);
       } else {
         const gain = 3 + Math.floor(t.lead / 24);
@@ -1161,7 +1167,7 @@ export function infoCities(state) {
   return factionCities(state, state.playerId).map((c) => ({
     cityId: c.id, ko: cityName(c.id), region: CITY_BY_ID[c.id].region,
     agri: c.agri, comm: c.comm, order: c.order, water: c.water,
-    size: citySize(c.size).id, sizeKo: citySize(c.size).ko, cap: sizeCap(c.size),
+    size: citySize(c.size).id, sizeKo: citySize(c.size).ko, cap: sizeCap(c.size), orderCap: ORDER_CAP,
     troops: c.troops, train: c.train, def: c.def,
     gold: Math.round(c.gold), food: Math.round(c.food),
     generals: generalsInCity(state, c.id).length,
@@ -1795,7 +1801,7 @@ export function runPlot(state, fromCityId, toCityId, kind, gid) {
     const rr = rngOf(state);
     const order = randInt(rr, 8, 14);
     const train = randInt(rr, 6, 12);
-    to.order = clamp(to.order - order, 0, sizeCap(to.size));
+    to.order = clamp(to.order - order, 0, ORDER_CAP);
     to.train = clamp(to.train - train, 10, 100);
     to.gold = Math.round(to.gold * 0.85);
     to.food = Math.round(to.food * 0.9);
@@ -1949,15 +1955,15 @@ export function resolveEvent(state, choiceId = null) {
       bumpFame(state, fid, 3);
       msg = `도적을 소탕해 금 ${fmtOr(ev.data.gold)}을 얻고 명성 +3을 쌓았습니다.`;
     } else {
-      for (const c of cs) c.order = clamp(c.order - 6, 0, sizeCap(c.size));
+      for (const c of cs) c.order = clamp(c.order - 6, 0, ORDER_CAP);
       msg = `도적을 그냥 두어 모든 성의 치안이 6씩 떨어졌습니다.`;
     }
   } else if (ev.id === 'plague') {
     const treat = opt.id === 'treat' && factionGold(state, fid) >= 300;
     if (treat) spendFactionGold(state, fid, 300);
     for (const c of cs) {
-      if (treat) { c.order = clamp(c.order - 3, 0, sizeCap(c.size)); c.food = Math.round(c.food * 0.95); }
-      else { c.order = clamp(c.order - 8, 0, sizeCap(c.size)); c.troops = Math.max(300, Math.round(c.troops * 0.95)); c.food = Math.round(c.food * 0.88); }
+      if (treat) { c.order = clamp(c.order - 3, 0, ORDER_CAP); c.food = Math.round(c.food * 0.95); }
+      else { c.order = clamp(c.order - 8, 0, ORDER_CAP); c.troops = Math.max(300, Math.round(c.troops * 0.95)); c.food = Math.round(c.food * 0.88); }
     }
     msg = treat ? '의원을 불러 역병을 수습했습니다. (금 300)' : '역병이 돌아 병력과 식량을 잃었습니다.';
   } else if (ev.id === 'drought') {
@@ -2185,7 +2191,7 @@ export function canCommand(state, type, cityId, officerId) {
   if (type === 'transport' && adjacentFriends(state, cityId).length === 0) return { ok: false, why: '인접한 아군 성이 없습니다.' };
   if (type === 'agri' && c.agri >= sizeCap(c.size)) return { ok: false, why: `농업이 이미 최대입니다(상한 ${sizeCap(c.size)}).` };
   if (type === 'comm' && c.comm >= sizeCap(c.size)) return { ok: false, why: `상업이 이미 최대입니다(상한 ${sizeCap(c.size)}).` };
-  if (type === 'order' && c.order >= sizeCap(c.size)) return { ok: false, why: `치안이 이미 최대입니다(상한 ${sizeCap(c.size)}).` };
+  if (type === 'order' && c.order >= ORDER_CAP) return { ok: false, why: `치안이 이미 최대입니다(상한 ${ORDER_CAP}).` };
   if (type === 'water' && c.water >= sizeCap(c.size)) return { ok: false, why: `수리가 이미 최대입니다(상한 ${sizeCap(c.size)}).` };
   return { ok: true };
 }
@@ -2205,6 +2211,7 @@ export function runCommand(state, type, opts) {
   let fxTone = 'good';
   let hireSuccess = true;
   const cap = sizeCap(c.size);
+  const orderCap = statCap(c.size, 'order');
 
   switch (type) {
     case 'agri': {
@@ -2231,7 +2238,7 @@ export function runCommand(state, type, opts) {
     case 'order': {
       const before = c.order;
       gain = 3 + Math.floor(t.pol / 22) + randInt(rng, 0, 2);
-      c.order = clamp(c.order + Math.min(gain, Math.max(0, cap - c.order)), 0, cap);
+      c.order = clamp(c.order + Math.min(gain, Math.max(0, orderCap - c.order)), 0, orderCap);
       gain = c.order - before;
       c.def = clamp(c.def + 1, 20, 99);
       msg = `${withJosa(t.ko, '이')} 치안을 ${gain} 올렸습니다. (치안 ${c.order})`;
@@ -2250,20 +2257,22 @@ export function runCommand(state, type, opts) {
       break;
     }
     case 'draft': {
-      // 규모가 클수록 징병이 많이 모인다(소 ×1.0 · 중 ×1.25 · 대 ×1.5 · 특대 ×1.8), 주둔 상한을 넘지 않게
+      // 규모가 클수록 징병이 많이 모인다(소형 ×1.0 · 중형 ×1.25 · 대형 ×1.5 · 특대형 ×1.8), 주둔 상한을 넘지 않게
       const want = Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size));
       const add = Math.min(want, Math.max(0, sizeTroopCap(c.size) - c.troops));
       if (add <= 0) return { ok: false, msg: `주둔 병력이 상한(${sizeTroopCap(c.size).toLocaleString()})입니다.` };
       c.gold -= 250; c.food -= 400;
-      c.troops += add; c.order = clamp(c.order - 3, 0, cap); c.train = clamp(c.train - 6, 10, 100);
-      msg = `${withJosa(t.ko, '이')} 병사 ${add.toLocaleString()}명을 모았습니다. (병력 ${c.troops.toLocaleString()}${sizeDraftMul(c.size) > 1 ? ` · ${citySize(c.size).ko} 성 보정` : ''})`;
+      c.troops += add; c.order = clamp(c.order - 3, 0, orderCap); c.train = clamp(c.train - 6, 10, 100);
+      msg = `${withJosa(t.ko, '이')} 병사 ${add.toLocaleString()}명을 모았습니다. (병력 ${c.troops.toLocaleString()}${sizeDraftMul(c.size) > 1 ? ` · ${citySize(c.size).ko} 보정` : ''})`;
       fxLine = `${withJosa(t.ko, '이')} 병사 ${add.toLocaleString()}명을 모았습니다!`;
       fxDelta = `병력 +${add.toLocaleString()}`;
       break;
     }
     case 'train': {
+      const before = c.train;
       gain = 4 + Math.floor(t.lead / 18);
       c.train = clamp(c.train + gain, 0, 100);
+      gain = c.train - before;   // 100에서 멈추면 실제 오른 만큼만 알린다
       msg = `${withJosa(t.ko, '이')} 부대를 훈련했습니다. (훈련 ${c.train})`;
       fxLine = `${withJosa(t.ko, '이')} 병사를 조련했습니다!`;
       fxDelta = `훈련 +${gain}`;
@@ -2321,13 +2330,16 @@ export function runCommand(state, type, opts) {
       const gens = generalsInCity(state, c.id).filter((x) => x.id !== state.factions[state.playerId].lord);
       const target = opts.rewardId ? state.generals[opts.rewardId] : gens.sort((a, b) => a.loyalty - b.loyalty)[0];
       if (!target) return { ok: false, msg: '포상할 장수가 없습니다.' };
+      const before = target.loyalty || 0;
+      if (before >= 100) return { ok: false, msg: `${generalOf(state, target.id).ko}의 충성도가 이미 최대(100)입니다.` };
       c.gold -= 120;
       const inc = 8 + Math.floor(t.cha / 10) + randInt(rng, 0, 5);
-      target.loyalty = clamp(target.loyalty + inc, 0, 100);
+      target.loyalty = clamp(before + inc, 0, 100);
+      const gained = target.loyalty - before;   // 100에서 멈춘 만큼은 빼고 알린다
       const aff = bumpAffinity(state, target.id, 5);
-      msg = `${generalOf(state, target.id).ko}의 충성도가 ${inc} 올랐습니다. (충성 ${target.loyalty} · 친밀도 ${aff})`;
+      msg = `${generalOf(state, target.id).ko}의 충성도가 ${gained} 올랐습니다. (충성 ${before} → ${target.loyalty} · 친밀도 ${aff})`;
       fxLine = `${withJosa(generalOf(state, target.id).ko, '을')} 포상했습니다!`;
-      fxDelta = `충성 +${inc}`;
+      fxDelta = `충성 +${gained}`;
       break;
     }
     case 'transport': {
@@ -2363,13 +2375,13 @@ export function runCommand(state, type, opts) {
   let sizeUp = null;
   if (type === 'agri' || type === 'comm' || type === 'order' || type === 'water') sizeUp = checkCitySizeUp(state, c.id);
   if (sizeUp) {
-    fxLine = `${sizeUp.cityKo}의 내정이 가득 차 ${sizeUp.toKo} 성으로 승격했습니다!`;
+    fxLine = `${sizeUp.cityKo}의 내정이 가득 차 ${withJosa(sizeUp.toKo, '로')} 승격했습니다!`;
     fxDelta = `${sizeUp.fromKo} → ${sizeUp.toKo} · 상한 ${sizeUp.capTo}`;
     fxTone = 'good';
   }
   bumpRng(state);
   return {
-    ok: true, msg, merit, sizeUp,
+    ok: true, msg, merit, sizeUp, gain,
     fx: { kind: type, name: t.ko, line: fxLine || msg, delta: fxDelta, merit, tone: fxTone },
   };
 }
@@ -2918,13 +2930,15 @@ export function resolveTournamentReward(state, choice, opts = {}) {
     }
     gained = prize.ko;
   }
-  champ.loyalty = clamp((champ.loyalty || 0) + R.loyalty, 0, 100);
+  const loyBefore = champ.loyalty || 0;
+  champ.loyalty = clamp(loyBefore + R.loyalty, 0, 100);
+  const loyGain = champ.loyalty - loyBefore;   // 100에서 멈춘 만큼은 빼고 알린다
   const aff = bumpAffinity(state, champ.id, R.affinity);
   bumpFame(state, state.playerId, R.fame);
   const costText = R.gold ? `금 ${R.gold} · ` : '';
   const trText = gained ? `${gained} · ` : '';
-  const msg = `${tv.title} 우승자 ${champ ? generalOf(state, champ.id).ko : tv.championKo}에게 ${costText}${trText}충성 +${R.loyalty} · 친밀 +${R.affinity} · 명성 +${R.fame} — ${R.done}. (충성 ${champ.loyalty} · 친밀 ${aff})`;
-  const record = { ...tv, reward: choice, rewardKo: R.ko, treasure: gained || null, affinityAfter: aff, loyaltyAfter: champ.loyalty, resolvedTurn: state.turn };
+  const msg = `${tv.title} 우승자 ${champ ? generalOf(state, champ.id).ko : tv.championKo}에게 ${costText}${trText}충성 +${loyGain} · 친밀 +${R.affinity} · 명성 +${R.fame} — ${R.done}. (충성 ${loyBefore} → ${champ.loyalty} · 친밀 ${aff})`;
+  const record = { ...tv, reward: choice, rewardKo: R.ko, treasure: gained || null, affinityAfter: aff, loyaltyAfter: champ.loyalty, loyaltyGain: loyGain, resolvedTurn: state.turn };
   state.lastTournament = record;
   state.pendingTournament = null;
   log(state, msg);
@@ -2999,13 +3013,13 @@ function aiEconomy(state, fid, rng) {
     if (c.troops < 9000 && c.gold > 1600 && c.food > 2500) {
       c.gold -= 250; c.food -= 400;
       c.troops += Math.min(Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size)), Math.max(0, sizeTroopCap(c.size) - c.troops));
-      c.order = clamp(c.order - 3, 0, cap);
+      c.order = clamp(c.order - 3, 0, ORDER_CAP);
     } else if (c.troops < 3000 && c.gold > 600 && c.food > 1200) {
       c.gold -= 250; c.food -= 400;
       c.troops += Math.min(Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size)), Math.max(0, sizeTroopCap(c.size) - c.troops));
-      c.order = clamp(c.order - 3, 0, cap);
+      c.order = clamp(c.order - 3, 0, ORDER_CAP);
     } else if (c.order < 45) {
-      c.order = clamp(c.order + 3 + Math.floor(t.pol / 22), 0, cap);
+      c.order = clamp(c.order + 3 + Math.floor(t.pol / 22), 0, ORDER_CAP);
     } else if (stat === 'agri' && c.agri < cap) {
       c.agri = clamp(c.agri + 2 + Math.floor(t.pol / 26), 0, cap);
     } else if (c.comm < cap) {
@@ -3059,7 +3073,7 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
     toC.owner = atkFid;
     toC.troops = Math.max(600, Math.round(fromC.troops * (0.35 + rng() * 0.2)));
     toC.train = Math.max(30, Math.round(fromC.train * 0.8));
-    toC.order = clamp(toC.order - 15, 10, sizeCap(toC.size));
+    toC.order = clamp(toC.order - 15, 10, ORDER_CAP);
     fromC.troops = Math.max(500, Math.round(fromC.troops * 0.45));
     moveGeneralsOnCapture(state, to, defFid, atkFid, rng);
     log(state, `${state.factions[atkFid] ? state.factions[atkFid].name : '?'}군이 ${withJosa(cityName(to), '을')} 함락했습니다.`);
@@ -3068,7 +3082,7 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
   } else {
     fromC.troops = Math.max(500, Math.round(fromC.troops * (0.5 + rng() * 0.2)));
     toC.troops = Math.max(600, Math.round(toC.troops * (0.7 + rng() * 0.2)));
-    toC.order = clamp(toC.order - 5, 10, sizeCap(toC.size));
+    toC.order = clamp(toC.order - 5, 10, ORDER_CAP);
     log(state, `${state.factions[atkFid] ? state.factions[atkFid].name : '?'}군의 ${cityName(to)} 공격이 격퇴되었습니다.`);
     bumpFame(state, atkFid, -2);
     if (defFid) bumpFame(state, defFid, 3);
@@ -3312,7 +3326,7 @@ export function endTurnPhase2(state) {
     if (rng() < 0.035) {
       if (c.water < 35) {
         const dmg = Math.round(c.food * 0.2);
-        c.food -= dmg; c.order = clamp(c.order - 6, 0, sizeCap(c.size));
+        c.food -= dmg; c.order = clamp(c.order - 6, 0, ORDER_CAP);
         if (c.owner === state.playerId) log(state, `${cityName(c.id)}에 수해가 나 식량 ${dmg}을 잃었습니다.`);
       } else if (c.order < 40) {
         c.gold = Math.round(c.gold * 0.85);
@@ -3401,7 +3415,7 @@ export function applyBattleResult(state, result, rng = null) {
     const losingFid = defFid;
     to.owner = atkFid;
     to.troops = Math.max(500, Math.round(result.atkSurvivors || from.troops * 0.6));
-    to.order = clamp(to.order - 12, 10, sizeCap(to.size));
+    to.order = clamp(to.order - 12, 10, ORDER_CAP);
     to.def = clamp(to.def - 8, 20, 99);
     // 편성 출진이면 성 총병력은 이미 나설 때 빠졌다 — 생존 병력은 함락한 성에 들어간다
     if (!march) from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
@@ -3496,9 +3510,8 @@ function ensureFormationLearning(s) {
 function ensureCitySize(s) {
   for (const [id, c] of Object.entries(s.cities || {})) {
     if (!Number.isInteger(c.size) || c.size < 0 || c.size > CITY_SIZE_MAX) c.size = CITY_SIZE_SEED[id] ?? 0;
-    const cap = sizeCap(c.size);
     for (const k of ['agri', 'comm', 'order', 'water']) {
-      c[k] = clamp(Math.round(Number(c[k]) || 0), 0, cap);
+      c[k] = clamp(Math.round(Number(c[k]) || 0), 0, statCap(c.size, k));
     }
   }
 }
