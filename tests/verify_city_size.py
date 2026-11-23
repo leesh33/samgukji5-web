@@ -1,6 +1,6 @@
-"""삼국 한 턴 — 성 규모(소·중·대·특대) 라이브 검증 (390×844)
+"""삼국 한 턴 — 성 규모(소형·중형·대형·특대형) 라이브 검증 (390×844)
 사용: python3 samgukji5-web/tests/verify_city_size.py [URL] [TAG]
-확인: 지도 노드 크기 차등 · 성 시트 규모 배지 · 내정 상한 표시 ·
+확인: 지도 노드 크기 차등 · 성 시트 규모 배지 · 내정 상한 표시(치안은 100 고정) ·
       4대 내정을 꽉 채웠을 때 승격 · 규모별 징병량 · 콘솔 오류 0 · 가로 넘침 0
 """
 import json
@@ -90,15 +90,15 @@ with sync_playwright() as p:
         capXuchang: E.cityStatCap(g, 'xuchang'),
       };
     }""")
-    step("42성 규모 분포 — 소 23 · 중 14 · 대 5 · 특대 0",
+    step("42성 규모 분포 — 소형 23 · 중형 14 · 대형 5 · 특대형 0",
          data["cityCount"] == 42 and data["count"] == [23, 14, 5, 0], data["count"])
-    step("규모 이름·상한 — 소/중/대/특대 · 100/130/160/200",
-         data["sizes"] == ["소", "중", "대", "특대"] and data["caps"] == [100, 130, 160, 200],
+    step("규모 이름·상한 — 소형/중형/대형/특대형 · 100/130/160/200",
+         data["sizes"] == ["소형", "중형", "대형", "특대형"] and data["caps"] == [100, 130, 160, 200],
          f"{data['sizes']} {data['caps']}")
-    step("게임 상태 성 규모 — 허창 1(중) · 낙양 2(대) · 소패 0(소)",
+    step("게임 상태 성 규모 — 허창 1(중형) · 낙양 2(대형) · 소패 0(소형)",
          data["xuchang"] == 1 and data["luoyang"] == 2 and data["xiaopei"] == 0,
          f"허창 {data['xuchang']} · 낙양 {data['luoyang']} · 소패 {data['xiaopei']}")
-    step("중 성 허창의 내정 상한 130", data["capXuchang"] == 130, data["capXuchang"])
+    step("중형 성 허창의 내정 상한 130", data["capXuchang"] == 130, data["capXuchang"])
 
     # ---------- 2. 지도 노드 크기 차등 ----------
     radii = page.evaluate("""async () => {
@@ -108,7 +108,7 @@ with sync_playwright() as p:
       return { z1: at(5.7), z2: at(11.4), z3: at(20.5), scales: mv.CITY_NODE_SCALE };
     }""")
     r1, r2, r3 = radii["z1"], radii["z2"], radii["z3"]
-    step("지도 노드 크기 — 소 < 중 < 대 < 특대 (기본 배율)",
+    step("지도 노드 크기 — 소형 < 중형 < 대형 < 특대형 (기본 배율)",
          all(b > a for a, b in zip(r1, r1[1:])) and r1[3] - r1[0] >= 3.0, r1)
     step("지도 노드 크기 — 확대해도 규모 순서·차이 유지",
          all(b > a for a, b in zip(r2, r2[1:])) and r2[3] - r2[0] >= 4.0, r2)
@@ -143,8 +143,8 @@ with sync_playwright() as p:
     infoTxt = page.locator("#sheet-body").inner_text()
     badges = page.evaluate("""() => Array.from(document.querySelectorAll('#sheet-body .ir-size'))
         .map(b => ({ko: b.textContent.trim(), cls: b.className}))""")
-    step("정보 › 아군 도시에 규모 배지", len(badges) >= 2 and all(b["ko"] in ("소", "중", "대", "특대") for b in badges), badges)
-    step("아군 도시 목록에 규모 안내 문구", "성 규모는 소 → 중 → 대 → 특대" in infoTxt, "")
+    step("정보 › 아군 도시에 규모 배지", len(badges) >= 2 and all(b["ko"] in ("소형", "중형", "대형", "특대형") for b in badges), badges)
+    step("아군 도시 목록에 규모 안내 문구", "성 규모는 소형 → 중형 → 대형 → 특대형" in infoTxt, "")
     shot(page, f"live-city-size-info-{TAG}")
 
     # 허창을 정보 목록에서 눌러 성 시트 열기
@@ -163,18 +163,18 @@ with sync_playwright() as p:
         title: (size || {}).title || '',
       };
     }""")
-    step("성 시트 헤더 — 예주 | 허창 | [중] | 조조 순서", head["text"] == "중" and head["order"], head)
-    step("성 시트 내정 칸에 규모 상한(/130) 표시", head["caps"] == ["/130"] * 4, head["caps"])
+    step("성 시트 헤더 — 예주 | 허창 | [중형] | 조조 순서", head["text"] == "중형" and head["order"], head)
+    step("성 시트 내정 칸에 수치별 상한(/130 · 치안 /100) 표시", head["caps"] == ["/130", "/130", "/100", "/130"], head["caps"])
     step("규모 배지 툴팁에 승격 안내(다음 규모·남은 내정)", "승격" in head["title"] and "남은 내정" in head["title"], head["title"])
     shot(page, f"live-city-size-sheet-{TAG}")
 
-    # ---------- 4. 소 성의 내정을 꽉 채우면 승격 ----------
+    # ---------- 4. 소형 성의 내정을 꽉 채우면 승격 ----------
     prep = page.evaluate("""async () => {
       const E = await import('./js/engine.js');
       const ui = await import('./js/ui.js');
       const g = ui.game;
       const c = g.cities.xuchang;
-      c.size = 0;                  // 소 성으로 되돌려 승격을 확인한다
+      c.size = 0;                  // 소형 성으로 되돌려 승격을 확인한다
       c.agri = 99; c.comm = 100; c.order = 100; c.water = 100;
       g.actionPoints = 6; g.maxActionPoints = 6;
       for (const k of Object.keys(g.generals)) g.generals[k].acted = false;
@@ -191,7 +191,7 @@ with sync_playwright() as p:
     sheet_title = page.locator("#sheet-title").inner_text()
     step("개발 명령 장수 선택 시트", "허창" in sheet_title and "개발" in sheet_title, sheet_title)
     cmd_note = page.locator("#sheet-body .size-note").inner_text()
-    step("개발 시트에 규모·승격 안내 — 소 · 100까지 채우면 중으로", "소" in cmd_note and "100" in cmd_note and "중" in cmd_note, cmd_note)
+    step("개발 시트에 규모·승격 안내 — 소형 · 100까지 채우면 중형으로", "소형" in cmd_note and "100" in cmd_note and "중형" in cmd_note and "치안" in cmd_note, cmd_note)
     page.locator('#sheet-body .officer-row[data-act="do-command"]').first.click()
     page.wait_for_timeout(2600)  # 2초 연출 + 승격 토스트
 
@@ -211,17 +211,18 @@ with sync_playwright() as p:
         logs: g.log.slice(-3).map(l => l.text),
       };
     }""")
-    step("4대 내정을 꽉 채우자 소 → 중 승격", promoted["size"] == 1,
+    step("4대 내정을 꽉 채우자 소형 → 중형 승격", promoted["size"] == 1,
          f"size {promoted['size']} · 수치 {promoted['agri']}/{promoted['comm']}/{promoted['order']}/{promoted['water']}")
     step("승격해도 수치는 그대로 100 (깎이지 않음)",
          [promoted["agri"], promoted["comm"], promoted["order"], promoted["water"]] == [100, 100, 100, 100],
          promoted["agri"])
-    step("승격 뒤 상한이 130으로 넓어짐", promoted["cap"] == 130 and promoted["caps"] == ["/130"] * 4,
+    step("승격 뒤 농업·상업·수리 상한만 130으로 넓어지고 치안은 /100",
+         promoted["cap"] == 130 and promoted["caps"] == ["/130", "/130", "/100", "/130"] and promoted["order"] == 100,
          f"{promoted['cap']} {promoted['caps']}")
-    step("성 시트 배지가 중으로 바뀜", promoted["badge"] == "중", promoted["badge"])
+    step("성 시트 배지가 중형으로 바뀜", promoted["badge"] == "중형", promoted["badge"])
     step("군보에 규모 승격 기록", any("규모 승격" in l for l in promoted["logs"]), promoted["logs"])
     step("승격 토스트 안내", "승격" in promoted["toast"], promoted["toast"][:80])
-    step("배지 툴팁도 새 규모 기준으로 갱신", "규모 중" in promoted["title"] and "130" in promoted["title"], promoted["title"])
+    step("배지 툴팁도 새 규모·치안 100 기준으로 갱신", "규모 중형" in promoted["title"] and "130" in promoted["title"] and "치안 100" in promoted["title"], promoted["title"])
     shot(page, f"live-city-size-promoted-{TAG}")
 
     # ---------- 5. 규모별 징병량 ----------
@@ -245,10 +246,10 @@ with sync_playwright() as p:
       return out;
     }""")
     base = draft["base"]
-    step("소 성 징병 = 기본량(×1.0)", draft["small"]["add"] == base, f"{draft['small']['add']} vs {base}")
-    step("중 성 징병 ×1.25", draft["mid"]["add"] == round(base * 1.25), draft["mid"]["add"])
-    step("대 성 징병 ×1.5", draft["big"]["add"] == round(base * 1.5), draft["big"]["add"])
-    step("특대 성 징병 ×1.8 — 규모가 크면 병사가 훨씬 많이 모인다",
+    step("소형 성 징병 = 기본량(×1.0)", draft["small"]["add"] == base, f"{draft['small']['add']} vs {base}")
+    step("중형 성 징병 ×1.25", draft["mid"]["add"] == round(base * 1.25), draft["mid"]["add"])
+    step("대형 성 징병 ×1.5", draft["big"]["add"] == round(base * 1.5), draft["big"]["add"])
+    step("특대형 성 징병 ×1.8 — 규모가 크면 병사가 훨씬 많이 모인다",
          draft["huge"]["add"] == round(base * 1.8) and draft["huge"]["add"] > draft["small"]["add"], draft["huge"]["add"])
 
     # ---------- 6. 마무리 — 대표 스크린샷·오류·넘침 ----------
