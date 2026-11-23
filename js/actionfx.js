@@ -1,11 +1,14 @@
-/* 행동 연출 — 주요 명령을 실행하면 딱 2.0초 동안 재생되고 저절로 닫힌다.
-   · 스킵 버튼은 두지 않는다(사용자 요청). 2초가 지나면 스스로 사라진다.
-   · 장수 초상화 + 행동별 도트 장면(캔버스) + 결과 문구·변화량·공적을 함께 보여 준다.
+/* 행동 연출 — HD-2D 디오라마.
+   · 주요 명령을 실행하면 딱 2.0초 동안 재생되고 저절로 닫힌다(스킵 버튼 없음).
+   · 배경은 행동마다 다른 HD-2D 디오라마 그림(assets/actionfx/*.webp)이고,
+     그 위에 60fps 캔버스 레이어(도트 병사 행진·불꽃·반딧불·금화·물보라·광선)를 얹는다.
+   · 그림은 앱이 뜬 뒤 미리 받아 두어 누를 때 지연 없이 그린다.
+   · 글자는 캔버스에 그리지 않는다(한자 0자). 안내는 아래 캡션에서만 한다.
    · 전장·시트 위에 덮이도록 가장 높은 층(z-index 120)에 붙인다. */
 
 export const ACTION_FX_MS = 2000;
-const W = 360;
-const H = 200;
+const W = 720;
+const H = 405;
 
 export const ACTION_FX_SCENES = {
   agri: { ko: '개발', tone: '#9cc45e' },
@@ -23,494 +26,565 @@ export const ACTION_FX_SCENES = {
 };
 export const ACTION_FX_DEFAULT = { ko: '명령', tone: '#d9a05a' };
 
+/* 배경 그림 — index.html 기준 경로 */
+export const ACTION_FX_BG = {
+  agri: 'assets/actionfx/agri.webp',
+  comm: 'assets/actionfx/comm.webp',
+  order: 'assets/actionfx/order.webp',
+  water: 'assets/actionfx/water.webp',
+  draft: 'assets/actionfx/draft.webp',
+  train: 'assets/actionfx/train.webp',
+  hire: 'assets/actionfx/hire.webp',
+  befriend: 'assets/actionfx/befriend.webp',
+  reward: 'assets/actionfx/reward.webp',
+  learn: 'assets/actionfx/learn.webp',
+  plot: 'assets/actionfx/plot.webp',
+  promote: 'assets/actionfx/promote.webp',
+};
+
 export function sceneOf(kind) {
   return ACTION_FX_SCENES[kind] || ACTION_FX_DEFAULT;
 }
 
-/* ---------- 도트 그리기 도구 ---------- */
+/* ---------- 배경 미리 받기 ---------- */
+const bgCache = new Map();
+
+function canLoadImages() {
+  return typeof window !== 'undefined' && typeof Image !== 'undefined';
+}
+
+function bgOf(kind) {
+  if (!ACTION_FX_BG[kind]) return null;
+  if (bgCache.has(kind)) return bgCache.get(kind);
+  if (!canLoadImages()) { bgCache.set(kind, null); return null; }
+  const img = new Image();
+  img.decoding = 'async';
+  img.src = ACTION_FX_BG[kind];
+  bgCache.set(kind, img);
+  return img;
+}
+
+export function actionFxBackgroundReady(kind) {
+  const img = bgCache.get(kind);
+  return !!(img && img.complete && img.naturalWidth > 0);
+}
+
+/** 앱이 뜬 뒤 불러 두면 명령을 눌렀을 때 지연이 없다. 이미 받은 그림은 다시 받지 않는다. */
+export function preloadActionFxBackgrounds(kinds) {
+  const list = Array.isArray(kinds) && kinds.length ? kinds : Object.keys(ACTION_FX_BG);
+  if (!canLoadImages()) return list.length;   // 브라우저 밖(테스트)에서는 할 일이 없다
+  let done = 0;
+  const step = () => {
+    if (done >= list.length) return true;
+    const kind = list[done++];
+    bgOf(kind);
+    return done >= list.length;
+  };
+  // 유휴 시간에 한 장씩 — 첫 화면(타이틀) 그리기를 방해하지 않는다
+  const idle = (fn) => {
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(fn, { timeout: 800 });
+    else setTimeout(fn, 60);
+  };
+  const loop = () => { if (!step()) idle(loop); };
+  idle(loop);
+  return list.length;
+}
+
+if (canLoadImages()) {
+  const boot = () => preloadActionFxBackgrounds();
+  if (document.readyState === 'complete') setTimeout(boot, 350);
+  else window.addEventListener('load', () => setTimeout(boot, 350), { once: true });
+}
+
+/* ---------- 그리기 도구 ---------- */
 function px(ctx, x, y, w, h, c) {
   ctx.fillStyle = c;
-  ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
 }
 
-function glow(ctx, x, y, r, c) {
-  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, c);
-  g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+const GLOW = new Map();
+function glowSprite(rgb) {
+  if (GLOW.has(rgb)) return GLOW.get(rgb);
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, `rgba(${rgb},1)`);
+  grd.addColorStop(0.42, `rgba(${rgb},0.32)`);
+  grd.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  GLOW.set(rgb, c);
+  return c;
 }
 
-function stage(ctx, tone) {
+/** 빛 번짐 — 미리 만든 스프라이트를 additive로 얹는다(모바일 60fps용) */
+function bloom(ctx, x, y, r, rgb, a = 0.4) {
+  if (a <= 0.004) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = Math.min(1, a);
+  ctx.drawImage(glowSprite(rgb), x - r, y - r, r * 2, r * 2);
+  ctx.restore();
+}
+
+function lerp(a, b, k) { return a + (b - a) * k; }
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+/* 화면 가장자리 어둡게 + 아래쪽 글자 자리 + 위쪽 따뜻한 빛 */
+let OVL = null;
+function overlayLayer() {
+  if (OVL) return OVL;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const scrim = g.createLinearGradient(0, H * 0.56, 0, H);
+  scrim.addColorStop(0, 'rgba(8,6,4,0)');
+  scrim.addColorStop(1, 'rgba(8,6,4,0.66)');
+  g.fillStyle = scrim;
+  g.fillRect(0, H * 0.56, W, H * 0.44);
+  const vig = g.createRadialGradient(W / 2, H * 0.46, H * 0.3, W / 2, H * 0.5, W * 0.62);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.62)');
+  g.fillStyle = vig;
+  g.fillRect(0, 0, W, H);
+  const rim = g.createLinearGradient(0, 0, 0, H * 0.34);
+  rim.addColorStop(0, 'rgba(255,188,120,0.16)');
+  rim.addColorStop(1, 'rgba(255,188,120,0)');
+  g.fillStyle = rim;
+  g.fillRect(0, 0, W, H * 0.34);
+  OVL = c;
+  return c;
+}
+
+/* 배경 그림이 아직 없을 때 — 빈 화면 대신 어두운 무대를 그린다 */
+function fallbackStage(ctx, tone) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#171009');
   g.addColorStop(0.55, '#241a10');
   g.addColorStop(1, '#0c0805');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
-  glow(ctx, W / 2, 26, 180, 'rgba(255,190,110,0.20)');
-  glow(ctx, W / 2, H - 20, 150, `${tone}22`);
-  // 달과 먼 산
-  glow(ctx, 62, 44, 46, 'rgba(255,240,200,0.20)');
-  ctx.fillStyle = '#f2e6c6';
-  ctx.beginPath();
-  ctx.arc(62, 44, 12, 0, Math.PI * 2);
-  ctx.fill();
+  bloom(ctx, W / 2, H * 0.28, W * 0.42, '255,190,110', 0.22);
   ctx.fillStyle = 'rgba(50,36,22,0.96)';
   for (let i = 0; i < 6; i++) {
-    const x = i * 70 - 20;
+    const x = i * 130 - 40;
     ctx.beginPath();
-    ctx.moveTo(x, H - 40);
-    ctx.lineTo(x + 45, H - 96 - (i % 3) * 12);
-    ctx.lineTo(x + 95, H - 40);
+    ctx.moveTo(x, H - 70);
+    ctx.lineTo(x + 90, H - 190 - (i % 3) * 24);
+    ctx.lineTo(x + 190, H - 70);
     ctx.fill();
   }
-  // 바닥
-  px(ctx, 0, H - 36, W, 36, 'rgba(84,58,32,0.65)');
-  px(ctx, 0, H - 36, W, 2, 'rgba(168,120,68,0.5)');
-  ctx.fillStyle = 'rgba(30,20,12,0.5)';
-  for (let x = 0; x < W; x += 24) ctx.fillRect(x, H - 30, 12, 2);
+  px(ctx, 0, H - 62, W, 62, 'rgba(84,58,32,0.7)');
+  bloom(ctx, W / 2, H - 40, 160, tone.replace('#', '').match(/../g).map((v) => parseInt(v, 16)).join(','), 0.12);
 }
 
-/* 병사 — 작은 도트. facing: 1 오른쪽 / -1 왼쪽, s: 키 배율 */
-function soldier(ctx, x, y, step, tone, facing = 1, s = 2.4) {
-  const u = (v) => v * s;
-  const bob = Math.sin(step * 9) > 0 ? 1 : 0;
-  const leg = Math.sin(step * 9) > 0 ? 1 : -1;
-  // 발밑 그림자
-  ctx.fillStyle = 'rgba(0,0,0,0.32)';
-  ctx.beginPath();
-  ctx.ellipse(x + u(4), y + u(14.4), u(6.5), u(2), 0, 0, Math.PI * 2);
-  ctx.fill();
-  px(ctx, x + u(2), y + u(10) + bob, u(2.4), u(4) + leg, '#241a10');
-  px(ctx, x + u(5.4), y + u(10) + bob, u(2.4), u(4) - leg, '#241a10');
-  // 몸통 — 어두운 윤곽 위에 갑옷
-  px(ctx, x + u(0.6), y + u(3.2) + bob, u(7), u(7.4), '#1d140c');
-  px(ctx, x + u(1), y + u(3.6) + bob, u(6.2), u(6.4), tone);
-  px(ctx, x + u(1.2), y + u(4) + bob, u(5.8), u(1.2), '#f0c080');
-  px(ctx, x + u(3), y + u(6.6) + bob, u(2.4), u(1.2), '#3a2a1a');
-  // 머리와 투구
-  px(ctx, x + u(1.6), y - u(0.4) + bob, u(4.8), u(4.6), '#1d140c');
-  px(ctx, x + u(2), y + bob, u(3.8), u(3.6), '#f4d6a4');
-  px(ctx, x + u(2.4), y + u(1.2) + bob, u(0.9), u(0.9), '#3a2a1a');
-  px(ctx, x + u(0.8), y - u(2.8) + bob, u(6.4), u(3.2), '#6e5232');
-  px(ctx, x + u(1.6), y - u(4) + bob, u(4.8), u(1.5), '#e2bd6e');
-  px(ctx, x + u(2.6), y - u(6.2) + bob, u(1.8), u(2.4), '#b4463a');
-  // 창
-  const sx = facing > 0 ? x + u(8.6) : x - u(3.2);
-  px(ctx, sx, y - u(11) + bob, Math.max(1, u(0.7)), u(24), '#d8c49a');
-  px(ctx, sx - u(1), y - u(13.5) + bob, u(2.6), u(3), '#fff3d6');
-  // 방패
-  const hx = facing > 0 ? x - u(0.4) : x + u(6.6);
-  px(ctx, hx, y + u(4.2) + bob, u(3.2), u(4.6), '#4a3622');
-  px(ctx, hx + u(0.5), y + u(5) + bob, u(2.2), u(2.6), '#c9a45c');
-}
-
-function gate(ctx) {
-  px(ctx, 268, H - 96, 74, 60, '#3a2b1c');
-  px(ctx, 264, H - 100, 82, 8, '#5a432a');
-  for (let i = 0; i < 5; i++) px(ctx, 270 + i * 15, H - 94, 4, 58, '#4a3623');
-  px(ctx, 288, H - 66, 34, 30, '#0c0805');              // 성문
-  px(ctx, 286, H - 68, 38, 3, '#8a6532');
-  px(ctx, 300, H - 36, 3, 36, '#2a1e12');
-  // 성문 양쪽 횃불
-  for (const x of [282, 324]) {
-    glow(ctx, x, H - 78, 18, 'rgba(255,170,80,0.45)');
-    px(ctx, x - 1, H - 82, 3, 6, '#ffcf7a');
-    px(ctx, x, H - 85, 1, 3, '#ffe8b0');
+function drawBackground(ctx, kind, p) {
+  const img = bgOf(kind);
+  const tone = sceneOf(kind).tone;
+  // 아주 느리게 밀고 들어오는 카메라 — 정지 그림이 살아 움직이게
+  const zoom = 1.015 + p * 0.05;
+  const dx = Math.sin(p * Math.PI * 0.9) * 7;
+  const dy = -p * 4;
+  if (img && img.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, (W - W * zoom) / 2 + dx, (H - H * zoom) / 2 + dy, W * zoom, H * zoom);
+  } else {
+    fallbackStage(ctx, tone);
+    if (img && !img.complete) img.addEventListener('load', () => {}, { once: true });
   }
-  // 깃발
-  px(ctx, 262, H - 118, 2, 22, '#8a6532');
-  const wave = Math.sin(Date.now() / 180) * 2;
-  ctx.fillStyle = '#b4463a';
+}
+
+/* ---------- 공통 레이어 ---------- */
+function embers(ctx, t, p, rgb = '255,186,110', n = 20) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < n; i++) {
+    const speed = 0.15 + (i % 5) * 0.038;
+    const q = (t * speed + i * 0.137) % 1;
+    const x = ((i * 149) % W) + Math.sin(t * 1.7 + i * 1.3) * 16 + q * 8;
+    const y = H + 6 - q * (H * 1.05);
+    const a = Math.sin(q * Math.PI) * (0.30 + (i % 3) * 0.11) * (0.7 + p * 0.5);
+    const r = 1.2 + (i % 3) * 0.8;
+    ctx.fillStyle = `rgba(${rgb},${a.toFixed(3)})`;
+    ctx.fillRect(x, y, r, r * (1.7 + (i % 2) * 0.8));
+  }
+  ctx.restore();
+}
+
+function dust(ctx, t, y, n = 12, rgb = 'rgba(222,192,152,') {
+  for (let i = 0; i < n; i++) {
+    const q = (t * 0.22 + i * 0.13) % 1;
+    const x = ((i * 97 + t * (18 + (i % 4) * 9)) % (W + 40)) - 20;
+    const yy = y - ((i * 13) % 26) - Math.sin(q * 6 + i) * 5;
+    px(ctx, x, yy, 2 + (i % 2), 2, `${rgb}${(0.10 + (i % 3) * 0.05).toFixed(3)})`);
+  }
+}
+
+/** 도트 병사 — 1u ≈ 1px, s=1이면 키 40px 남짓 */
+function dotSoldier(ctx, x, y, s, t, seed, tone, shield = true) {
+  const step = Math.sin(t * 9 + seed * 1.7);
+  const bob = step > 0 ? -1 : 0;
+  const u = s;
+  ctx.fillStyle = 'rgba(0,0,0,0.34)';
   ctx.beginPath();
-  ctx.moveTo(264, H - 118);
-  ctx.lineTo(292 + wave, H - 113);
-  ctx.lineTo(264, H - 106);
+  ctx.ellipse(x + 8 * u, y + 0.5, 9 * u, 2.4 * u, 0, 0, Math.PI * 2);
   ctx.fill();
+  px(ctx, x + 5 * u, y - 9 * u + bob * u, 2.6 * u, 9 * u, '#1b120b');
+  px(ctx, x + 9 * u, y - 9 * u + bob * u, 2.6 * u, 9 * u + (step > 0 ? 0 : 1.6 * u), '#1b120b');
+  px(ctx, x + 3.2 * u, y - 21 * u + bob * u, 9.6 * u, 13 * u, '#19110a');
+  px(ctx, x + 4.4 * u, y - 20 * u + bob * u, 7.2 * u, 11 * u, tone);
+  px(ctx, x + 4.4 * u, y - 17 * u + bob * u, 7.2 * u, 1.4 * u, '#f2c47e');
+  px(ctx, x + 4.4 * u, y - 28 * u + bob * u, 7.2 * u, 7.6 * u, '#19110a');
+  px(ctx, x + 5.4 * u, y - 26.4 * u + bob * u, 5.2 * u, 5.2 * u, '#f0d0a0');
+  px(ctx, x + 3.2 * u, y - 31.4 * u + bob * u, 9.6 * u, 3.8 * u, '#6f5332');
+  px(ctx, x + 5.2 * u, y - 33.8 * u + bob * u, 5.6 * u, 2.6 * u, '#e2bd6e');
+  px(ctx, x + 15 * u, y - 41 * u + bob * u, Math.max(1, 1.4 * u), 41 * u, '#d9c59b');
+  px(ctx, x + 14 * u, y - 44 * u + bob * u, 3.6 * u, 4.2 * u, '#fff3d6');
+  if (shield) {
+    px(ctx, x + 0.8 * u, y - 20 * u + bob * u, 3.6 * u, 8.4 * u, '#4a3622');
+    px(ctx, x + 1.6 * u, y - 18 * u + bob * u, 2 * u, 4.6 * u, '#c9a45c');
+  }
+  bloom(ctx, x + 9 * u, y - 21 * u, 13 * u, '255,172,84', 0.14);
 }
 
 function coin(ctx, x, y, s, t) {
-  const w = Math.max(2, Math.round(Math.abs(Math.cos(t * 4 + x)) * s));
-  px(ctx, x - w / 2, y, w, s, '#ffd76a');
-  px(ctx, x - w / 4, y + s * 0.32, Math.max(1, w / 2), s * 0.36, '#8a5f1c');
+  const w = Math.max(2, Math.abs(Math.cos(t * 3.4 + x * 0.05)) * s);
+  px(ctx, x - w / 2, y, w, s * 0.92, '#ffd76a');
+  px(ctx, x - w / 4, y + s * 0.3, Math.max(1, w / 2), s * 0.32, '#8a5f1c');
   px(ctx, x - w / 2, y, w, 1, '#fff0b8');
 }
 
-function spark(ctx, x, y, r, color = '#ffe6a8') {
-  px(ctx, x - r, y, r * 2 + 1, 1, color);
-  px(ctx, x, y - r, 1, r * 2 + 1, color);
+function spark(ctx, x, y, r, color = 'rgba(255,230,168,') {
+  px(ctx, x - r, y, r * 2 + 1, 1, `${color}0.9)`);
+  px(ctx, x, y - r, 1, r * 2 + 1, `${color}0.9)`);
   px(ctx, x - 1, y - 1, 3, 3, '#fff8df');
 }
 
-/* ---------- 장면 ---------- */
-function sceneDraft(ctx, t, p, tone) {
-  // 막사 — 왼쪽에 천막 몇 채
-  for (let i = 0; i < 2; i++) {
-    const x = 8 + i * 66, base = H - 42, w = 58, h = 40;
-    ctx.fillStyle = i ? '#5a412a' : '#6a4c2c';
-    ctx.beginPath();
-    ctx.moveTo(x, base);
-    ctx.lineTo(x + w / 2, base - h);
-    ctx.lineTo(x + w, base);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(255,200,130,0.18)';
-    ctx.beginPath();
-    ctx.moveTo(x + w / 2, base - h);
-    ctx.lineTo(x + w, base);
-    ctx.lineTo(x + w * 0.72, base);
-    ctx.fill();
-    px(ctx, x + w / 2 - 1, base - h - 14, 2, 16, '#8a6532');
-    px(ctx, x + w / 2 + 1, base - h - 14, 15, 9, '#a8483a');
-    px(ctx, x + w / 2 - 7, base - 14, 14, 14, '#150e08');
-  }
-  gate(ctx);
-  // 성문으로 들어가는 병사 행렬 — 뒷줄은 작고 느리게
-  const k = Math.min(1, p * 1.15);
-  const n = Math.round(4 + k * 6);
-  for (let i = 0; i < n; i++) {
-    const lane = i % 3;
-    const speed = 96 - lane * 18;
-    const x = -40 + ((i * 64 + t * speed) % 380);
-    const y = H - 38 - lane * 26;
-    soldier(ctx, x, y, t * 3 + i, i % 2 ? '#a8763e' : '#bd8c4c', 1, 2.6 - lane * 0.34);
-  }
-  // 흙먼지
-  for (let i = 0; i < 16; i++) {
-    const x = ((i * 47 + t * 40) % W);
-    const y = H - 10 - ((i * 17) % 16);
-    px(ctx, x, y, 2, 2, 'rgba(225,195,150,0.22)');
-  }
-  if (p > 0.62) glow(ctx, 306, H - 60, 46, 'rgba(255,200,120,0.22)');
+function firefly(ctx, x, y, a) {
+  bloom(ctx, x, y, 11, '214,255,150', a * 0.75);
+  px(ctx, x, y, 2, 2, `rgba(238,255,190,${a})`);
 }
 
-function sceneTrain(ctx, t, p, tone) {
-  // 훈련장 — 마주 선 두 병사, 창이 부딪힌다
-  // 뒤쪽 울타리
-  for (let x = 0; x < W; x += 18) {
-    px(ctx, x, H - 92, 3, 52, '#4a3622');
-    px(ctx, x + 2, H - 84, 16, 2, '#5c452c');
-  }
-  const cx = W / 2;
-  const bob = Math.sin(t * 22) * 2;
-  // 발밑 먼지
-  for (let i = 0; i < 4; i++) {
-    ctx.fillStyle = 'rgba(180,140,96,0.14)';
-    ctx.beginPath();
-    ctx.ellipse(cx - 64 + i * 42, H - 38, 26, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  soldier(ctx, cx - 82 - Math.abs(bob), H - 38, t * 3, '#a8763e', 1, 2.7);
-  soldier(ctx, cx + 74 + Math.abs(bob), H - 38, t * 3 + 2, '#bd8c4c', -1, 2.7);
-  // 두 창이 가운데서 엇갈린다
-  ctx.strokeStyle = '#d8c49a';
+function glowRing(ctx, x, y, r, a, rgb = '255,232,180') {
+  if (r <= 0 || a <= 0.01) return;
+  ctx.strokeStyle = `rgba(${rgb},${a})`;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(cx - 46, H - 118 + bob);
-  ctx.lineTo(cx + 28, H - 58 + bob);
-  ctx.moveTo(cx + 46, H - 118 - bob);
-  ctx.lineTo(cx - 28, H - 58 - bob);
+  ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.fillStyle = '#fff3d6';
-  ctx.fillRect(cx + 25, H - 61 + bob, 5, 5);
-  ctx.fillRect(cx - 30, H - 61 - bob, 5, 5);
-  const beat = (t * 6) % 1;
-  if (beat < 0.25) {
-    spark(ctx, cx, H - 88 + bob, 4 + Math.round(beat * 18));
-    glow(ctx, cx, H - 88 + bob, 30, 'rgba(255,220,150,0.55)');
-  }
-  // 짚 허수아비 — 훈련 표적
-  px(ctx, 286, H - 96, 3, 56, '#6a4c2c');
-  px(ctx, 274, H - 90, 28, 20, '#a89060');
-  px(ctx, 280, H - 86, 4, 4, '#3a2a1a');
-  px(ctx, 292, H - 86, 4, 4, '#3a2a1a');
-  px(ctx, 266, H - 82, 44, 3, '#6a4c2c');
-  // 기합 — 옅은 원이 퍼진다
-  for (let i = 0; i < 3; i++) {
-    const q = ((t * 0.7 + i * 0.33) % 1);
-    ctx.strokeStyle = `rgba(240,225,190,${0.35 * (1 - q)})`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx + (i - 1) * 50, H - 112 - q * 34, 5 + q * 14, 0, Math.PI * 2);
-    ctx.stroke();
-  }
 }
 
-function sceneFarm(ctx, t, p, tone) {
-  // 논밭 — 이랑과 벼, 흙먼지
-  const rows = 6;
-  for (let r = 0; r < rows; r++) {
-    const y = H - 34 - r * 13;
-    ctx.fillStyle = r % 2 ? 'rgba(70,52,30,0.85)' : 'rgba(58,44,26,0.85)';
-    ctx.fillRect(0, y, W, 34);
-    for (let i = 0; i < 16; i++) {
-      const x = i * 24 + (r % 2) * 12;
-      const sway = Math.sin(t * 4 + i * 0.8 + r) * 2;
-      px(ctx, x + sway, y - 9, 2, 9, r < 3 ? '#8fbf5a' : '#79ab4a');
-      px(ctx, x + sway - 1, y - 11, 4, 2, '#c9d86a');
-      px(ctx, x + sway + 2, y - 7, 3, 1, '#a9cf5a');
-    }
-  }
-  // 흙을 고르는 장정
-  px(ctx, 262, H - 64, 8, 8, '#d8b98c');
-  px(ctx, 258, H - 66, 16, 4, '#8a6a44');
-  px(ctx, 260, H - 56, 12, 14, '#7e5a34');
-  px(ctx, 272, H - 46 + Math.sin(t * 8) * 3, 2, 18, '#8a6532');
-  px(ctx, 268, H - 30, 3, 12, '#3b2a1a');
-  for (let i = 0; i < 14; i++) {
-    const q = (t * 0.8 + i * 0.19) % 1;
-    px(ctx, 250 + i * 9 + Math.sin(q * 6 + i) * 6, H - 30 - q * 44, 2, 2, 'rgba(205,225,150,0.5)');
-  }
-}
-
-function sceneMarket(ctx, t, p, tone) {
-  // 저잣거리 — 노점과 오르는 금화
-  for (let i = 0; i < 3; i++) {
-    const x = 26 + i * 108;
-    px(ctx, x, H - 70, 76, 4, i % 2 ? '#8a4632' : '#6a5a3a');
-    px(ctx, x + 4, H - 66, 4, 30, '#5a432a');
-    px(ctx, x + 66, H - 66, 4, 30, '#5a432a');
-    for (let k = 0; k < 4; k++) px(ctx, x + 10 + k * 15, H - 88 + (k % 2) * 5, 11, 8, k % 2 ? '#c9a45c' : '#b4463a');
-  }
-  for (let i = 0; i < 9; i++) {
-    const q = (t * 0.55 + i * 0.13) % 1;
-    const x = 40 + ((i * 67) % 280) + Math.sin(q * 5 + i) * 12;
-    coin(ctx, x, H - 26 - q * 92, 6, t + i);
-  }
-  glow(ctx, W / 2, H - 96, 80, 'rgba(255,215,120,0.10)');
-}
-
-function sceneOrder(ctx, t, p, tone) {
-  // 밤 순찰 — 등불 두 개와 성벽
-  px(ctx, 0, H - 78, W, 44, '#33261a');
-  for (let x = 8; x < W; x += 26) px(ctx, x, H - 78, 12, 4, '#4a3623');
-  const swing = Math.sin(t * 3) * 0.25;
-  const lantern = (x, y) => {
-    px(ctx, x, y - 26, 2, 26, '#6a5030');
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(swing);
-    px(ctx, -7, 0, 14, 18, '#c9463a');
-    px(ctx, -5, 3, 10, 12, '#ffcf7a');
-    px(ctx, -7, 17, 14, 2, '#6a2a20');
-    ctx.restore();
-    glow(ctx, x, y + 8, 42, 'rgba(255,200,110,0.20)');
-  };
-  lantern(92, H - 78);
-  lantern(252, H - 78);
-  // 순찰병
-  const x = 30 + ((t * 54) % 280);
-  soldier(ctx, x, H - 42, t * 2.4, '#6a7e9a', 1, 2.2);
-  px(ctx, x + 8, H - 62, 1, 18, '#b9a078');
-  px(ctx, x + 7, H - 64, 4, 4, '#ffcf7a');
-}
-
-function sceneWater(ctx, t, p, tone) {
-  // 물길 — 둑과 차오르는 물
-  px(ctx, 0, H - 54, W, 10, '#6b5436');
-  px(ctx, 0, H - 44, W, 10, '#4a3a24');
-  const level = 10 + p * 16;
-  ctx.fillStyle = 'rgba(56,128,168,0.85)';
-  ctx.fillRect(26, H - 44 - level, 308, level + 6);
-  for (let i = 0; i < 7; i++) {
-    const y = H - 44 - level + i * 5;
-    const off = Math.sin(t * 4 + i) * 8;
-    ctx.fillStyle = 'rgba(140,210,235,0.55)';
-    ctx.fillRect(26 + off, y, 120, 2);
-    ctx.fillRect(180 - off, y, 120, 2);
-  }
-  // 두레박
-  px(ctx, 300, H - 92, 2, 44, '#8a6532');
-  px(ctx, 292, H - 50, 18, 12, '#a98a5a');
-  px(ctx, 292, H - 46, 18, 3, '#6fc0e0');
-  glow(ctx, 300, H - 60, 30, 'rgba(120,200,240,0.16)');
-  for (let i = 0; i < 10; i++) {
-    const q = (t * 0.9 + i * 0.21) % 1;
-    px(ctx, 300 + Math.sin(q * 8 + i) * 18, H - 52 - q * 20, 2, 2, 'rgba(180,230,255,0.6)');
-  }
-}
-
-function sceneHire(ctx, t, p, tone) {
-  // 문서 — 펼친 첩자와 절하는 장수
-  const open = Math.min(1, p * 1.6);
-  const w = 40 + open * 140;
-  px(ctx, W / 2 - w / 2, H - 92, w, 54, '#e8dcc0');
-  px(ctx, W / 2 - w / 2, H - 92, w, 3, '#b49a6a');
-  if (open > 0.5) {
-    px(ctx, W / 2 - w / 2 + 10, H - 82, w - 20, 2, 'rgba(60,44,28,0.7)');
-    px(ctx, W / 2 - w / 2 + 10, H - 74, w - 34, 2, 'rgba(60,44,28,0.55)');
-    px(ctx, W / 2 - w / 2 + 10, H - 66, w - 48, 2, 'rgba(60,44,28,0.45)');
-    if (p > 0.7) {
-      px(ctx, W / 2 + w / 2 - 26, H - 70, 14, 14, '#b4463a');
-      px(ctx, W / 2 + w / 2 - 22, H - 66, 6, 6, '#e8dcc0');
-      glow(ctx, W / 2 + w / 2 - 19, H - 63, 18, 'rgba(200,80,60,0.35)');
-    }
-  }
-  const bx = W / 2 - 96 + Math.min(0, (p - 0.4) * 120);
-  px(ctx, bx, H - 56, 8, 8, '#d8b98c');
-  px(ctx, bx - 2, H - 60, 12, 4, '#8a6a44');
-  px(ctx, bx - 2, H - 48, 12, 12, '#8a6a44');
-  px(ctx, bx, H - 36, 8, 4, '#4a3826');
-  // 인사 표시
-  if (p > 0.55) {
-    const a = Math.min(1, (p - 0.55) * 4);
-    ctx.fillStyle = `rgba(255,230,170,${a})`;
-    ctx.beginPath();
-    ctx.arc(bx + 4, H - 74, 4, 0, Math.PI * 2);
-    ctx.fill();
-    px(ctx, bx + 1, H - 76, 2, 2, '#6a4a20');
-  }
-}
-
-function sceneBanquet(ctx, t, p, tone) {
-  // 친교 — 술잔을 맞대고 웃는 두 사람
-  px(ctx, 0, H - 40, W, 8, '#5a432a');
-  const clink = Math.min(1, p * 1.4);
-  const gap = 30 - clink * 14;
-  const cup = (x, flip) => {
-    px(ctx, x - 5, H - 62, 10, 12, '#c9a45c');
-    px(ctx, x - 4, H - 60, 8, 4, '#f2e0b0');
-    px(ctx, x - 1, H - 50, 2, 6, '#8a6532');
-    px(ctx, x - 5, H - 44, 10, 2, '#8a6532');
-  };
-  cup(W / 2 - gap, 0);
-  cup(W / 2 + gap, 1);
-  px(ctx, W / 2 - gap - 30, H - 62, 7, 7, '#d8b98c');
-  px(ctx, W / 2 - gap - 28, H - 55, 10, 14, '#b4463a');
-  px(ctx, W / 2 + gap + 24, H - 62, 7, 7, '#d8b98c');
-  px(ctx, W / 2 + gap + 23, H - 55, 10, 14, '#6a5a8a');
-  if (clink >= 1) {
-    spark(ctx, W / 2, H - 62, 3 + Math.round((t * 5) % 5), '#ffe6b0');
-    glow(ctx, W / 2, H - 62, 26, 'rgba(255,220,150,0.28)');
-  }
-  for (let i = 0; i < 8; i++) {
-    const q = (t * 0.7 + i * 0.16) % 1;
-    px(ctx, W / 2 - 40 + i * 11, H - 70 - q * 30, 2, 2, 'rgba(255,220,170,0.45)');
-  }
-}
-
-function sceneReward(ctx, t, p, tone) {
-  // 포상 — 금괴가 쏟아지는 보따리
-  px(ctx, W / 2 - 34, H - 64, 68, 28, '#8a5a32');
-  px(ctx, W / 2 - 34, H - 64, 68, 6, '#c9a45c');
-  const open = Math.min(1, p * 2);
-  px(ctx, W / 2 - 28, H - 68 - open * 8, 56, 8, '#a8763e');
-  for (let i = 0; i < 10; i++) {
-    const q = (t * 0.6 + i * 0.11) % 1;
-    const y = H - 58 - q * 74;
-    const x = W / 2 - 46 + ((i * 37) % 92);
-    coin(ctx, x, y, 6, t + i * 0.4);
-  }
-  glow(ctx, W / 2, H - 70, 70, 'rgba(255,210,120,0.16)');
-}
-
-function sceneLearn(ctx, t, p, tone) {
-  // 진형 전수 — 점들이 학익 대형으로 늘어선다
-  const pts = [];
-  for (let i = 0; i < 9; i++) {
-    const row = Math.floor(i / 3), col = i % 3;
-    pts.push({ gx: 60 + col * 30, gy: H - 50 - row * 24 });
-    pts.push({ gx: W / 2 + (col - 1) * 52, gy: H - 48 - row * 26 - (col === 1 ? 18 : 0) });
-  }
-  pts.forEach((q, i) => {
-    const k = Math.min(1, Math.max(0, p * 1.5 - (i % 6) * 0.09));
-    const x = q.gx + (i % 2 ? 0 : (1 - k) * -40);
-    const y = q.gy + (1 - k) * 26;
-    px(ctx, x - 2, y - 2, 4, 4, i % 2 ? '#c9a45c' : '#9cd0a8');
-    if (k > 0.7) px(ctx, x - 4, y - 1, 8, 2, 'rgba(255,230,170,0.25)');
-  });
-  // 스승과 제자
-  px(ctx, W / 2 - 120, H - 62, 8, 8, '#d8b98c');
-  px(ctx, W / 2 - 122, H - 64, 12, 4, '#8a6a44');
-  px(ctx, W / 2 - 122, H - 54, 12, 16, '#6a7e5a');
-  px(ctx, W / 2 + 112, H - 62, 8, 8, '#d8b98c');
-  px(ctx, W / 2 + 110, H - 64, 12, 4, '#8a6a44');
-  px(ctx, W / 2 + 110, H - 54, 12, 16, '#7e5a34');
-  if (p > 0.60) glow(ctx, W / 2, H - 66, 80, 'rgba(160,220,170,0.12)');
-}
-
-function scenePlot(ctx, t, p, tone) {
-  // 계략 — 밤안개와 엿보는 눈
-  for (let i = 0; i < 8; i++) {
-    const x = ((i * 61 + t * 26) % (W + 80)) - 40;
-    const y = H - 60 - (i % 4) * 16;
-    ctx.fillStyle = `rgba(120,96,150,${0.10 + (i % 3) * 0.05})`;
-    ctx.beginPath();
-    ctx.ellipse(x, y, 42, 14, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const ex = W / 2, ey = H - 84;
-  px(ctx, ex - 34, ey - 2, 68, 18, '#1a1420');
-  ctx.fillStyle = '#c9a45c';
-  ctx.beginPath();
-  ctx.ellipse(ex, ey + 7, 26, 13, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#241a10';
-  ctx.beginPath();
-  ctx.arc(ex, ey + 7, 8, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#e8c15a';
-  ctx.beginPath();
-  ctx.arc(ex + 2, ey + 5, 3, 0, Math.PI * 2);
-  ctx.fill();
-  glow(ctx, ex, ey + 7, 46, `rgba(200,170,255,${0.10 + Math.abs(Math.sin(t * 3)) * 0.10})`);
-  // 두루마리
-  px(ctx, 42, H - 58, 46, 8, '#e8dcc0');
-  px(ctx, 42, H - 50, 46, 4, '#b49a6a');
-}
-
-function scenePromote(ctx, t, p, tone) {
-  // 장군 임명 — 깃발이 솟고 금빛이 터진다
-  const rise = Math.min(1, p * 1.4);
-  const top = H - 36 - rise * 96;
-  px(ctx, W / 2 - 2, top, 4, H - 36 - top, '#8a6532');
-  const wave = Math.sin(t * 5) * 4;
-  ctx.fillStyle = '#b4463a';
-  ctx.beginPath();
-  ctx.moveTo(W / 2 + 2, top + 4);
-  ctx.lineTo(W / 2 + 62 + wave, top + 14);
-  ctx.lineTo(W / 2 + 56 + wave, top + 40);
-  ctx.lineTo(W / 2 + 2, top + 36);
-  ctx.fill();
-  px(ctx, W / 2 + 18, top + 14, 20, 3, 'rgba(255,230,170,0.75)');
-  px(ctx, W / 2 + 18, top + 22, 14, 3, 'rgba(255,230,170,0.6)');
-  // 금빛 광선
+function sweep(ctx, p) {
+  // 시작할 때 왼쪽에서 오른쪽으로 지나가는 빛줄기
+  if (p > 0.24) return;
+  const k = p / 0.24;
+  const x = lerp(-120, W + 120, k);
   ctx.save();
-  ctx.translate(W / 2, top + 20);
-  ctx.rotate(t * 0.7);
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createLinearGradient(x - 90, 0, x + 90, 0);
+  g.addColorStop(0, 'rgba(255,220,170,0)');
+  g.addColorStop(0.5, `rgba(255,226,180,${(0.20 * (1 - k)).toFixed(3)})`);
+  g.addColorStop(1, 'rgba(255,220,170,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x - 90, 0, 180, H);
+  ctx.restore();
+}
+
+/* ---------- 행동별 살아 있는 레이어 ---------- */
+function fxDraft(ctx, t, p) {
+  bloom(ctx, 452, 150, 150, '255,178,92', 0.10 + 0.04 * Math.sin(t * 3));
+  const lanes = [
+    { y: H - 8, s: 1.05, v: 82, n: 6, tone: '#a8823f' },
+    { y: H - 30, s: 0.8, v: 60, n: 5, tone: '#8a7048' },
+  ];
+  lanes.forEach((ln, li) => {
+    for (let i = 0; i < ln.n; i++) {
+      const span = W + 180;
+      const x = ((i * (span / ln.n) + t * ln.v) % span) - 90;
+      dotSoldier(ctx, x, ln.y, ln.s, t, i + li * 7, ln.tone);
+    }
+  });
+  dust(ctx, t, H - 14, 14);
+  embers(ctx, t, p, '255,186,110', 14);
+}
+
+function fxTrain(ctx, t, p) {
+  const cx = 436, cy = 296;
+  const beat = (t * 2.2) % 1;
+  const hit = beat < 0.2 ? 1 - beat / 0.2 : 0;
+  const glow = 0.10 + 0.09 * Math.sin(t * 4);
+  bloom(ctx, cx - 70, cy - 40, 70, '255,196,120', glow);
+  bloom(ctx, cx + 70, cy - 40, 70, '255,196,120', glow);
+  if (hit > 0) {
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i - 4.5) * 0.32;
+      const r = (1 - hit) * 88;
+      px(ctx, cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.82, 2.4, 2.4, `rgba(255,${200 + (i % 4) * 12},150,${(hit * 0.95).toFixed(3)})`);
+    }
+    bloom(ctx, cx, cy, 30 + hit * 78, '255,214,150', 0.55 * hit);
+    glowRing(ctx, cx, cy, 12 + (1 - hit) * 68, 0.55 * hit);
+  }
+  // 창끝을 스치는 잔광
+  const flash = Math.max(0, Math.sin(t * 5.5));
+  px(ctx, cx - 96, cy - 44, 46, 2, `rgba(255,240,200,${(0.18 * flash).toFixed(3)})`);
+  px(ctx, cx + 50, cy - 46, 46, 2, `rgba(255,240,200,${(0.18 * flash).toFixed(3)})`);
+  dust(ctx, t, H - 26, 12);
+}
+
+function fxAgri(ctx, t, p) {
+  // 반딧불
+  for (let i = 0; i < 18; i++) {
+    const x = ((i * 71 + Math.sin(t * 0.8 + i) * 34) % W);
+    const y = H * 0.42 + ((i * 43) % 132) + Math.sin(t * 1.4 + i * 2.1) * 11;
+    firefly(ctx, x, y, 0.28 + 0.5 * Math.abs(Math.sin(t * 1.7 + i)));
+  }
+  // 앞줄 이삭 실루엣
+  for (let i = 0; i < 26; i++) {
+    const x = i * 29 + Math.sin(t * 1.5 + i * 0.7) * 4;
+    const h = 20 + (i % 4) * 8;
+    px(ctx, x, H - h, 1.6, h, 'rgba(38,44,20,0.55)');
+    px(ctx, x + Math.sin(t * 1.5 + i) * 3, H - h - 3, 2.4, 4, 'rgba(96,108,44,0.5)');
+  }
+  // 물비늘
+  for (let i = 0; i < 10; i++) {
+    const q = (t * 0.6 + i * 0.17) % 1;
+    const x = 60 + i * 62;
+    px(ctx, x, H * 0.62 + q * 40, 16, 1.4, `rgba(255,214,150,${(0.22 * (1 - q)).toFixed(3)})`);
+  }
+  bloom(ctx, W * 0.72, H * 0.30, 120, '255,170,90', 0.10 + 0.03 * Math.sin(t * 2));
+  embers(ctx, t, p, '255,206,140', 10);
+}
+
+function fxComm(ctx, t, p) {
+  const lamps = [[168, 208], [352, 214], [556, 206]];
+  lamps.forEach(([x, y], i) => {
+    bloom(ctx, x, y - 92, 62, '255,186,96', 0.12 + 0.05 * Math.sin(t * 2.4 + i * 2));
+  });
   for (let i = 0; i < 12; i++) {
-    ctx.rotate(Math.PI / 6);
-    ctx.fillStyle = `rgba(255,215,140,${0.06 + 0.05 * Math.sin(t * 4 + i)})`;
-    ctx.fillRect(0, -2, 90 * rise, 4);
+    const q = (t * 0.52 + i * 0.113) % 1;
+    const x = 120 + ((i * 61) % 470) + Math.sin(q * 5 + i) * 14;
+    coin(ctx, x, H - 34 - q * 150, 7, t + i);
+  }
+  for (let i = 0; i < 10; i++) {
+    const q = (t * 0.4 + i * 0.19) % 1;
+    px(ctx, 60 + i * 62 + Math.sin(t + i) * 10, H * 0.72 - q * 90, 2, 2, `rgba(255,226,168,${(0.35 * (1 - q)).toFixed(3)})`);
+  }
+  embers(ctx, t, p, '255,200,120', 14);
+}
+
+function fxOrder(ctx, t, p) {
+  // 성벽 위를 훑는 등불 빛
+  const sx = 110 + ((t * 0.45) % 1) * 520;
+  bloom(ctx, sx, 252, 138, '255,190,110', 0.17);
+  // 순찰병 그림자
+  for (let i = 0; i < 2; i++) {
+    const x = 120 + ((t * 44 + i * 300) % 600);
+    dotSoldier(ctx, x, 268, 0.62, t + i, i + 2, '#5d6c86', false);
+  }
+  // 성문 쪽 횃불 깜빡임
+  bloom(ctx, 236, 300, 46, '255,160,70', 0.12 + 0.06 * Math.sin(t * 7.3));
+  bloom(ctx, 470, 300, 40, '255,160,70', 0.10 + 0.05 * Math.sin(t * 6.1 + 1));
+  embers(ctx, t, p, '255,190,120', 16);
+}
+
+function fxWater(ctx, t, p) {
+  // 물길 — 아래로 흐르는 물줄기
+  for (let i = 0; i < 22; i++) {
+    const x = 336 + (i % 8) * 27 + Math.sin(t * 1.4 + i) * 3.2;
+    const q = (t * 1.5 + i * 0.19) % 1;
+    const y = 236 + q * 156;
+    const len = 12 + (i % 3) * 12;
+    px(ctx, x, y, 1.8, len, `rgba(198,236,255,${(0.20 * (1 - q)).toFixed(3)})`);
+  }
+  // 물보라
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 26; i++) {
+    const q = (t * 1.1 + i * 0.127) % 1;
+    const a = -Math.PI / 2 + ((i % 9) - 4) * 0.26;
+    const r = q * (46 + (i % 3) * 16);
+    const x = 430 + Math.cos(a) * r;
+    const y = 368 + Math.sin(a) * r * 0.55 + q * 10;
+    ctx.fillStyle = `rgba(210,242,255,${(0.42 * (1 - q)).toFixed(3)})`;
+    ctx.fillRect(x, y, 2.4, 2.4);
   }
   ctx.restore();
-  // 절하는 장수
-  px(ctx, W / 2 - 96, H - 54, 9, 9, '#d8b98c');
-  px(ctx, W / 2 - 98, H - 58, 13, 5, '#c9a45c');
-  px(ctx, W / 2 - 98, H - 45, 13, 16, '#8a3a2c');
-  px(ctx, W / 2 - 96, H - 29, 10, 3, '#3b2a1a');
-  if (p > 0.55) {
-    for (let i = 0; i < 14; i++) {
-      const a = i * 1.7 + t * 2;
-      const r = 20 + ((t * 60 + i * 17) % 70);
-      px(ctx, W / 2 + Math.cos(a) * r, top + 24 + Math.sin(a) * r * 0.5, 2, 2, 'rgba(255,225,160,0.8)');
-    }
+  // 잔물결
+  for (let i = 0; i < 4; i++) {
+    const q = (t * 0.8 + i * 0.25) % 1;
+    glowRing(ctx, 400 + i * 22, 372, 10 + q * 40, 0.20 * (1 - q), '190,232,255');
   }
+  bloom(ctx, 430, 350, 120, '190,230,255', 0.10);
+}
+
+function fxHire(ctx, t, p) {
+  // 두루마리 위를 지나가는 빛
+  const k = (t * 0.6) % 1;
+  const sx = 300 + k * 226;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createLinearGradient(sx - 40, 0, sx + 40, 0);
+  g.addColorStop(0, 'rgba(255,235,190,0)');
+  g.addColorStop(0.5, 'rgba(255,235,190,0.22)');
+  g.addColorStop(1, 'rgba(255,235,190,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(sx - 40, 214, 80, 46);
+  ctx.restore();
+  // 봉인 자리 반짝임 — 글자 없이 금빛 점만
+  if (p > 0.42) {
+    const a = clamp01((p - 0.42) * 3.2) * (0.6 + 0.4 * Math.sin(t * 9));
+    bloom(ctx, 508, 240, 26, '255,214,140', 0.5 * a);
+    spark(ctx, 508, 240, 5, 'rgba(255,236,190,');
+  }
+  // 향 연기
+  for (let i = 0; i < 12; i++) {
+    const q = (t * 0.5 + i * 0.2) % 1;
+    const x = 206 + Math.sin(q * 6 + i) * 12;
+    px(ctx, x, 250 - q * 110, 2, 2, `rgba(226,214,206,${(0.16 * (1 - q)).toFixed(3)})`);
+    px(ctx, 610 + Math.sin(q * 5 + i) * 10, 252 - q * 96, 2, 2, `rgba(226,214,206,${(0.13 * (1 - q)).toFixed(3)})`);
+  }
+  embers(ctx, t, p, '255,200,130', 12);
+}
+
+function fxBefriend(ctx, t, p) {
+  const cx = 352, cy = 286;
+  const beat = (t * 1.3) % 1;
+  const hit = beat < 0.22 ? 1 - beat / 0.22 : 0;
+  if (hit > 0) {
+    spark(ctx, cx, cy, 4 + Math.round((1 - hit) * 6), 'rgba(255,232,180,');
+    glowRing(ctx, cx, cy, 8 + (1 - hit) * 26, 0.4 * hit, '255,226,170');
+    bloom(ctx, cx, cy, 34, '255,214,150', 0.4 * hit);
+  }
+  // 잔에서 오르는 김이나 향
+  for (let i = 0; i < 10; i++) {
+    const q = (t * 0.55 + i * 0.17) % 1;
+    px(ctx, 330 + i * 6 + Math.sin(q * 6 + i) * 7, 272 - q * 60, 2, 2, `rgba(240,226,206,${(0.14 * (1 - q)).toFixed(3)})`);
+  }
+  // 등불 곁 반딧불
+  for (let i = 0; i < 7; i++) {
+    const x = 176 + Math.sin(t * 0.9 + i * 2.3) * 26 + i * 4;
+    const y = 150 + Math.cos(t * 1.2 + i) * 20 + (i % 3) * 14;
+    firefly(ctx, x, y, 0.25 + 0.4 * Math.abs(Math.sin(t * 2 + i)));
+  }
+  bloom(ctx, 500, 128, 70, '255,206,140', 0.10);
+  embers(ctx, t, p, '255,200,130', 10);
+}
+
+function fxReward(ctx, t, p) {
+  const cx = 232, cy = 176;
+  bloom(ctx, cx, cy - 16, 130, '255,200,110', 0.16 + 0.06 * Math.sin(t * 3.4));
+  for (let i = 0; i < 16; i++) {
+    const q = (t * 0.62 + i * 0.097) % 1;
+    const spread = 34 + (i % 5) * 16;
+    const x = cx + Math.sin(i * 2.4) * spread * (0.4 + q * 0.8);
+    const y = cy - 4 - q * 150 + Math.sin(q * 5 + i) * 8;
+    coin(ctx, x, y, 6 + (i % 3), t + i * 0.6);
+  }
+  for (let i = 0; i < 14; i++) {
+    const a = i * 1.9 + t * 1.4;
+    const r = 24 + ((t * 52 + i * 21) % 90);
+    px(ctx, cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.62, 2, 2, `rgba(255,232,176,${(0.55 + 0.35 * Math.sin(t * 6 + i)).toFixed(3)})`);
+  }
+  embers(ctx, t, p, '255,214,130', 18);
+}
+
+function fxLearn(ctx, t, p) {
+  const cx = 352, cy = 300;
+  // 지휘하는 손끝에서 퍼지는 신호
+  for (let i = 0; i < 3; i++) {
+    const q = ((t * 0.9 + i * 0.33) % 1);
+    glowRing(ctx, cx + 60, cy - 60, 10 + q * 190, 0.24 * (1 - q), '220,240,190');
+  }
+  bloom(ctx, cx + 60, cy - 60, 90, '210,235,170', 0.12 + 0.04 * Math.sin(t * 3));
+  // 진형 위로 지나가는 빛결
+  for (let i = 0; i < 24; i++) {
+    const row = Math.floor(i / 8);
+    const x = 250 + (i % 8) * 46 + Math.sin(t * 1.2 + i) * 3;
+    const y = 236 - row * 34;
+    const a = 0.25 + 0.45 * Math.abs(Math.sin(t * 2 + i * 0.5));
+    px(ctx, x, y, 3, 3, `rgba(255,226,150,${a.toFixed(3)})`);
+    if (a > 0.55) bloom(ctx, x, y, 8, '255,214,140', a * 0.35);
+  }
+  // 횃불 연기
+  for (let i = 0; i < 8; i++) {
+    const q = (t * 0.5 + i * 0.21) % 1;
+    px(ctx, 120 + i * 66, 340 - q * 90, 2, 2, `rgba(230,206,180,${(0.12 * (1 - q)).toFixed(3)})`);
+  }
+  embers(ctx, t, p, '255,206,140', 14);
+}
+
+function fxPlot(ctx, t, p) {
+  // 자줏빛 안개가 낮게 흐른다
+  ctx.save();
+  for (let i = 0; i < 7; i++) {
+    const x = ((i * 128 + t * 26) % (W + 240)) - 120;
+    const y = H * 0.66 + Math.sin(t * 0.8 + i) * 12;
+    bloom(ctx, x, y, 120, '150,120,200', 0.07 + (i % 3) * 0.02);
+  }
+  ctx.restore();
+  // 촛불 흔들림
+  const flick = 0.7 + 0.3 * Math.sin(t * 11) + 0.12 * Math.sin(t * 23);
+  bloom(ctx, 594, 246, 40, '255,196,120', 0.24 * flick);
+  px(ctx, 593, 236, 2.4, 7 + flick * 3, `rgba(255,226,160,${0.85 * flick})`);
+  // 두루마리 곁의 속삭임 — 글자 없이 옅은 고리만
+  for (let i = 0; i < 3; i++) {
+    const q = ((t * 0.7 + i * 0.33) % 1);
+    glowRing(ctx, 470, 272, 8 + q * 44, 0.16 * (1 - q), '196,160,240');
+  }
+  // 그림자 속의 기척
+  const sus = 0.16 + 0.10 * Math.abs(Math.sin(t * 2.2));
+  bloom(ctx, 96, 300, 34, '170,140,220', sus);
+  for (let i = 0; i < 9; i++) {
+    const q = (t * 0.4 + i * 0.2) % 1;
+    px(ctx, 60 + i * 70, H * 0.8 - q * 70, 2, 2, `rgba(198,170,240,${(0.3 * (1 - q)).toFixed(3)})`);
+  }
+  embers(ctx, t, p, '190,160,235', 10);
+}
+
+function fxPromote(ctx, t, p) {
+  const cx = 332, cy = 196;
+  // 금빛 광선
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.translate(cx, cy);
+  ctx.rotate(t * 0.6);
+  for (let i = 0; i < 12; i++) {
+    ctx.rotate(Math.PI / 6);
+    const len = (70 + p * 90) * (0.75 + 0.25 * Math.sin(t * 3 + i));
+    const g = ctx.createLinearGradient(0, 0, len, 0);
+    g.addColorStop(0, 'rgba(255,224,150,0.26)');
+    g.addColorStop(1, 'rgba(255,224,150,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, -3, len, 6);
+  }
+  ctx.restore();
+  bloom(ctx, cx, cy, 120, '255,210,130', 0.20 + 0.06 * Math.sin(t * 4));
+  // 붉은 깃발 물결
+  for (let i = 0; i < 4; i++) {
+    px(ctx, 236 + i * 3, 90 + Math.sin(t * 3 + i) * 3, 30, 2, `rgba(255,180,140,${(0.10 + i * 0.04).toFixed(3)})`);
+  }
+  // 솟는 불티
+  for (let i = 0; i < 16; i++) {
+    const q = (t * 0.66 + i * 0.11) % 1;
+    const x = cx - 60 + ((i * 53) % 160) + Math.sin(q * 6 + i) * 12;
+    px(ctx, x, cy + 60 - q * 230, 2.2, 3.4, `rgba(255,226,160,${(0.6 * (1 - q)).toFixed(3)})`);
+  }
+  embers(ctx, t, p, '255,214,140', 18);
 }
 
 const SCENES = {
-  draft: sceneDraft,
-  train: sceneTrain,
-  agri: sceneFarm,
-  comm: sceneMarket,
-  order: sceneOrder,
-  water: sceneWater,
-  hire: sceneHire,
-  befriend: sceneBanquet,
-  reward: sceneReward,
-  learn: sceneLearn,
-  plot: scenePlot,
-  promote: scenePromote,
+  draft: fxDraft,
+  train: fxTrain,
+  agri: fxAgri,
+  comm: fxComm,
+  order: fxOrder,
+  water: fxWater,
+  hire: fxHire,
+  befriend: fxBefriend,
+  reward: fxReward,
+  learn: fxLearn,
+  plot: fxPlot,
+  promote: fxPromote,
 };
 
 /* ---------- 오버레이 ---------- */
@@ -529,8 +603,7 @@ function ensureStyle() {
       border: 1px solid #8a6532; background: #120c07;
       box-shadow: 0 0 0 1px rgba(255,190,120,0.08), 0 18px 50px rgba(0,0,0,0.7), 0 0 46px rgba(200,120,40,0.18);
       animation: afxPop 0.24s cubic-bezier(.2,1.3,.5,1); }
-    .afx-canvas { display: block; width: 100%; height: 190px; image-rendering: pixelated; background: #120c07; }
-    .afx.rank .afx-canvas { height: 210px; }
+    .afx-canvas { display: block; width: 100%; aspect-ratio: 16 / 9; height: auto; background: #120c07; }
     .afx-face { position: absolute; left: 10px; top: 10px; width: 58px; height: 58px; border-radius: 4px;
       border: 1px solid #b98a42; box-shadow: 0 0 16px rgba(255,170,80,0.3), 0 2px 8px rgba(0,0,0,0.6);
       image-rendering: pixelated; background: #1a130c; }
@@ -570,7 +643,7 @@ function ensureStyle() {
 export function playActionFx(opts = {}) {
   if (typeof document === 'undefined') return Promise.resolve();
   ensureStyle();
-  if (current) { clearTimeout(current.timer); clearInterval(current.raf); current.el.remove(); current = null; }
+  if (current) { clearTimeout(current.timer); cancelAnimationFrame(current.raf); current.el.remove(); current = null; }
   const kind = opts.kind || 'default';
   const meta = sceneOf(kind);
   const tone = opts.tone === 'bad' ? '#c4614a'
@@ -597,20 +670,23 @@ export function playActionFx(opts = {}) {
     </div>`;
   document.body.appendChild(el);
   const canvas = el.querySelector('canvas');
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = false;
+  const ctx = canvas.getContext('2d', { alpha: false });
+  ctx.imageSmoothingEnabled = true;
 
+  const scene = SCENES[kind] || fxReward;
   const t0 = performance.now();
   const draw = (now) => {
     if (!current || current.el !== el) return;
-    const t = Math.min(1, (now - t0) / ACTION_FX_MS); // 0~1
+    const t = Math.min(1, (now - t0) / ACTION_FX_MS);
     const sec = (now - t0) / 1000;
-    stage(ctx, tone);
-    const scene = SCENES[kind] || sceneReward;
+    drawBackground(ctx, kind, t);
     scene(ctx, sec, t, tone);
+    embers(ctx, sec, t, '255,190,116', 8);
+    sweep(ctx, t);
+    ctx.drawImage(overlayLayer(), 0, 0);
     // 마무리 섬광
     if (t > 0.86) {
-      const a = Math.sin((t - 0.86) / 0.14 * Math.PI) * 0.16;
+      const a = Math.sin(((t - 0.86) / 0.14) * Math.PI) * 0.15;
       ctx.fillStyle = `rgba(255,235,190,${a})`;
       ctx.fillRect(0, 0, W, H);
     }

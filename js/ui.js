@@ -6,6 +6,7 @@ import * as B from './battle.js';
 import { createDuel, duelRound, DUEL_ACTIONS } from './duel.js';
 import { portraitURL } from './portrait.js';
 import { playActionFx } from './actionfx.js';
+import { openLegal } from './legal.js';
 import { createMapView } from './mapview.js';
 import { sfx } from './audio.js';
 import * as Cloud from './sync.js';
@@ -3152,6 +3153,10 @@ function openMenu() {
     ${game && game.pendingTournament ? '<button class="btn big ghost" data-act="open-tournament" style="margin-bottom:8px">이달의 대회</button>' : ''}
     <button class="btn big ghost" data-act="open-rank" style="margin-bottom:8px">세력 순위</button>
     <button class="btn big ghost" data-act="open-help" style="margin-bottom:8px">게임 방법</button>
+    <div class="menu-legal">
+      <button class="btn big ghost" data-act="legal-privacy" style="margin-bottom:8px">개인정보처리방침</button>
+      <button class="btn big ghost" data-act="legal-terms" style="margin-bottom:8px">이용약관</button>
+    </div>
     <button class="btn big ghost" data-act="to-title">타이틀로</button>
   `);
   Cloud.mount($('#menu-account'));
@@ -3471,6 +3476,8 @@ function onClick(e) {
     case 'open-load': openLoad(); break;
     case 'open-rank': openRank(); break;
     case 'open-help': openHelp(); break;
+    case 'legal-privacy': openLegal('privacy'); break;
+    case 'legal-terms': openLegal('terms'); break;
     case 'save-slot': {
       const slot = el.dataset.slot;
       try {

@@ -144,6 +144,9 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   color: #dccbaa; border-color: #4a3622;
 }
 .btn.small { min-height: 38px; padding: 6px 12px; font-size: 12px; letter-spacing: 0.8px; }
+/* 군의 메뉴 — 약관 두 줄은 위 버튼들과 옅은 선으로 나눈다 */
+.menu-legal { margin: 2px 0 8px; padding-top: 10px; border-top: 1px solid rgba(217, 160, 90, 0.18); }
+.menu-legal .btn.big { min-height: 46px; font-size: 13px; letter-spacing: 2px; }
 .btn.danger { border-color: #7a3427; color: #f0bdb0; background: var(--wood-grain), linear-gradient(180deg, #3d211a, #24110d); }
 .mini-btn {
   width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
