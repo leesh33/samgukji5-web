@@ -217,3 +217,32 @@ tests/                node 테스트 + Playwright 라이브 검증
 - 독자 제작 게임입니다. 외부 게임의 이미지·사운드·데이터를 사용하지 않았고, 지도·초상화·아이콘은 코드로 그린 도트 그래픽입니다. 행동 연출의 HD-2D 배경 12장은 생성형 AI로 새로 만든 그림(글자 없음)입니다.
 - 화면·데이터의 모든 표기는 한글입니다(한자 표기 없음). 깃발·배지도 한글 1자입니다.
 - 장수 능력치와 시나리오 소속은 삼국 시대 고전 전략게임의 통념을 참고한 게임용 근사치입니다.
+
+## 📱 iOS 앱 (App Store · `com.odol.dotsamguk`)
+
+`../samguk-app`(Expo SDK 51 + WebView)이 이 웹앱을 iOS 앱으로 감쌉니다. 앱은 **라이브 주소**(https://dotsamguk.vercel.app)를 그대로 띄우고, 네트워크가 없거나 페이지가 뜨지 않으면 앱에 내장한 한 파일 HTML 로 **오프라인 플레이**를 고를 수 있습니다.
+
+| 문제 | 이 웹앱의 답 |
+| --- | --- |
+| Apple 로그인(iOS 앱) | 앱이 네이티브 Sign in with Apple 로 `id_token` 을 받아 `window.SamgukNative.appleSignIn(idToken, nonce)` 로 넘깁니다. 페이지는 Supabase `grant_type=id_token` 으로 세션을 만듭니다(Supabase Apple provider Client IDs 에 `com.odol.dotsamguk` 포함). Apple 칩은 **앱 안에서만** 보입니다 — 웹은 지금처럼 Google·카카오 그대로입니다. |
+| Google·카카오 로그인(iOS 앱) | 페이지가 authorize 주소를 앱에 넘기면(`postMessage {type:'oauth'}`) 앱이 `ASWebAuthenticationSession` 으로 열고, `samguk://auth-callback?code=…` 로 돌아온 주소를 `window.SamgukNative.oauthCallback(url)` 로 넘깁니다 → 페이지의 PKCE verifier 로 교환. |
+| 앱 다리 | 앱이 `window.__SAMGUK_NATIVE__ = { shell:'ios', appleAuth:true, appVersion }` 를 심습니다. 없으면 웹 방식(페이지 이동) 그대로입니다. |
+| 계정 삭제 (App Store 5.1.1(v)) | 로그인 후 `☰` 군의 → **계정 · 클라우드 기록 삭제** — 2단계 확인 뒤 Supabase RPC `samguk_delete_my_account()` 로 본인 기록을 지웁니다. 같은 계정을 쓰는 다른 앱(릴스핀·인생 한 턴) 기록이 있으면 계정은 남기고 이 게임 기록만 지웁니다(`supabase/samguk_account_delete.sql`). |
+| 약관 웹 페이지 | `privacy.html` · `terms.html` — 앱 안 모달과 **같은 문구**(`js/legal.js`)를 그립니다. App Store 메타데이터의 개인정보처리방침 URL 로 씁니다. |
+
+### 앱용 한 파일 HTML(오프라인 폴백) 만들기
+
+```bash
+ESBUILD_BIN=/workspace/tmp_tools/node_modules/.bin/esbuild \
+  node tools/build-native-html.mjs ../samguk-app/src/generated/html.js
+python3 tests/verify_native_html.py        # 390×844: 외부 요청 0건 · 타이틀→새 게임→전투 진입 · Apple 다리
+python3 tests/verify_native.py             # 앱 다리·Apple 칩·구글 authorize·계정 삭제 확인 시트
+```
+
+### 검증 도구 (Playwright) 실행 준비
+
+이 환경의 Chromium 은 `libnss3` 등이 없어 그대로는 뜨지 않습니다. 필요한 라이브러리를 `/workspace/tmp_libs/root` 에 풀어 두고 아래처럼 실행합니다.
+
+```bash
+LD_LIBRARY_PATH=/workspace/tmp_libs/root/usr/lib/x86_64-linux-gnu python3 tests/verify_live.py http://127.0.0.1:4173/index.html local
+```

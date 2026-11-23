@@ -53,8 +53,8 @@ export function duelRound(d, playerAction, playerIsA = true) {
   const rng = rngOf(d);
   const me = playerIsA ? d.a : d.b;
   const foe = playerIsA ? d.b : d.a;
-  const myAct = playerAction || enemyChoice(d, me, rng);
-  const foeAct = enemyChoice(d, foe, rng);
+  let myAct = playerAction || enemyChoice(d, me, rng);
+  let foeAct = enemyChoice(d, foe, rng);
 
   // 기백
   if (myAct === 'finish') { if (me.ki < 2) { myAct = 'strong'; } else me.ki -= 2; }
