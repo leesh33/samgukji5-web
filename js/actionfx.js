@@ -294,8 +294,8 @@ function sweep(ctx, p) {
 function fxDraft(ctx, t, p) {
   bloom(ctx, 452, 150, 150, '255,178,92', 0.10 + 0.04 * Math.sin(t * 3));
   const lanes = [
-    { y: H - 8, s: 1.05, v: 82, n: 6, tone: '#a8823f' },
-    { y: H - 30, s: 0.8, v: 60, n: 5, tone: '#8a7048' },
+    { y: H - 22, s: 0.72, v: 58, n: 4, tone: '#6b5738' },   // 뒤줄 — 먼저 그려 앞줄에 가리게
+    { y: H - 6, s: 1.02, v: 82, n: 6, tone: '#a8823f' },    // 앞줄
   ];
   lanes.forEach((ln, li) => {
     for (let i = 0; i < ln.n; i++) {

@@ -113,10 +113,17 @@ with sync_playwright() as p:
       const g = ui.game; g.actionPoints = 9; g.maxActionPoints = 9;
       Object.values(g.generals).forEach(x => { if (x.faction === g.playerId) x.acted = false; });
     }""")
+    page.evaluate("""() => {
+      window.__afxT = {t0: 0, t1: 0};
+      new MutationObserver(() => {
+        const el = document.querySelector('#actionfx');
+        if (el && !window.__afxT.t0) window.__afxT.t0 = performance.now();
+        if (!el && window.__afxT.t0 && !window.__afxT.t1) window.__afxT.t1 = performance.now();
+      }).observe(document.body, {childList: true, subtree: true});
+    }""")
     click_cmd(page, "draft"); page.wait_for_timeout(400)
     page.locator(".officer-row:not(.done)").first.click()
     page.wait_for_selector("#actionfx", timeout=2000)
-    t0 = time.time()
     page.wait_for_timeout(620)
     info = page.evaluate("""() => {
       const e = document.querySelector('#actionfx');
@@ -156,8 +163,8 @@ with sync_playwright() as p:
     step("스킵 버튼 없음", info["buttons"] == 0, info["buttons"])
     step("연출이 가장 위 층(z 120)", info["z"] == "120", info["z"])
     page.wait_for_selector("#actionfx", state="detached", timeout=5000)
-    elapsed = time.time() - t0
-    step("약 2.0초 뒤 자동으로 닫힘", 1.75 <= elapsed <= 2.7, f"{elapsed:.2f}s")
+    life = page.evaluate("() => window.__afxT.t1 - window.__afxT.t0")
+    step("약 2.0초 뒤 자동으로 닫힘(2초+짧은 페이드아웃)", 1900 <= life <= 2600, f"{life:.0f}ms")
     step("가로 넘침 없음(징병 뒤)", len(overflow(page)["bad"]) == 0, overflow(page))
 
     # ---------- 3. 12종 연출을 하나씩 띄워 배경·캔버스 확인 ----------
