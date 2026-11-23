@@ -297,7 +297,7 @@ with sync_playwright() as p:
     # ---------- 저장/불러오기(사망·등용 상태 유지) ----------
     page.wait_for_timeout(400)
     saved = page.evaluate("() => { const raw = localStorage.getItem('samguk5.auto'); if (!raw) return null; const s = JSON.parse(raw); return { v: s.version, dead: Object.values(s.generals).filter(g => g.dead).length, pris: (s.pendingPrisoners||[]).length }; }")
-    step("저장 양식 최신(v9) · 죽음 상태 기록", saved and saved["v"] == 9, saved)
+    step("저장 양식 최신(v11) · 죽음 상태 기록", saved and saved["v"] == 11, saved)
 
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)
