@@ -601,8 +601,15 @@ function startCustomGame() {
 }
 
 function onCustomInput(e) {
-  if (!customDraft) return;
   const t = e.target;
+  // 부대 편성 슬라이더 — 손가락을 놓지 않고도 숫자가 따라온다
+  if (t && t.dataset && t.dataset.act === 'reorg-slide' && reorgDraft) {
+    const n = reorgSet(t.dataset.gid, t.value);
+    if (e.type === 'change' && Number(t.value) !== n) t.value = n;
+    updateReorgNumbers();
+    return;
+  }
+  if (!customDraft) return;
   if (t.id === 'cst-name') {
     customDraft.name = t.value;
     const live = $('[data-live="name"]');
@@ -849,7 +856,7 @@ const CITY_CMD_GROUPS = [
     ['search', '탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['promote', '장군 임명'], ['advisor', '참모'],
   ] },
   { id: 'army', ko: '군사', hint: '징병·출진', subs: [
-    ['draft', '징병', '2령'], ['train', '훈련'], ['learn', '진형전수'], ['march', '출진'],
+    ['draft', '징병', '2령'], ['train', '훈련'], ['learn', '진형전수'], ['reorg', '부대 편성'], ['march', '출진'],
   ] },
 ];
 let cityCmdGroup = null;
@@ -892,6 +899,10 @@ function cmdSubHTML(group, ctx) {
       const n = ctx.learnCount || 0;
       const ready = n > 0 && game.actionPoints >= 1;
       return `<button class="btn" role="menuitem" data-act="cmd" data-cmd="learn" ${city} ${ready ? '' : 'disabled'}>${ko}<small>${n ? (ready ? `${n}종` : '행동력 부족') : '스승 없음'}</small></button>`;
+    }
+    if (k === 'reorg') {
+      const n = ctx.assigned || 0;
+      return `<button class="btn reorg" role="menuitem" data-act="army-reorg" ${city}>${ko}<small>${n ? `배분 ${fmt(n)}` : '편성 없음'}</small></button>`;
     }
     if (k === 'promote') {
       const n = E.promotableGenerals(game).length;
@@ -967,9 +978,12 @@ function renderCityPanel(dir = 0) {
   const genHTML = gens.slice(0, 12).map((g) => {
     const t = gd(g.id);
     const rk = E.rankInfoOf(game, g.id);
-    return `<button class="gen-chip ${g.acted ? 'done' : ''} ${rk.canPromote ? 'up' : ''}" data-act="gen-detail" data-gid="${g.id}" title="${t.ko} · ${rk.ko} · 공적 ${rk.merit} · 최대 지휘 ${fmt(rk.cap)}명" aria-label="${t.ko} 능력치 보기 — ${rk.ko}, 공적 ${rk.merit}, 최대 지휘 ${fmt(rk.cap)}명">
+    const arm = E.armOf(game, g.id);
+    const own = Math.min(E.assignedOf(game, g.id), rk.cap);
+    return `<button class="gen-chip ${g.acted ? 'done' : ''} ${rk.canPromote ? 'up' : ''}" data-act="gen-detail" data-gid="${g.id}" title="${t.ko} · ${rk.ko} · 공적 ${rk.merit} · 최대 지휘 ${fmt(rk.cap)}명 · 편성 ${fmt(own)}명 · ${arm}" aria-label="${t.ko} 능력치 보기 — ${rk.ko}, 공적 ${rk.merit}, 최대 지휘 ${fmt(rk.cap)}명, 편성 ${fmt(own)}명, ${arm}">
       <img src="${portraitURL(g.id, t, 32, colorOf(g.faction))}" alt="${t.ko}" />
       <span>${t.ko}</span>
+      <i class="gc-tr ${own ? 'on' : ''}"><b class="arm-${E.ARMS.indexOf(arm)}">${arm}</b>${own ? fmt(own) : '0'}</i>
       <i class="gc-merit" aria-hidden="true"><b style="width:${Math.max(4, Math.round(rk.progress * 100))}%"></b></i></button>`;
   }).join('');
 
@@ -993,7 +1007,7 @@ function renderCityPanel(dir = 0) {
     const diploSub = game.actionPoints >= 1 ? '증정·동맹' : '행동력 부족';
     const diploTab = `<button class="btn diplo" data-act="diplomacy" data-city="${selectedCity}">외교<small>${diploSub}</small></button>`;
     cmdHTML = `<div class="cp-cmds">${tabs}${diploTab}<button class="btn ${plotReady ? 'plot' : ''}" data-act="cmd" data-cmd="plot" data-city="${selectedCity}" ${plotReady ? '' : 'disabled'}>계략<small>${plotSub}</small></button></div>`;
-    cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies, learnCount: E.cityLearnableFormations(game, selectedCity).length };
+    cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies, learnCount: E.cityLearnableFormations(game, selectedCity).length, assigned: E.armyBreakdown(game, selectedCity).assigned };
   } else {
     cmdCtx = null;
     const pacified = !!c.owner && E.isPacified(game, game.playerId, c.owner);
@@ -1534,15 +1548,149 @@ function renderTalkScene(gid, res) {
     <button class="btn big ghost" data-act="sheet-close" style="margin-top:6px">닫기</button>`);
 }
 
+/* ---------- 부대 편성 (병사 재편 · 병종 변경) ---------- */
+/* 성 총병력 = 장수별 편성 합계 + 예비병. 행동력 없이 언제든 다시 나눈다. */
+let reorgDraft = null;
+
+function openArmySheet(cityId) {
+  const c = game.cities[cityId];
+  if (!c || c.owner !== game.playerId) { toast('아군 성이 아닙니다.'); sfx.fail(); return; }
+  if (!E.generalsInCity(game, cityId).length) { toast('이 성에는 편성할 장수가 없습니다.'); sfx.fail(); return; }
+  const b = E.armyBreakdown(game, cityId);
+  reorgDraft = { cityId, values: Object.fromEntries(b.rows.map((r) => [r.gid, r.troops])) };
+  renderArmySheet();
+  sfx.click();
+}
+
+function reorgRows() {
+  return reorgDraft ? E.armyBreakdown(game, reorgDraft.cityId).rows : [];
+}
+function reorgSum() {
+  return Object.values(reorgDraft ? reorgDraft.values : {}).reduce((s, n) => s + (Number(n) || 0), 0);
+}
+
+/* 한 장수의 편성을 바꿀 때 — 지휘 상한과 남는 예비병 안에서만 */
+function reorgSet(gid, val) {
+  if (!reorgDraft) return 0;
+  const b = E.armyBreakdown(game, reorgDraft.cityId);
+  const row = b.rows.find((r) => r.gid === gid);
+  if (!row) return 0;
+  const others = Object.entries(reorgDraft.values).reduce((s, [k, v]) => (k === gid ? s : s + (Number(v) || 0)), 0);
+  const room = Math.max(0, b.total - others);
+  const n = Math.max(0, Math.min(Math.round(Number(val) || 0), row.cap, room));
+  reorgDraft.values[gid] = n;
+  return n;
+}
+
+/* 슬라이더를 끄는 동안 숫자만 따라오게 한다(다시 그리면 손가락이 놓친다) */
+function updateReorgNumbers() {
+  if (!reorgDraft) return;
+  const b = E.armyBreakdown(game, reorgDraft.cityId);
+  const assigned = reorgSum();
+  const set = (sel, v) => { const el = $(sel); if (el) el.textContent = fmt(v); };
+  set('#rg-total', b.total);
+  set('#rg-assigned', assigned);
+  set('#rg-reserve', Math.max(0, b.total - assigned));
+  for (const row of b.rows) {
+    const el = $(`.rg-nums[data-gid="${row.gid}"] b`);
+    if (el) el.textContent = fmt(reorgDraft.values[row.gid] || 0);
+  }
+  const save = $('#rg-save');
+  if (save) save.disabled = assigned > b.total;
+}
+
+function renderArmySheet() {
+  if (!reorgDraft) return;
+  const cityId = reorgDraft.cityId;
+  const b = E.armyBreakdown(game, cityId);
+  const assigned = reorgSum();
+  const reserve = Math.max(0, b.total - assigned);
+  const ap = game.actionPoints;
+  const cards = b.rows.map((row) => {
+    const t = gd(row.gid);
+    const cur = reorgDraft.values[row.gid] || 0;
+    const arms = [...E.REORG_ARMS];
+    if (row.baseArm === '수군') arms.push('수군');
+    const armHTML = arms.map((arm) => {
+      const on = row.arm === arm;
+      const changed = on && row.changed;
+      return `<button class="rg-arm ${on ? 'on' : ''} ${changed ? 'chg' : ''}" data-act="reorg-arm" data-gid="${row.gid}" data-arm="${arm}"
+        aria-pressed="${on}" title="${arm}">${arm}</button>`;
+    }).join('');
+    return `<div class="rg-card ${cur ? '' : 'empty'}" data-gid="${row.gid}">
+      <div class="rg-head">
+        <img src="${portraitURL(row.gid, t, 34, colorOf(game.playerId))}" alt="${row.ko}" />
+        <div class="rg-id"><b>${row.ko}</b><span>${row.rankKo} · 지휘 ${fmt(row.cap)}</span></div>
+        <div class="rg-arms" role="group" aria-label="${row.ko} 병종">${armHTML}</div>
+      </div>
+      <input class="rg-slider" type="range" data-act="reorg-slide" data-gid="${row.gid}"
+        min="0" max="${row.cap}" step="100" value="${cur}" aria-label="${row.ko} 병력" />
+      <div class="rg-foot">
+        <div class="rg-nums" data-gid="${row.gid}"><b>${fmt(cur)}</b><em>/${fmt(row.cap)}</em></div>
+        <div class="rg-quick">
+          <button data-act="reorg-step" data-gid="${row.gid}" data-delta="-500">-500</button>
+          <button data-act="reorg-step" data-gid="${row.gid}" data-delta="500">+500</button>
+          <button data-act="reorg-max" data-gid="${row.gid}">최대</button>
+          <button data-act="reorg-zero" data-gid="${row.gid}">비우기</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  const over = assigned > b.total;
+  openSheet(`${CITY_BY_ID[cityId].ko} — 부대 편성`, `
+    <div class="rg-sum">
+      <div class="rg-k"><i>성 총병력</i><b id="rg-total">${fmt(b.total)}</b></div>
+      <div class="rg-k on"><i>배분 합계</i><b id="rg-assigned">${fmt(assigned)}</b></div>
+      <div class="rg-k"><i>예비병</i><b id="rg-reserve">${fmt(reserve)}</b></div>
+    </div>
+    <p class="note">장수마다 병력을 나눠 맡기고 병종을 바꿀 수 있습니다. <b>행동력은 쓰지 않습니다</b>(병종 변경은 금 ${E.ARM_CHANGE_GOLD}). 저장한 편성대로 <b>출진</b>하며, 맡기지 않은 병력은 예비병으로 성에 남습니다.</p>
+    ${over ? `<div class="warn-box">배분 합계가 성 총병력을 넘습니다 — 병력을 덜어내세요.</div>` : ''}
+    <div class="rg-list">${cards}</div>
+    <div class="rg-acts">
+      <button class="btn" data-act="reorg-plan" data-mode="even">균등 편성</button>
+      <button class="btn" data-act="reorg-plan" data-mode="max">상한 채우기</button>
+      <button class="btn" data-act="reorg-plan" data-mode="none">모두 해제</button>
+    </div>
+    <button class="btn big" id="rg-save" data-act="reorg-save" ${over ? 'disabled' : ''}>저장 — 배분 ${fmt(assigned)} · 예비 ${fmt(reserve)}</button>
+    <p class="note" style="margin-top:6px">${ap ? '' : '행동력이 없어도 편성은 바꿀 수 있습니다. '}편성을 바꾼 뒤에는 출진 시트에서 장수별 병력이 그대로 나섭니다.</p>`);
+}
+
+function doReorgSave() {
+  if (!reorgDraft) return;
+  const res = E.applyReorg(game, reorgDraft.cityId, reorgDraft.values);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2400); return; }
+  sfx.ok();
+  toast(res.msg, 2200);
+  const cityId = reorgDraft.cityId;
+  reorgDraft = null;
+  closeSheet();
+  if (selectedCity === cityId) renderCityPanel();
+  renderGame();
+  autoSave();
+}
+
+function doChangeArm(gid, arm) {
+  if (!reorgDraft) return;
+  const res = E.changeArm(game, reorgDraft.cityId, gid, arm);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2200); return; }
+  sfx.ok();
+  toast(res.msg, 2200);
+  renderArmySheet();
+  renderGame();
+  autoSave();
+}
+
 /* ---------- 출진 ---------- */
 function openMarchSheet(cityId, targetId = null) {
   const enemies = E.adjacentEnemies(game, cityId);
   if (!enemies.length) { toast('인접한 적 성이 없습니다.'); sfx.fail(); return; }
   const c = game.cities[cityId];
   const gens = E.generalsInCity(game, cityId);
+  // 편성이 큰 장수부터 기본으로 세운다 — 나누어 맡긴 병력이 그대로 나서게
+  const pref = gens.slice().sort((a, b) => E.assignedOf(game, b.id) - E.assignedOf(game, a.id));
   const targets = targetId ? enemies.filter((e) => e === targetId) : enemies;
   pendingSetup = {
-    cityId, targetId: targets[0], generals: gens.slice(0, 5).map((g) => g.id),
+    cityId, targetId: targets[0], generals: pref.slice(0, 5).map((g) => g.id),
     ratio: 1,
     forms: {},
     focus: gens.length ? gens[0].id : null,
@@ -1561,25 +1709,34 @@ function marchSheetHTML() {
   const defPower = E.cityPower(game, p.targetId, true);
   // 장군 직위의 지휘 상한 — 넘는 병력은 성에 남는다
   const capSum = p.generals.reduce((s, gid) => s + E.maxTroopsOf(game, gid), 0);
+  // 부대 편성 — 편성된 병력이 있으면 그 병력으로 나선다
+  const plan = E.marchPlan(game, p.cityId, p.generals);
+  const useAssign = plan.hasAssigned;
   const ask = Math.round(c.troops * p.ratio);
-  const going = Math.min(ask, capSum);
+  const going = useAssign ? plan.total : Math.min(ask, capSum);
   const myPower = Math.round(going * (0.7 + c.train / 180) * 0.95);
+  const ratioRow = useAssign
+    ? `<div class="field-row"><label>출진 병력 ${fmt(going)} / ${fmt(c.troops)}</label><span class="rg-tag">부대 편성</span></div>
+    <p class="note">부대 편성대로 출진합니다 — 편성하지 않은 병력(예비병 ${fmt(Math.max(0, c.troops - plan.total))})은 성에 남습니다. 병력을 다시 나누려면 <b>군사 › 부대 편성</b>.</p>`
+    : `<div class="field-row"><label>출진 병력 ${fmt(going)} / ${fmt(c.troops)}</label>
+      <div class="stepper"><button data-act="march-ratio-" >－</button><input id="march-ratio" type="number" value="${Math.round(p.ratio * 100)}" min="20" max="100" />%<button data-act="march-ratio+">＋</button></div></div>
+    ${ask > capSum ? `<p class="note warn">장군 지휘 상한 ${fmt(capSum)}명 — 상한을 넘는 병력은 성에 남습니다. 직위를 올리면 더 많이 데려갈 수 있습니다.</p>` : ''}`;
   return `
     <div class="field-row"><label>공격 대상</label><div class="chip-row" style="margin:0">
       ${enemies.map((e) => `<button class="pick-chip ${e === p.targetId ? 'on' : ''}" data-act="march-target" data-city="${e}">${CITY_BY_ID[e].ko}</button>`).join('')}
     </div></div>
     <p class="note">${CITY_BY_ID[p.targetId].ko}: ${tname}군 · 병력 ${fmt(target.troops)} · 성 방어 ${target.def}<br>
-    예상 전력 — 아군 ${fmt(myPower * p.ratio)} vs 수비 ${fmt(defPower)}${myPower * p.ratio > defPower ? ' <span style="color:#8ed18e">(우세)</span>' : ' <span style="color:#e08a7a">(열세)</span>'}</p>
-    <div class="field-row"><label>출진 병력 ${fmt(going)} / ${fmt(c.troops)}</label>
-      <div class="stepper"><button data-act="march-ratio-" >－</button><input id="march-ratio" type="number" value="${Math.round(p.ratio * 100)}" min="20" max="100" />%<button data-act="march-ratio+">＋</button></div></div>
-    ${ask > capSum ? `<p class="note warn">장군 지휘 상한 ${fmt(capSum)}명 — 상한을 넘는 병력은 성에 남습니다. 직위를 올리면 더 많이 데려갈 수 있습니다.</p>` : ''}
+    예상 전력 — 아군 ${fmt(myPower)} vs 수비 ${fmt(defPower)}${myPower > defPower ? ' <span style="color:#8ed18e">(우세)</span>' : ' <span style="color:#e08a7a">(열세)</span>'}</p>
+    ${ratioRow}
     <p class="note">출진 장수 (최대 5명)</p>
     <div class="chip-row">${gens.map((g) => {
       const t = gd(g.id);
       const on = p.generals.includes(g.id);
       const rk = E.rankInfoOf(game, g.id);
+      const share = plan.byGeneral[g.id];
       const full = p.generals.includes(g.id) && E.maxTroopsOf(game, g.id) < ask / Math.max(1, p.generals.length) * 1.05;
-      return `<button class="pick-chip ${on ? 'on' : ''}" data-act="march-gen" data-officer="${g.id}" title="${rk.ko} · 최대 지휘 ${fmt(rk.cap)}명">${t.ko} <b style="color:#9c9270">무${t.war}</b> <i class="mc-rank ${full ? 'full' : ''}">${rk.ko}</i></button>`;
+      const shareTxt = on && useAssign ? ` <b style="color:#8ed18e">${fmt(share || 0)}</b>` : '';
+      return `<button class="pick-chip ${on ? 'on' : ''}" data-act="march-gen" data-officer="${g.id}" title="${rk.ko} · 최대 지휘 ${fmt(rk.cap)}명">${t.ko}${shareTxt} <b style="color:#9c9270">무${t.war}</b> <i class="mc-rank ${full ? 'full' : ''}">${rk.ko}</i></button>`;
     }).join('')}</div>
     ${formationPickerHTML()}
     ${reinforcePickerHTML()}
@@ -1668,6 +1825,7 @@ function startPlayerBattle() {
     atkGenerals: p.generals,
     atkTroops: troops,
     atkReinforcements: p.reinforce || [],
+    useAssignments: true,
   });
   setup.formations = Object.fromEntries(p.generals.map((gid) => [gid, formOfPick(gid)]));
   closeSheet();
@@ -3052,6 +3210,11 @@ function openGeneralDetail(gid) {
   const statusCls = rec.captive || rec.dead ? 'bad' : rec.acted ? 'done' : 'ready';
   const rk = E.rankInfoOf(game, gid);
   const canUp = E.canPromote(game, gid);
+  const arm = E.armOf(game, gid);
+  const baseArm = E.baseArmOf(game, gid);
+  const isMine = rec.faction === game.playerId && city && game.cities[rec.city] && game.cities[rec.city].owner === game.playerId;
+  const own = isMine ? Math.min(E.assignedOf(game, gid), rk.cap) : 0;
+  const reserve = isMine ? E.armyBreakdown(game, rec.city).reserve : 0;
   const stats = GD_STAT_LABELS.map(([key, ko]) => {
     const base = t[key] || 0, val = eff[key] || base;
     const plus = val > base ? `<i>+${val - base}</i>` : '';
@@ -3067,7 +3230,7 @@ function openGeneralDetail(gid) {
       <div class="gd-id">
         <div class="gd-name">${t.ko}</div>
         <div class="gd-sub"><b style="color:${fac ? fac.color : '#9a8f7a'}">${fac ? fac.name + '군' : '재야'}</b>${city ? ` · ${city.ko} 주둔` : ''}</div>
-        <div class="gd-tags"><span>${t.arms || '보병'}</span><span>${skillName(t.skill)}</span></div>
+        <div class="gd-tags"><span${arm !== baseArm ? ' class="chg"' : ''}>${arm}</span><span>${skillName(t.skill)}</span></div>
         <div class="gd-status ${statusCls}">${status}</div>
       </div>
     </div>
@@ -3079,6 +3242,8 @@ function openGeneralDetail(gid) {
       <div class="gd-row"><span>공적</span><b>${rk.merit}${rk.next ? ` / ${rk.next.merit}` : ' <em>최고 직위</em>'}</b></div>
       <div class="gd-merit"><div class="merit-bar"><i style="width:${Math.round(rk.progress * 100)}%"></i></div><em>${rk.next ? `다음 ${rk.next.ko}까지 ${rk.toNext}` : '대장군'}</em></div>
       <div class="gd-row"><span>최대 지휘</span><b>${fmt(rk.cap)}명</b></div>
+      <div class="gd-row"><span>병종</span><b>${arm}${arm !== baseArm ? ` <em>원래 ${baseArm}</em>` : ''}</b></div>
+      ${isMine ? `<div class="gd-row"><span>편성 병력</span><b>${own ? `${fmt(own)}명` : '없음'} <em>예비 ${fmt(reserve)}</em></b></div>` : ''}
       <div class="gd-row"><span>보유 보물</span><b>${tr ? `${tr.ko} <em>${E.treasureBonusText(tr)}</em>` : '없음'}</b></div>
       <div class="gd-row"><span>주력 진형</span><b class="gd-forms">${formHTML || '어린'}</b></div>
     </div>
@@ -3279,7 +3444,8 @@ function openHelp() {
     <b style="color:#e6d9b3">21. 전술 계략</b> — 화계·혼란·고무·치료에 수계(물가)·낙석(산기슭)이 더해집니다. 계략마다 지력·매력으로 정해지는 성공률이 표시됩니다.<br>
     <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.<br>
     <b style="color:#e6d9b3">23. 공적·장군 임명</b> — 개발·상업·징병·훈련·등용·친교·계략·전투 승리로 장수마다 공적이 쌓입니다. 인사 → 장군 임명에서 일반→비장군→편장군→아장군→진북장군→정북장군→대장군으로 올리면 최대 지휘 병력(3,000→10,000)과 전투 보정(+3%씩)이 오르고 충성 +5. 행동력은 들지 않습니다.<br>
-    <b style="color:#e6d9b3">24. 행동 연출</b> — 징병·훈련·개발·등용 같은 주요 명령을 실행하면 장수 초상화와 2초 도트 연출이 재생되고 저절로 닫힙니다.
+    <b style="color:#e6d9b3">24. 행동 연출</b> — 징병·훈련·개발·등용 같은 주요 명령을 실행하면 장수 초상화와 2초 도트 연출이 재생되고 저절로 닫힙니다.<br>
+    <b style="color:#e6d9b3">25. 부대 편성</b> — 군사 → 부대 편성에서 성 총병력을 장수마다 나누어 맡기고(예: 하후돈 3,000 · 조인 2,000 · 나머지 예비병), 병종을 보병·기병·궁병으로 바꿉니다(금 100, 행동력 0). 균등 편성·상한 채우기·모두 해제로 한 번에 나누고, 저장한 편성 그대로 출진합니다. 성에 남긴 병력은 예비병이 되어 다음 출진·수비에 쓰입니다.
     </p>`);
 }
 
@@ -3470,6 +3636,35 @@ function onClick(e) {
     case 'tr-gold+': case 'tr-gold-': case 'tr-food+': case 'tr-food-': adjustTransport(act); break;
     case 'do-transport': doTransport(el.dataset.officer); break;
     case 'march': pendingSetup = null; cityCmdGroup = null; syncCmdPopover(); openMarchSheet(el.dataset.city); break;
+    /* 부대 편성 */
+    case 'army-reorg': cityCmdGroup = null; syncCmdPopover(); openArmySheet(el.dataset.city); break;
+    case 'reorg-arm': doChangeArm(el.dataset.gid, el.dataset.arm); break;
+    case 'reorg-step': {
+      if (!reorgDraft) break;
+      const cur = reorgDraft.values[el.dataset.gid] || 0;
+      reorgSet(el.dataset.gid, cur + Number(el.dataset.delta || 0));
+      renderArmySheet();
+      sfx.click();
+      break;
+    }
+    case 'reorg-max': {
+      if (!reorgDraft) break;
+      const row = reorgRows().find((r) => r.gid === el.dataset.gid);
+      if (row) reorgSet(el.dataset.gid, row.cap);
+      renderArmySheet();
+      sfx.click();
+      break;
+    }
+    case 'reorg-zero': if (reorgDraft) { reorgSet(el.dataset.gid, 0); renderArmySheet(); sfx.click(); } break;
+    case 'reorg-plan': {
+      if (!reorgDraft) break;
+      const plan = E.reorgPlan(game, reorgDraft.cityId, el.dataset.mode);
+      reorgDraft.values = Object.fromEntries(Object.entries(plan));
+      renderArmySheet();
+      sfx.click();
+      break;
+    }
+    case 'reorg-save': doReorgSave(); break;
     case 'attack-enemy': openAttackEnemySheet(el.dataset.city); break;
     case 'march-from': openMarchSheet(el.dataset.city, el.dataset.to); break;
     case 'march-target': pendingSetup.targetId = el.dataset.city; $('#sheet-body').innerHTML = marchSheetHTML(); break;

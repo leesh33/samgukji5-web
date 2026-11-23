@@ -564,6 +564,14 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gc-merit { display: block; width: 32px; height: 2px; margin-top: 1px; border-radius: 1px; background: #120c07; overflow: hidden; }
 .gc-merit b { display: block; height: 100%; background: linear-gradient(90deg, #7d5a2e, #ffd79a); }
 .gen-chip.up img { border-color: #ffd79a; box-shadow: 0 0 10px rgba(255, 200, 110, 0.5); }
+/* 편성 병력 · 병종 — 장수 칩 아래 한 줄 */
+.gc-tr { display: block; font-style: normal; font-size: 7.5px; line-height: 1.2; letter-spacing: 0; color: #7d6f57; font-variant-numeric: tabular-nums; white-space: nowrap; max-width: 44px; overflow: hidden; }
+.gc-tr.on { color: #ddc9a2; }
+.gc-tr b { font-weight: 400; margin-right: 2px; }
+.gc-tr .arm-0 { color: #cbb27a; }   /* 보병 */
+.gc-tr .arm-1 { color: #a9c8e8; }   /* 궁병 */
+.gc-tr .arm-2 { color: #e2a88a; }   /* 기병 */
+.gc-tr .arm-3 { color: #8fcab8; }   /* 수군 */
 .cp-gens .none { font-size: 10.5px; color: #8f7d63; padding: 6px 0; }
 
 /* 장수 상세 시트 */
@@ -581,6 +589,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   font-size: 9.5px; color: #dcc9a5; padding: 2px 6px; border-radius: 2px;
   background: linear-gradient(180deg, #2c2116, #1b130c); border: 1px solid #4a3623;
 }
+.gd-tags span.chg { color: #ffd79a; border-color: #8a6532; box-shadow: inset 0 0 8px rgba(255, 190, 110, 0.18); }
 .gd-status { margin-top: 6px; font-size: 10px; letter-spacing: 0.4px; }
 .gd-status.ready { color: #a8d18a; }
 .gd-status.done { color: #b9a583; }
@@ -1278,3 +1287,59 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gd-form.learned { border-color: #6d8f45; color: #d8ecbc; }
 .gd-form.learning { border-style: dashed; border-color: #7d5e2a; color: #d9c9a8; }
 .gd-form.learning em { font-style: normal; font-size: 9px; color: var(--gold-hi); }
+
+/* ---------- 부대 편성 시트 (병사 재편 · 병종 변경) ---------- */
+.rg-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 2px 0 8px; }
+.rg-k {
+  padding: 7px 6px 6px; text-align: center; border-radius: 3px;
+  background: linear-gradient(180deg, #271e14, #171009); border: 1px solid #3d2c1c; box-shadow: var(--bevel-sm);
+}
+.rg-k i { display: block; font-style: normal; font-size: 9px; color: #a2917a; letter-spacing: 0.5px; }
+.rg-k b { display: block; font-size: 15px; color: #f3e4c4; font-weight: 600; margin-top: 1px; font-variant-numeric: tabular-nums; }
+.rg-k.on b { color: var(--gold-hi); }
+.rg-tag {
+  font-size: 9.5px; color: #1a1208; letter-spacing: 0.4px; padding: 3px 7px; border-radius: 2px;
+  background: linear-gradient(180deg, #ffe3ae, #d9a05a); border: 1px solid #ffd79a;
+}
+.rg-list { display: flex; flex-direction: column; gap: 7px; margin: 6px 0 10px; }
+.rg-card {
+  padding: 8px 9px 7px; border-radius: 3px;
+  background: linear-gradient(180deg, #241b12, #171009); border: 1px solid #3d2c1c; box-shadow: var(--bevel-sm);
+}
+.rg-card.empty { opacity: 0.72; }
+.rg-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rg-head img { width: 34px; height: 34px; flex: 0 0 auto; display: block; border-radius: 2px; border: 1px solid #6b4b28; }
+.rg-id { flex: 1 1 auto; min-width: 0; }
+.rg-id b { display: block; font-size: 13px; color: #f2e4c6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rg-id span { display: block; font-size: 9px; color: #9c8a70; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rg-arms { flex: 0 0 auto; display: flex; gap: 3px; }
+.rg-arm {
+  font: inherit; font-size: 9.5px; letter-spacing: 0; padding: 5px 5px; min-width: 32px;
+  color: #bda98a; border: 1px solid #4b3622; border-radius: 2px;
+  background: linear-gradient(180deg, #2a2015, #191209); -webkit-tap-highlight-color: transparent;
+}
+.rg-arm.on { color: #1a1208; border-color: #ffd79a; background: linear-gradient(180deg, #ffe3ae, #d9a05a); font-weight: 600; }
+.rg-arm.on.chg { box-shadow: 0 0 9px rgba(255, 200, 110, 0.45); }
+.rg-slider {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 22px; margin: 4px 0 0; background: transparent;
+}
+.rg-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(90deg, #4a3a24, #2a2015); border: 1px solid #3d2c1c; }
+.rg-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 3px;
+  background: linear-gradient(180deg, #ffe3ae, #c99248); border: 1px solid #ffd79a; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.rg-slider::-moz-range-track { height: 6px; border-radius: 3px; background: #3a2c1c; border: 1px solid #3d2c1c; }
+.rg-slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 3px; background: linear-gradient(180deg, #ffe3ae, #c99248); border: 1px solid #ffd79a; }
+.rg-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.rg-nums { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.rg-nums b { font-size: 13px; color: var(--gold-hi); font-weight: 600; }
+.rg-nums em { font-style: normal; font-size: 9px; color: #8f7d63; margin-left: 1px; }
+.rg-quick { flex: 1 1 auto; display: flex; gap: 4px; justify-content: flex-end; }
+.rg-quick button {
+  font: inherit; font-size: 9.5px; letter-spacing: 0; padding: 5px 7px; color: #d9c9a8;
+  border: 1px solid #4b3622; border-radius: 2px; background: linear-gradient(180deg, #2a2015, #191209);
+  -webkit-tap-highlight-color: transparent;
+}
+.rg-quick button:active { border-color: var(--gold); color: var(--gold-hi); }
+.rg-acts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 0 8px; }
+.rg-acts .btn { min-height: 40px; font-size: 11.5px; letter-spacing: 0.5px; padding: 0 4px; }

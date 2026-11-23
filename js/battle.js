@@ -123,7 +123,7 @@ export function createBattle(opts) {
     fromCityId, toCityId, attackerFaction, defenderFaction,
     atkGenerals = [], defGenerals = [], atkTroops = 5000, defTroops = 5000,
     defBonus = 40, seed = 1, playerSide = null, generals = null,
-    troopCaps = null, rankBonus = null,
+    troopCaps = null, rankBonus = null, troopsByGeneral = null, march = null,
   } = opts;
   const GD = generals || GENERAL_BY_ID;
   const rng = mulberry32(hashStr(fromCityId + toCityId) + seed);
@@ -133,6 +133,9 @@ export function createBattle(opts) {
     grid: [], units: [], phase: 'atk', round: 1, log: [], over: null,
     playerSide, seed, defBonus,
     initial: { atk: atkTroops, def: defTroops },
+    // 부대 편성으로 나선 병력과 그 합계 — 전투 뒤 성으로 돌려보낼 때 쓴다
+    troopsByGeneral: troopsByGeneral || null,
+    march: march || null,
     terrainName: CITY_BY_ID[toCityId] ? CITY_BY_ID[toCityId].ko : '',
     // R2에 합류할 원군 — 엔진이 미리 뽑아 둔다
     reinforcements: opts.reinforcements ? { atk: [...(opts.reinforcements.atk || [])], def: [...(opts.reinforcements.def || [])] } : { atk: [], def: [] },
@@ -183,12 +186,18 @@ export function createBattle(opts) {
       const formId = (asked && own.includes(asked) ? asked : own[0]) || 'eorin';
       // 장군 직위의 지휘 상한을 넘기지 않는다
       const cap = troopCaps && troopCaps[gid] ? troopCaps[gid] : Infinity;
+      // 부대 편성으로 정해진 병력이 있으면 그대로 쓴다
+      const planned = side === 'atk' && battle.troopsByGeneral && battle.troopsByGeneral[gid] != null
+        ? battle.troopsByGeneral[gid] : null;
+      const troops = planned != null
+        ? Math.min(cap, Math.max(1, Math.round(planned)))
+        : Math.min(cap, Math.max(400, Math.round(base * (gid === gids[0] ? 1.1 : 1))));
       battle.units.push({
         id: `${side}-${gid}`,
         side, gid, name: g.ko,
         rankBonus: (rankBonus && rankBonus[gid]) || 0,
         spec: { id: g.id, ko: g.ko, lead: g.lead, war: g.war, int: g.int, pol: g.pol, cha: g.cha, arms: g.arms, skill: g.skill, formations: g.formations || ['eorin'] },
-        troops: Math.min(cap, Math.max(400, Math.round(base * (gid === gids[0] ? 1.1 : 1)))),
+        troops,
         morale: clamp(58 + Math.round(g.lead / 4) + (isCastleDef ? 6 : 0), 40, 100),
         formation: formId,
         x: clamp(x, 0, BW - 1), y,
@@ -635,6 +644,8 @@ export function battleResult(b) {
     capturedGenerals: [],
     rounds: b.round,
     playerSide: b.playerSide,
+    // 부대 편성으로 나선 병력 — 엔진이 생존 병력을 성으로 돌려보낼 때 쓴다
+    march: b.march || null,
   };
 }
 

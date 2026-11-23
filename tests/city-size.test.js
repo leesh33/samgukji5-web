@@ -211,7 +211,7 @@ test('v10 저장(규모 이전)은 도시별 기본 규모를 채워 열린다',
   for (const c of Object.values(raw.cities)) delete c.size;
   const back = E.deserialize(JSON.stringify(raw));
   assert.equal(back.version, E.SAVE_VERSION);
-  assert.equal(back.version, 11);
+  assert.equal(back.version, 12);
   assert.equal(back.cities.xuchang.size, 1);
   assert.equal(back.cities.luoyang.size, 2);
   assert.equal(back.cities.xiaopei.size, 0);

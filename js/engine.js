@@ -2,7 +2,7 @@
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_OWNERS, TREASURE_STAT_KO, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, citySize, citySizeKo, sizeCap, sizeDraftMul, sizeIncomeMul, sizeTroopCap } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -21,6 +21,11 @@ export function generalMap(state) {
     const extra = (state.learnedFormations[gid] || []).filter((f) => FORMATIONS[f]);
     if (!base || !extra.length) continue;
     map[gid] = { ...base, formations: [...new Set([...(base.formations || []), ...extra])] };
+  }
+  // 바꾼 병종(부대 편성)도 전투에 그대로 넘긴다
+  for (const [gid, g] of Object.entries((state && state.generals) || {})) {
+    if (!g || !ARMS.includes(g.arm) || !map[gid]) continue;
+    map[gid] = { ...map[gid], arms: g.arm };
   }
   return map;
 }
@@ -113,7 +118,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
   }
 
   for (const g of allGeneralsOf(state)) {
-    state.generals[g.id] = { id: g.id, faction: null, city: null, loyalty: 0, acted: false, captive: false, dead: false, hidden: false, merit: 0, rank: 0 };
+    state.generals[g.id] = { id: g.id, faction: null, city: null, loyalty: 0, acted: false, captive: false, dead: false, hidden: false, merit: 0, rank: 0, assignedTroops: 0, arm: null };
   }
 
   // 신군주는 기존 소세력의 성 하나를 떼어내 시작한다
@@ -2423,10 +2428,12 @@ export function moveGenerals(state, fromCityId, toCityId, gids = []) {
   const ids = [...new Set(gids)];
   for (const gid of ids) {
     const g = state.generals[gid];
+    g.assignedTroops = 0;   // 편성 병력은 원래 성의 예비병으로 돌아간다
     g.city = toCityId;
     g.acted = true;
     g.movedThisTurn = true;
   }
+  reconcileAssignments(state, fromCityId);
   state.actionPoints -= MOVE_COST;
   const names = ids.map((gid) => generalOf(state, gid).ko);
   const msg = `${cityName(fromCityId)}에서 ${withJosa(cityName(toCityId), '로')} 장수 ${ids.length}명(${names.join(', ')})을 옮겼습니다.`;
@@ -2499,6 +2506,208 @@ export function talkToGeneral(state, cityId, gid) {
   return { ok: true, msg, line, before, after, gain: after - before, aff: affAfter, affGain: affAfter - affBefore, style: talkStyleOf(t, before) };
 }
 
+/* ---------- 부대 편성 (병사 재편 · 병종 변경) ----------
+   성 총병력 city.troops = 성 안 장수들의 편성 병력 합계 + 성 예비병(reserve).
+   편성은 행동력을 쓰지 않고 언제든 다시 나눌 수 있고, 출진할 때 장수별 편성 병력이 그대로 나선다. */
+export const REORG_ARMS = ['보병', '기병', '궁병'];
+export const ARM_CHANGE_GOLD = 100;
+export const MARCH_MIN_TROOPS = 400;   // 전장에 세우려면 이만큼은 있어야 한 부대가 된다
+
+/* 장수의 지금 병종 — 성에서 바꿨으면 바꾼 값, 아니면 원래 병과 */
+export function armOf(state, gid) {
+  const g = state && state.generals ? state.generals[gid] : null;
+  if (g && ARMS.includes(g.arm)) return g.arm;
+  const spec = generalOf(state, gid);
+  return (spec && spec.arms) || '보병';
+}
+export function baseArmOf(state, gid) {
+  const spec = generalOf(state, gid);
+  return (spec && spec.arms) || '보병';
+}
+export function armIsChanged(state, gid) {
+  return armOf(state, gid) !== baseArmOf(state, gid);
+}
+
+/* 이 장수에게 편성된 병력 */
+export function assignedOf(state, gid) {
+  const g = state && state.generals ? state.generals[gid] : null;
+  if (!g) return 0;
+  const n = Math.round(Number(g.assignedTroops) || 0);
+  return n > 0 ? n : 0;
+}
+
+/* 이 성의 부대 편성 현황 — 총병력 · 배분 합계 · 예비병 · 장수별 카드 */
+export function armyBreakdown(state, cityId) {
+  const c = state.cities[cityId];
+  const rows = generalsInCity(state, cityId).map((g) => {
+    const cap = maxTroopsOf(state, g.id);
+    const spec = generalOf(state, g.id) || {};
+    const troops = Math.min(assignedOf(state, g.id), cap);
+    return {
+      gid: g.id, ko: spec.ko || g.id, rankKo: rankInfoOf(state, g.id).ko,
+      cap, troops, arm: armOf(state, g.id), baseArm: baseArmOf(state, g.id),
+      changed: armIsChanged(state, g.id), acted: !!g.acted,
+    };
+  });
+  const total = c ? Math.max(0, Math.round(c.troops)) : 0;
+  const assigned = rows.reduce((s, r) => s + r.troops, 0);
+  return { cityId, total, assigned, reserve: Math.max(0, total - assigned), rows };
+}
+
+/* 균등 배분 — 상한에 닿는 장수를 빼고 남은 병력을 다시 나눈다 */
+function evenPlan(rows, total) {
+  const out = {};
+  for (const r of rows) out[r.gid] = 0;
+  let rest = Math.max(0, total);
+  let open = rows.filter((r) => r.cap > 0);
+  let guard = 0;
+  while (open.length && rest > 0 && guard++ < 16) {
+    const each = Math.floor(rest / open.length);
+    if (each <= 0) break;
+    const tight = open.filter((r) => r.cap < each);
+    if (tight.length) {
+      for (const r of tight) { rest -= r.cap; out[r.gid] = r.cap; }
+      open = open.filter((r) => !tight.includes(r));
+      continue;
+    }
+    for (const r of open) { out[r.gid] = each; rest -= each; }
+    for (const r of open) { if (rest <= 0) break; out[r.gid] += 1; rest -= 1; }
+    break;
+  }
+  return out;
+}
+
+/* 편성 계획 — 예비병까지 쓰지 않고 나누는 값만 돌려준다(실제 반영은 applyReorg) */
+export function reorgPlan(state, cityId, mode = 'even') {
+  const b = armyBreakdown(state, cityId);
+  if (mode === 'none') return Object.fromEntries(b.rows.map((r) => [r.gid, 0]));
+  if (mode === 'max') {
+    const out = {};
+    let left = b.total;
+    for (const r of b.rows) { const n = Math.min(r.cap, left); out[r.gid] = n; left -= n; }
+    return out;
+  }
+  return evenPlan(b.rows, b.total);
+}
+
+/* 편성 반영 — 각 장수 지휘 상한 안에서, 합계가 성 총병력을 넘지 않게 */
+export function applyReorg(state, cityId, values = {}) {
+  const c = state.cities[cityId];
+  if (!c) return { ok: false, msg: '성을 찾을 수 없습니다.' };
+  const gens = generalsInCity(state, cityId).filter((g) => g.faction === c.owner && !g.captive && !g.dead);
+  if (!gens.length) return { ok: false, msg: '이 성에는 편성할 장수가 없습니다.' };
+  const next = {};
+  let sum = 0;
+  for (const g of gens) {
+    const cap = maxTroopsOf(state, g.id);
+    next[g.id] = clamp(Math.round(Number(values[g.id]) || 0), 0, cap);
+    sum += next[g.id];
+  }
+  const total = Math.max(0, Math.round(c.troops));
+  if (sum > total) return { ok: false, msg: `배분 합계가 성 총병력(${total.toLocaleString()})을 넘습니다.` };
+  for (const gid of Object.keys(next)) state.generals[gid].assignedTroops = next[gid];
+  const reserve = total - sum;
+  return {
+    ok: true, cityId, assigned: sum, reserve, total,
+    msg: `${cityName(cityId)} 부대 편성 — 배분 ${sum.toLocaleString()}명 · 예비병 ${reserve.toLocaleString()}명`,
+  };
+}
+
+/* 장수의 병종을 바꾼다 — 금 100, 행동력은 쓰지 않는다 */
+export function changeArm(state, cityId, gid, arm) {
+  const c = state.cities[cityId];
+  if (!c || c.owner !== state.playerId) return { ok: false, msg: '아군 성이 아닙니다.' };
+  const g = state.generals[gid];
+  if (!g || g.city !== cityId || g.faction !== state.playerId || g.captive || g.dead) {
+    return { ok: false, msg: '이 성에 있는 아군 장수가 아닙니다.' };
+  }
+  if (!ARMS.includes(arm)) return { ok: false, msg: '알 수 없는 병종입니다.' };
+  const before = armOf(state, gid);
+  if (before === arm) return { ok: false, msg: `이미 ${arm}입니다.` };
+  if (c.gold < ARM_CHANGE_GOLD) return { ok: false, msg: `금이 부족합니다. (금 ${ARM_CHANGE_GOLD} 필요)` };
+  c.gold -= ARM_CHANGE_GOLD;
+  g.arm = arm === baseArmOf(state, gid) ? null : arm;
+  const spec = generalOf(state, gid) || {};
+  const msg = `${spec.ko || gid}의 병종을 ${before} → ${withJosa(arm, '로')} 바꿨습니다. (금 ${ARM_CHANGE_GOLD})`;
+  log(state, msg);
+  bumpRng(state);
+  return { ok: true, msg, before, after: arm, gold: c.gold, cost: ARM_CHANGE_GOLD };
+}
+
+/* 성을 떠났거나 포로·전사한 장수의 편성을 예비병으로 되돌리고,
+   예비병이 모자라면 편성이 성 총병력을 넘지 않게 줄인다 */
+export function reconcileAssignments(state, cityId) {
+  const c = state.cities[cityId];
+  if (!c) return;
+  const here = generalsInCity(state, cityId);
+  const valid = new Set(here.filter((g) => g.faction === c.owner).map((g) => g.id));
+  // 이 성에 있으나 성 주인과 다른 세력이 된 장수의 편성은 예비병으로 돌린다
+  for (const g of here) {
+    if (assignedOf(state, g.id) && !valid.has(g.id)) g.assignedTroops = 0;
+  }
+  const rows = [...valid].map((gid) => ({ gid, n: Math.min(assignedOf(state, gid), maxTroopsOf(state, gid)) }));
+  let over = rows.reduce((s, r) => s + r.n, 0) - Math.max(0, Math.round(c.troops));
+  let guard = 0;
+  while (over > 0 && guard++ < 64) {
+    rows.sort((a, b) => b.n - a.n);
+    if (!rows.length || rows[0].n <= 0) break;
+    const cut = Math.min(rows[0].n, over);
+    rows[0].n -= cut;
+    over -= cut;
+  }
+  for (const r of rows) state.generals[r.gid].assignedTroops = r.n;
+}
+
+/* 모든 성의 편성을 성 총병력과 맞춘다 — 턴·전투·이동 뒤에 부른다 */
+export function reconcileAllAssignments(state) {
+  for (const cid of Object.keys(state.cities || {})) reconcileAssignments(state, cid);
+  // 어느 성에도 속하지 않은 장수(포로·전사·재야)의 편성도 예비병으로 돌린다
+  for (const g of Object.values(state.generals || {})) {
+    if (!assignedOf(state, g.id)) continue;
+    const c = state.cities[g.city];
+    if (!c || g.captive || g.dead || g.faction !== c.owner) g.assignedTroops = 0;
+  }
+}
+
+/* 출진 계획 — 편성된 병력이 있으면 그 병력이 나선다(없으면 기존 자동 배분) */
+export function marchPlan(state, cityId, gids = []) {
+  const c = state.cities[cityId];
+  if (!c) return { ok: false, hasAssigned: false, byGeneral: {}, total: 0, gids: [] };
+  const ids = [...new Set(gids)].filter((gid) => {
+    const g = state.generals[gid];
+    return g && g.city === cityId && !g.captive && !g.dead && g.faction === c.owner;
+  }).slice(0, MAX_ARMY);
+  const caps = {};
+  const byGeneral = {};
+  const zeros = [];
+  let assigned = 0;
+  for (const gid of ids) {
+    const cap = maxTroopsOf(state, gid);
+    caps[gid] = cap;
+    const a = Math.min(assignedOf(state, gid), cap);
+    if (a > 0) { byGeneral[gid] = a; assigned += a; } else zeros.push(gid);
+  }
+  if (!assigned) return { ok: true, hasAssigned: false, byGeneral: {}, caps, assigned: 0, auto: 0, total: 0, gids: ids };
+  let spare = Math.max(0, Math.round(c.troops) - assigned);
+  // 편성이 없는 장수에게는 남는 병력에서 균등하게 나눠 준다
+  if (zeros.length && spare > 0) {
+    const each = Math.floor(spare / zeros.length);
+    for (const gid of zeros) {
+      const n = Math.min(each, caps[gid], spare);
+      if (n > 0) { byGeneral[gid] = n; spare -= n; }
+    }
+  }
+  // 한 부대가 되려면 최소 병력이 필요하다 — 모자라면 남는 병력에서 채우고, 그래도 모자라면 성에 남긴다
+  for (const gid of ids) {
+    const n = byGeneral[gid] || 0;
+    if (n <= 0 || n >= MARCH_MIN_TROOPS) continue;
+    const add = Math.min(MARCH_MIN_TROOPS - n, spare, Math.max(0, caps[gid] - n));
+    if (add > 0) { byGeneral[gid] = n + add; spare -= add; }
+  }
+  const total = Object.values(byGeneral).reduce((s, n) => s + n, 0);
+  return { ok: true, hasAssigned: total > 0, byGeneral, caps, assigned, auto: total - assigned, total, gids: Object.keys(byGeneral) };
+}
+
 /* ---------- 출진 ---------- */
 export function canAttack(state, fromCityId, toCityId) {
   const from = state.cities[fromCityId];
@@ -2521,7 +2730,21 @@ export function battleSetup(state, fromCityId, toCityId, opts = {}) {
   const defGens = generalsInCity(state, toCityId);
   const plan = planReinforcements(state, fromCityId, toCityId, opts);
   takeReinforcements(state, [...plan.atk, ...plan.def]);
-  const atkIds = (opts.atkGenerals || atkGens.map((g) => g.id)).slice(0, MAX_ARMY);
+  let atkIds = (opts.atkGenerals || atkGens.map((g) => g.id)).slice(0, MAX_ARMY);
+  // 부대 편성 — 편성된 병력이 있는 장수는 그 병력으로 나선다(없으면 아래 기존 자동 배분)
+  let march = null;
+  let troopsByGeneral = null;
+  if (opts.useAssignments) {
+    const mp = marchPlan(state, fromCityId, atkIds);
+    if (mp.hasAssigned) {
+      atkIds = mp.gids.slice(0, MAX_ARMY);
+      troopsByGeneral = mp.byGeneral;
+      march = { cityId: fromCityId, troops: mp.total, byGeneral: { ...mp.byGeneral } };
+      // 성 총병력에서 나선 병력을 빼고, 떠난 장수의 편성은 비워 둔다(돌아오면 예비병으로 다시 나눈다)
+      from.troops = Math.max(0, Math.round(from.troops) - mp.total);
+      for (const gid of Object.keys(mp.byGeneral)) state.generals[gid].assignedTroops = 0;
+    }
+  }
   const defIds = defGens.map((g) => g.id).slice(0, MAX_ARMY);
   // 장군 직위별 지휘 상한 — 상한을 넘는 병력은 성에 남는다
   const troopCaps = {};
@@ -2539,11 +2762,13 @@ export function battleSetup(state, fromCityId, toCityId, opts = {}) {
     defenderFaction: to.owner,
     atkGenerals: atkIds,
     defGenerals: defGens.map((g) => g.id),
-    atkTroops: Math.min(wantAtk, atkCap),
+    atkTroops: march ? march.troops : Math.min(wantAtk, atkCap),
     defTroops: Math.min(to.troops, defCap || to.troops),
     defBonus: to.def,
     troopCaps,
     rankBonus,
+    troopsByGeneral,
+    march,
     reinforcements: plan,
   };
 }
@@ -2746,6 +2971,7 @@ export function endTurnPhase1(state) {
       resolveAutoBattle(state, a.from, a.to, rng);
     }
   }
+  reconcileAllAssignments(state);
   bumpRng(state, 3);
   return state.pendingBattles;
 }
@@ -2850,6 +3076,8 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
   checkFactionDeath(state, defFid, attackerWins ? atkFid : defFid);
   checkFactionDeath(state, atkFid, attackerWins ? atkFid : defFid);
   cleanDiplomacy(state);
+  reconcileAssignments(state, from);
+  reconcileAssignments(state, to);
   bumpRng(state, 5);
   return attackerWins;
 }
@@ -3130,6 +3358,8 @@ export function endTurnPhase2(state) {
   checkVictory(state);
   if (!state.gameOver) maybeOpenTournament(state, rngOf(state));
   if (!state.gameOver) rollMonthlyEvent(state, rngOf(state));
+  // 달이 바뀌며 병력이 줄었으면(식량 부족·재해) 편성을 성 총병력에 맞춘다
+  reconcileAllAssignments(state);
   bumpRng(state, 11);
   return state;
 }
@@ -3160,6 +3390,9 @@ export function applyBattleResult(state, result, rng = null) {
   state.stats.battles++;
   state.pendingPrisoners = state.pendingPrisoners || [];
   const out = { prisoners: [], cityCaptured: false, playerWon, winner: result.winner };
+  // 부대 편성으로 나선 병력 — 나설 때 성 총병력에서 이미 빠졌다
+  const march = result.march || null;
+  let returned = 0;
   // 패배측 궤멸 부대의 장수
   const beaten = result.defeatedGenerals || result.capturedGenerals || [];
 
@@ -3170,7 +3403,8 @@ export function applyBattleResult(state, result, rng = null) {
     to.troops = Math.max(500, Math.round(result.atkSurvivors || from.troops * 0.6));
     to.order = clamp(to.order - 12, 10, sizeCap(to.size));
     to.def = clamp(to.def - 8, 20, 99);
-    from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
+    // 편성 출진이면 성 총병력은 이미 나설 때 빠졌다 — 생존 병력은 함락한 성에 들어간다
+    if (!march) from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
     // 포로를 먼저 붙잡아 두고, 남은 장수를 피난시킨다
     const cands = captureCandidates(state, beaten, losingFid, R);
     out.prisoners = holdPrisoners(state, {
@@ -3182,7 +3416,13 @@ export function applyBattleResult(state, result, rng = null) {
     log(state, `${state.factions[atkFid].name}군이 ${withJosa(cityName(to.id), '을')} 함락시켰습니다!`);
     out.cityCaptured = true;
   } else {
-    from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
+    if (march) {
+      // 공략에 실패하면 살아 돌아온 병력이 성의 예비병으로 돌아온다
+      returned = clamp(Math.round(march.troops) - (result.atkLoss || 0), 0, Math.max(0, Math.round(result.atkSurvivors ?? march.troops)));
+      from.troops = Math.max(0, Math.round(from.troops) + returned);
+    } else {
+      from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
+    }
     to.troops = Math.max(200, to.troops - (result.defLoss || 0));
     const losingFid = atkFid;
     const cands = captureCandidates(state, beaten, losingFid, R);
@@ -3206,6 +3446,10 @@ export function applyBattleResult(state, result, rng = null) {
     meritTotal += m;
   }
   out.merit = meritTotal;
+  out.returned = returned;
+  // 성 총병력이 바뀌었으니 편성을 맞춘다(줄어든 만큼은 예비병에서 깎인다)
+  reconcileAssignments(state, from.id);
+  reconcileAssignments(state, to.id);
   checkFactionDeath(state, defFid, victorFid);
   checkFactionDeath(state, atkFid, victorFid);
   cleanDiplomacy(state);
@@ -3259,6 +3503,17 @@ function ensureCitySize(s) {
   }
 }
 
+/* 부대 편성 — 옛 저장(v11 이전)에는 없던 장수별 편성 병력과 바꾼 병종을 기본값으로 채운다.
+ * 편성이 성 총병력을 넘으면 예비병이 모자란 만큼 줄인다. */
+function ensureArmies(s) {
+  for (const g of Object.values(s.generals || {})) {
+    const n = Math.round(Number(g.assignedTroops) || 0);
+    g.assignedTroops = n > 0 ? n : 0;
+    if (!ARMS.includes(g.arm)) g.arm = null;
+  }
+  reconcileAllAssignments(s);
+}
+
 export function serialize(state) {
   const copy = { ...state };
   delete copy.__rng;
@@ -3266,8 +3521,8 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전, 9 = 공적·장군 직위 이전, 10 = 성 규모 이전. 열어서 새 양식으로 옮긴다.
-  if (!s || ![3, 4, 5, 6, 7, 8, 9, 10, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전, 9 = 공적·장군 직위 이전, 10 = 성 규모 이전, 11 = 부대 편성 이전. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, 5, 6, 7, 8, 9, 10, 11, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];
@@ -3300,6 +3555,7 @@ export function deserialize(json) {
   ensureDelegation(s);
   ensureFormationLearning(s);
   ensureCitySize(s);
+  ensureArmies(s);
   s.delegationLog = Array.isArray(s.delegationLog) ? s.delegationLog : [];
   ricePriceOf(s);
   autoAdvisor(s);

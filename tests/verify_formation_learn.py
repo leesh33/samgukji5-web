@@ -2,7 +2,7 @@
 사용: python3 samgukji5-web/tests/verify_formation_learn.py [URL] [TAG]
 
 검증 항목
-  1. 군사 팝오버에 징병 · 훈련 · 진형전수 · 출진 4개가 뜨고, 진형전수에 배울 수 있는 진형 수가 보인다
+  1. 군사 팝오버에 징병 · 훈련 · 진형전수 · 부대 편성 · 출진 5개가 뜨고, 진형전수에 배울 수 있는 진형 수가 보인다
   2. 진형전수 시트: 전수 가능한 진형 칩(스승 이름 표시) · 진형 설명 · 제자별 숙련도 게이지
   3. 전수 실행 → 숙련도 상승(25~36%) · 행동력 -1 · 제자 행동 완료 · 토스트 안내
   4. 장수 상세 모달에 진행 중 숙련도가 보인다
@@ -128,7 +128,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(260)
     labels = page.evaluate("() => [...document.querySelectorAll('#cmdp .btn')].map(b => b.innerText.replace(/\\n/g, '/'))")
     names = [x.split("/")[0] for x in labels]
-    step("군사 팝오버 4개 · 순서", names == ["징병", "훈련", "진형전수", "출진"], labels)
+    step("군사 팝오버 5개 · 순서", names == ["징병", "훈련", "진형전수", "부대 편성", "출진"], labels)
     learn_btn = page.locator('#cmdp .btn[data-cmd="learn"]')
     step("진형전수 버튼 활성", learn_btn.count() == 1 and not learn_btn.first.is_disabled(), labels)
     step("진형전수에 전수 가능 진형 수", any("종" in x for x in labels if x.startswith("진형전수")), labels)
