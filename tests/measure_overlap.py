@@ -17,6 +17,7 @@ BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:4173/index.html"
 OUT = os.path.abspath(os.environ.get("SHOT_DIR", "/workspace/downloads/samguk5/measure"))
 CHROME = os.path.abspath(os.environ.get("CHROME", "/workspace/.cache/ms-playwright/chromium-1134/chrome-linux/chrome"))
 HEIGHTS = [int(x) for x in os.environ.get("HEIGHTS", "844,780,740,700,660,568").split(",")]
+WIDTH = int(os.environ.get("WIDTH", "390"))
 UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
       "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
 os.makedirs(OUT, exist_ok=True)
@@ -52,7 +53,7 @@ results = {}
 with sync_playwright() as p:
     browser = p.chromium.launch(executable_path=CHROME)
     for h in HEIGHTS:
-        ctx = browser.new_context(viewport={"width": 390, "height": h}, device_scale_factor=2,
+        ctx = browser.new_context(viewport={"width": WIDTH, "height": h}, device_scale_factor=2,
                                   is_mobile=True, has_touch=True, user_agent=UA)
         page = ctx.new_page()
         page.goto(BASE, wait_until="networkidle")
