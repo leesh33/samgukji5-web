@@ -803,6 +803,8 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .bu-name .bu-done { color: #a2917a; font-size: 9px; font-style: normal; }
 .bu-form { font-size: 9.5px; color: #b5a586; white-space: nowrap; }
 .bu-form small { color: #8f7d63; }
+.bu-arm { font-size: 9px; color: #a2917a; white-space: nowrap; }
+.bu-arm b { font-style: normal; margin-right: 2px; }
 .bu-ct { font-size: 9px; color: #a2917a; white-space: nowrap; }
 .bt-legend { padding: 0 10px 2px; font-size: 9px; color: #8f7d63; }
 .bt-legend-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; line-height: 1.6; letter-spacing: 0.3px; }
@@ -814,6 +816,17 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .lg-charge { color: #e0895a; }
 .lg-pincer { color: #e2c05c; }
 .lg-guard { color: #7fb0e6; }
+/* 병종 상성 — 기병(홍) › 궁병(녹) › 보병(청) › 기병 */
+.bt-arm-row { margin-top: 1px; }
+.lg-arm { color: #c9b58e; }
+.arm-기병 { color: #e8825c; font-style: normal; }
+.arm-궁병 { color: #9ed08a; font-style: normal; }
+.arm-보병 { color: #a8c6e8; font-style: normal; }
+.arm-수군 { color: #7ecbd0; font-style: normal; }
+.bc-arm { font-size: 8px; margin-right: 3px; padding: 0 2px; border: 1px solid currentColor; border-radius: 2px; opacity: 0.9; }
+.bg-arm-tip { color: #a2917a; }
+.bg-arm-tip b { color: #e6d3ad; }
+.bg-arm-tip span { display: block; color: #7d6c56; }
 .fg-charge { color: #e0895a; font-style: normal; }
 .fg-pincer { color: #e2c05c; font-style: normal; }
 .fg-guard { color: #7fb0e6; font-style: normal; }
@@ -1290,6 +1303,21 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 
 /* ---------- 부대 편성 시트 (병사 재편 · 병종 변경) ---------- */
 .rg-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 2px 0 8px; }
+/* 병종 상성 안내 — 편성 시트 상단 */
+.rg-arm-guide {
+  padding: 6px 8px 7px; margin: 0 0 7px; border-radius: 3px;
+  background: linear-gradient(180deg, #221a12, #150f09); border: 1px solid #3a2a1c;
+}
+.rag-head { font-size: 9.5px; color: #c0b096; letter-spacing: 0.6px; }
+.rag-head b { color: #e6d3ad; }
+.rag-head span { margin-left: 5px; color: var(--gold-hi); }
+.rag-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 5px 0 4px; }
+.rag-chip {
+  font-size: 8.5px; line-height: 1.45; color: #a2917a; padding: 3px 4px;
+  border: 1px solid #3a2a1c; border-radius: 2px; background: rgba(0, 0, 0, 0.22);
+}
+.rag-chip b { display: block; font-size: 9.5px; }
+.rag-note { font-size: 8.5px; color: #7d6c56; letter-spacing: 0.2px; }
 .rg-k {
   padding: 7px 6px 6px; text-align: center; border-radius: 3px;
   background: linear-gradient(180deg, #271e14, #171009); border: 1px solid #3d2c1c; box-shadow: var(--bevel-sm);

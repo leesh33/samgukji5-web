@@ -92,7 +92,18 @@ def finish_battle(page, max_wait=30):
     return page.locator('[data-act="bt-close"]').count() > 0
 
 
+def dismiss_popup(page):
+    """전투 공적·명성으로 뜨는 관직 승급 시트를 닫는다(지도 조작을 가로막는다)."""
+    for _ in range(3):
+        btn = page.locator('[data-act="promo-ok"]').first
+        if not btn.count() or not btn.is_visible():
+            return
+        btn.click()
+        page.wait_for_timeout(450)
+
+
 def go_city(page, name):
+    dismiss_popup(page)
     for _ in range(6):
         cur = page.locator('#citypanel').inner_text()
         if name in cur:
@@ -103,6 +114,7 @@ def go_city(page, name):
 
 
 def march(page, target):
+    dismiss_popup(page)
     if not march_locator(page).count():
         return False
     try:
@@ -297,7 +309,7 @@ with sync_playwright() as p:
     # ---------- 저장/불러오기(사망·등용 상태 유지) ----------
     page.wait_for_timeout(400)
     saved = page.evaluate("() => { const raw = localStorage.getItem('samguk5.auto'); if (!raw) return null; const s = JSON.parse(raw); return { v: s.version, dead: Object.values(s.generals).filter(g => g.dead).length, pris: (s.pendingPrisoners||[]).length }; }")
-    step("저장 양식 최신(v11) · 죽음 상태 기록", saved and saved["v"] == 11, saved)
+    step("저장 양식 최신(v12) · 죽음 상태 기록", saved and saved["v"] == 12, saved)
 
     o = overflow(page)
     step("가로 넘침 없음", len(o["bad"]) == 0, o)

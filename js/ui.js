@@ -1615,7 +1615,7 @@ function renderArmySheet() {
       const on = row.arm === arm;
       const changed = on && row.changed;
       return `<button class="rg-arm ${on ? 'on' : ''} ${changed ? 'chg' : ''}" data-act="reorg-arm" data-gid="${row.gid}" data-arm="${arm}"
-        aria-pressed="${on}" title="${arm}">${arm}</button>`;
+        aria-pressed="${on}" title="${arm} — ${B.armTraitText(arm)}" aria-label="${row.ko} 병종 ${arm} — ${B.armTraitText(arm)}">${arm}</button>`;
     }).join('');
     return `<div class="rg-card ${cur ? '' : 'empty'}" data-gid="${row.gid}">
       <div class="rg-head">
@@ -1637,12 +1637,20 @@ function renderArmySheet() {
     </div>`;
   }).join('');
   const over = assigned > b.total;
+  const armGuide = `<div class="rg-arm-guide">
+      <div class="rag-head"><b>병종 상성</b> <span>${B.ARM_CYCLE_KO}</span></div>
+      <div class="rag-row">
+        ${['기병', '궁병', '보병'].map((arm) => `<span class="rag-chip arm-${arm}"><b>${arm}</b>${B.ARM_TRAIT[arm]} · ${B.ARM_BEATS[arm]}에 강함</span>`).join('')}
+      </div>
+      <div class="rag-note">상성 유리 피해 +20% · 열세 -15% · 수군은 중립(물길에서 공격·방어 +15%)</div>
+    </div>`;
   openSheet(`${CITY_BY_ID[cityId].ko} — 부대 편성`, `
     <div class="rg-sum">
       <div class="rg-k"><i>성 총병력</i><b id="rg-total">${fmt(b.total)}</b></div>
       <div class="rg-k on"><i>배분 합계</i><b id="rg-assigned">${fmt(assigned)}</b></div>
       <div class="rg-k"><i>예비병</i><b id="rg-reserve">${fmt(reserve)}</b></div>
     </div>
+    ${armGuide}
     <p class="note">장수마다 병력을 나눠 맡기고 병종을 바꿀 수 있습니다. <b>행동력은 쓰지 않습니다</b>(병종 변경은 금 ${E.ARM_CHANGE_GOLD}). 저장한 편성대로 <b>출진</b>하며, 맡기지 않은 병력은 예비병으로 성에 남습니다.</p>
     ${over ? `<div class="warn-box">배분 합계가 성 총병력을 넘습니다 — 병력을 덜어내세요.</div>` : ''}
     <div class="rg-list">${cards}</div>
@@ -2173,41 +2181,65 @@ function lightenish(rgbaStr, amt) {
   return `rgba(${cl(parts[0])},${cl(parts[1])},${cl(parts[2])},${a})`;
 }
 
-/* 공격 타겟 위에 정면/측면/배후와 배율을 띄운다 */
+/* 공격 타겟 위에 방향·진형·병종 상성과 예상 피해를 띄운다 */
 function drawAttackHint(ctx, t, tile) {
-  const e = B.attackEdge(battleSel, t);
-  const label = `${B.SIDE_KO[e.side]}${e.mult !== 1 ? ' ×' + e.mult.toFixed(2) : ''}`;
-  const extra = e.relation === 'advantage' ? '진형↑' : e.relation === 'disadvantage' ? '진형↓' : '';
+  const p = B.previewAttack(battle, battleSel, t);
+  if (!p) return;
+  const e = p.edge;
+  const tone = e.side === 'rear' ? '#ff6a4d' : e.side === 'flank' ? '#ffb15c' : '#9fb6c8';
+  const segs = [{ text: `${B.SIDE_KO[e.side]}${e.sideMult !== 1 ? ' ×' + e.sideMult.toFixed(2) : ''}`, color: tone }];
+  if (e.relation === 'advantage') segs.push({ text: '진형↑', color: '#8ed18e' });
+  else if (e.relation === 'disadvantage') segs.push({ text: '진형↓', color: '#e08a7a' });
+  if (p.armRelation === 'advantage') segs.push({ text: B.ARM_REL_KO.advantage, color: '#a8e08e', badge: true });
+  else if (p.armRelation === 'disadvantage') segs.push({ text: B.ARM_REL_KO.disadvantage, color: '#f0a08e', badge: true });
+  const dmgText = p.ranged
+    ? `사격 ~${fmt(Math.round(p.damage * 0.85))}–${fmt(Math.round(p.damage * 1.15))} · 반격 없음`
+    : `피해 ~${fmt(Math.round(p.damage * 0.85))}–${fmt(Math.round(p.damage * 1.15))}${p.counter ? ` · 반격 ~${fmt(p.counter)}` : ''}`;
+  ctx.font = `600 7px "Gmarket Sans", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
+  const gap = 3;
+  let rowW = 0;
+  for (const s of segs) { s.w = Math.ceil(ctx.measureText(s.text).width) + (s.badge ? 6 : 0); rowW += s.w + gap; }
+  rowW -= gap;
+  const w = Math.max(rowW, Math.ceil(ctx.measureText(dmgText).width)) + 7;
+  const h = 18;
   const cx = t.x * tile + tile / 2;
   const top = t.y * tile;
-  ctx.font = `600 7px "Gmarket Sans", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`;
-  const w = Math.max(ctx.measureText(label).width, ctx.measureText(extra).width) + 6;
-  const h = extra ? 15 : 9;
   const bx = Math.max(1, Math.min(battle.w * tile - w - 1, cx - w / 2));
   const by = top > h + 1 ? top - h - 1 : top + 1;
-  const tone = e.side === 'rear' ? '#ff6a4d' : e.side === 'flank' ? '#ffb15c' : '#9fb6c8';
-  ctx.fillStyle = 'rgba(8,11,18,0.92)';
+  ctx.fillStyle = 'rgba(8,11,18,0.94)';
   ctx.fillRect(bx, by, w, h);
   ctx.strokeStyle = tone; ctx.lineWidth = 1;
   ctx.strokeRect(bx + 0.5, by + 0.5, w - 1, h - 1);
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = tone;
-  ctx.fillText(label, bx + w / 2, by + (extra ? 5 : h / 2));
-  if (extra) {
-    ctx.fillStyle = e.relation === 'advantage' ? '#8ed18e' : '#e08a7a';
-    ctx.fillText(extra, bx + w / 2, by + 11);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  let sx = bx + 4;
+  for (const s of segs) {
+    if (s.badge) {
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = s.color;
+      ctx.fillRect(sx, by + 1.6, s.w, 7.2);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = s.color;
+    ctx.fillText(s.text, sx + (s.badge ? 3 : 0), by + 5.4);
+    sx += s.w + gap;
   }
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd9a0';
+  ctx.fillText(dmgText, bx + w / 2, by + 13.4);
+  ctx.textAlign = 'center';
 }
 
 function unitCardHTML(u, selected) {
   const t = gd(u.gid);
   const isPlayer = u.side === battle.playerSide;
-  return `<button class="pick-chip bt-card ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}">
+  const arm = B.armOf(u);
+  return `<button class="pick-chip bt-card ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" title="${arm} · ${B.armTraitText(arm)}">
     ${formationSVG(u.formation, u.dir || 'E', 20, isPlayer ? {} : { body: '#f0b3a3', shade: '#3c1310' })}
     <span class="bc-main">
       <span class="bc-name">${u.name}${u.confused > 0 ? ' <i class="bu-chaos">혼란</i>' : ''}</span>
       <b class="bc-troop">${fmt(u.troops)}</b>
-      <span class="bc-morale">사기 ${Math.round(u.morale)}</span>
+      <span class="bc-morale"><i class="bc-arm arm-${arm}">${arm}</i> 사기 ${Math.round(u.morale)}</span>
     </span>
   </button>`;
 }
@@ -2218,11 +2250,13 @@ function unitInfoHTML(u) {
   const grp = formationGroup(u.formation);
   const rel = formationCounterText(u.formation);
   const dirKo = DIR_KO[u.dir || 'E'] || '동';
+  const arm = B.armOf(u);
   return `<div class="bt-unitinfo">
     ${formationSVG(u.formation, u.dir || 'E', 34)}
     <div class="bu-main">
       <div class="bu-name"><b>${u.name}</b> <span>${fmt(u.troops)} · 사기 ${Math.round(u.morale)}</span>${u.acted ? ' <i class="bu-done">행동 완료</i>' : ''}${u.confused > 0 ? ' <i class="bu-chaos">혼란</i>' : ''}</div>
-      <div class="bu-form">${f.ko} <em class="fg-${grp ? grp.id : 'none'}">${grp ? grp.ko + '진' : ''}</em> · ${dirKo}쪽을 바라봄</div>
+      <div class="bu-form">${f.ko} <em class="fg-${grp ? grp.id : 'none'}">${grp ? grp.ko + '진' : ''}</em> · 사거리 ${B.attackRange(u)} · ${dirKo}쪽을 바라봄</div>
+      <div class="bu-arm"><b class="arm-${arm}">${arm}</b> ${B.armTraitText(arm)}</div>
       <div class="bu-ct">${rel}</div>
     </div>
   </div>`;
@@ -2236,16 +2270,21 @@ function battleGuideHTML() {
     </div>`).join('');
   return `<div class="bg-head">진형 상성 <span>돌격 → 포위 → 방어 → 돌격</span></div>
     <div class="bg-cols">${cols}</div>
-    <div class="bg-tip">노란 창벽이 정면 — 옆에서 치면 <b class="lg-flank">측면 ×1.25</b>, 뒤에서 치면 <b class="lg-rear">배후 ×1.50</b></div>`;
+    <div class="bg-tip">노란 창벽이 정면 — 옆에서 치면 <b class="lg-flank">측면 ×1.25</b>, 뒤에서 치면 <b class="lg-rear">배후 ×1.50</b></div>
+    <div class="bg-tip bg-arm-tip"><b>병종 상성</b> ${B.ARM_CYCLE_KO} <span>기병 기동+1 · 궁병 사거리2 · 보병 피해-15% · 수군 물길+15%</span></div>`;
 }
 
-/* 하단 전술 안내 — 방향 배율과 진형 상성 순환 */
+/* 하단 전술 안내 — 방향 배율과 진형·병종 상성 순환 */
 function battleLegendHTML() {
   return `<div class="bt-legend-row">
     <span class="lg-front">정면 ×1.00</span> <span class="lg-flank">측면 ×1.25</span> <span class="lg-rear">배후 ×1.50</span>
     <span class="lg-sep">|</span>
     <span class="lg-charge">돌격</span>→<span class="lg-pincer">포위</span>→<span class="lg-guard">방어</span>→<span class="lg-charge">돌격</span>
     <small>유리 ×1.25 · 불리 ×0.85</small>
+  </div>
+  <div class="bt-legend-row bt-arm-row">
+    <span class="lg-arm arm-기병">기병</span><span class="lg-sep">›</span><span class="lg-arm arm-궁병">궁병</span><span class="lg-sep">›</span><span class="lg-arm arm-보병">보병</span><span class="lg-sep">›</span><span class="lg-arm arm-기병">기병</span>
+    <small>상성 유리 +20% · 열세 -15%</small>
   </div>`;
 }
 
@@ -2269,7 +2308,7 @@ function renderBattle() {
   $('#bt-guide').innerHTML = battleGuideHTML();
 
   $('#bt-log').innerHTML = battle.log.slice(-40).map((l) => {
-    const cls = /\[원군 도착!\]/.test(l) ? 'rein' : /\[배후 기습!\]/.test(l) ? 'hi' : /\[측면 공격!\]|\[진형 유리!\]/.test(l) ? 'hi' : /\[진형 불리\]|궤멸/.test(l) ? 'bad' : '';
+    const cls = /\[원군 도착!\]/.test(l) ? 'rein' : /\[배후 기습!\]|\[측면 공격!\]|\[진형 유리!\]|\[상성 우위\]/.test(l) ? 'hi' : /\[진형 불리\]|\[상성 열세\]|궤멸/.test(l) ? 'bad' : '';
     return `<div class="${cls}">${l}</div>`;
   }).join('');
   $('#bt-log').scrollTop = $('#bt-log').scrollHeight;
@@ -3445,7 +3484,7 @@ function openHelp() {
     <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.<br>
     <b style="color:#e6d9b3">23. 공적·장군 임명</b> — 개발·상업·징병·훈련·등용·친교·계략·전투 승리로 장수마다 공적이 쌓입니다. 인사 → 장군 임명에서 일반→비장군→편장군→아장군→진북장군→정북장군→대장군으로 올리면 최대 지휘 병력(3,000→10,000)과 전투 보정(+3%씩)이 오르고 충성 +5. 행동력은 들지 않습니다.<br>
     <b style="color:#e6d9b3">24. 행동 연출</b> — 징병·훈련·개발·등용 같은 주요 명령을 실행하면 장수 초상화와 2초 도트 연출이 재생되고 저절로 닫힙니다.<br>
-    <b style="color:#e6d9b3">25. 부대 편성</b> — 군사 → 부대 편성에서 성 총병력을 장수마다 나누어 맡기고(예: 하후돈 3,000 · 조인 2,000 · 나머지 예비병), 병종을 보병·기병·궁병으로 바꿉니다(금 100, 행동력 0). 균등 편성·상한 채우기·모두 해제로 한 번에 나누고, 저장한 편성 그대로 출진합니다. 성에 남긴 병력은 예비병이 되어 다음 출진·수비에 쓰입니다.
+    <b style="color:#e6d9b3">25. 부대 편성</b> — 군사 → 부대 편성에서 성 총병력을 장수마다 나누어 맡기고(예: 하후돈 3,000 · 조인 2,000 · 나머지 예비병), 병종을 보병·기병·궁병으로 바꿉니다(금 100, 행동력 0). 병종은 서로 물고 물립니다 — <b>기병 &gt; 궁병 &gt; 보병 &gt; 기병</b>(수군은 중립). 상성에서 이기면 피해 +20%, 지면 -15%이며, 기병은 기동 +1, 궁병은 사거리 2(원거리 사격은 반격 없음), 보병은 받는 피해 -15%, 수군은 물길에서 공격·방어 +15%입니다. 균등 편성·상한 채우기·모두 해제로 한 번에 나누고, 저장한 편성 그대로 출진합니다. 성에 남긴 병력은 예비병이 되어 다음 출진·수비에 쓰입니다.
     </p>`);
 }
 

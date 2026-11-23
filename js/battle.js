@@ -13,6 +13,21 @@ export const SIDE_KO = { front: '정면', flank: '측면', rear: '배후' };
 export const FORM_MULT = { advantage: 1.25, disadvantage: 0.85, neutral: 1.0 };
 export const FORM_KO = { advantage: '진형 유리!', disadvantage: '진형 불리', neutral: '' };
 
+/* ---------- 병종 상성 (기병 > 궁병 > 보병 > 기병 · 수군은 중립) ---------- */
+export const ARM_BEATS = { 기병: '궁병', 궁병: '보병', 보병: '기병' };
+export const ARM_MULT = { advantage: 1.2, disadvantage: 0.85, neutral: 1.0 };
+export const ARM_REL_KO = { advantage: '상성 우위', disadvantage: '상성 열세', neutral: '' };
+export const ARM_GUARD = 0.85;   // 보병 전열 방어 · 수군 물길 방어 — 받는 피해 -15%
+export const ARM_WATER = 0.15;   // 수군이 물길에서 공격할 때 피해 +15%
+export const ARM_TRAIT = {
+  기병: '기동 +1',
+  궁병: '사거리 2',
+  보병: '받는 피해 -15%',
+  수군: '물길 +15%',
+};
+export const ARM_CYCLE_KO = '기병 > 궁병 > 보병 > 기병';
+export const ARM_WEAK_KO = { 기병: '보병', 궁병: '기병', 보병: '궁병', 수군: '' };   // 이 병종에게 약하다
+
 /* a → b 로 향하는 주된 방향 (격자 기준) */
 export function dirBetween(a, b) {
   const dx = (b.x || 0) - (a.x || 0);
@@ -280,11 +295,57 @@ export const formOf = (u) => FORMATIONS[u.formation] || FORMATIONS.eorin;
 
 export function dist(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
 
+/* 부대의 병종 — 부대 편성에서 바꾼 병종이 그대로 넘어온다 */
+export function armOf(u) {
+  const g = unitSpec(u);
+  return (g && g.arms) || '보병';
+}
+
+/* 병종 상성 — 공격 병종이 수비 병종에 유리 / 불리 / 무상성 */
+export function armRelation(atkArm, defArm) {
+  if (!atkArm || !defArm || atkArm === defArm) return 'neutral';
+  if (ARM_BEATS[atkArm] === defArm) return 'advantage';
+  if (ARM_BEATS[defArm] === atkArm) return 'disadvantage';
+  return 'neutral';
+}
+
+const isWaterTile = (b, x, y) => {
+  const t = tileAt(b, x, y);
+  return !!t && t.t === 'water';
+};
+
+/* 병종 상성 한 번의 배율 — 상성 배율 · 수군 물길 공격 보정 · 받는 피해 경감 */
+export function armEdge(b, u, t) {
+  const atkArm = armOf(u);
+  const defArm = armOf(t);
+  const relation = armRelation(atkArm, defArm);
+  const waterAtk = atkArm === '수군' && isWaterTile(b, u.x, u.y);
+  const waterDef = defArm === '수군' && isWaterTile(b, t.x, t.y);
+  let mult = ARM_MULT[relation];
+  if (waterAtk) mult *= 1 + ARM_WATER;
+  let guard = 1;
+  if (defArm === '보병') guard *= ARM_GUARD;   // 전열 방어
+  if (waterDef) guard *= ARM_GUARD;            // 물 위의 수군
+  return {
+    relation, atkArm, defArm, mult, guard, waterAtk, waterDef,
+    tags: [relation === 'advantage' ? '[상성 우위]' : relation === 'disadvantage' ? '[상성 열세]' : ''].filter(Boolean),
+  };
+}
+
+/* 병종별 특징을 한 줄로 — 안내 문구 */
+export function armTraitText(arm) {
+  if (arm === '수군') return '기본 상성 중립 · 물길에서 공격·방어 +15%';
+  const beats = ARM_BEATS[arm];
+  const weak = ARM_WEAK_KO[arm];
+  return `${beats}에 강함 · ${weak}에 약함 · ${ARM_TRAIT[arm] || ''}`.trim();
+}
+
 export function movePoints(u) {
   const g = unitSpec(u);
   const f = formOf(u);
   let mp = Math.round(3 * f.move);
   if (g.skill === 'dolgyeok') mp += 1;
+  if (armOf(u) === '기병') mp += 1;            // 기병 기동력
   return clamp(mp, 2, 6);
 }
 
@@ -341,7 +402,9 @@ export function moveUnit(b, u, x, y) {
 
 export function attackRange(u) {
   const f = formOf(u);
-  return f.range;
+  const base = f.range;
+  // 궁병은 진형과 무관하게 2칸 원거리 사격이 가능하다
+  return armOf(u) === '궁병' ? Math.max(2, base) : base;
 }
 
 export function canAttack(b, u, t) {
@@ -364,26 +427,12 @@ export function attack(b, u, t, rngSeed = 1) {
 }
 
 export function resolveAttack(b, u, t, rng) {
-  const ga = unitSpec(u), gd = unitSpec(t);
-  const fa = formOf(u), fd = formOf(t);
-  const ter = TERRAIN[tileAt(b, t.x, t.y).t];
   // 공격자는 대상을 향해 돌아선다(피격자의 방향은 그대로 — 등 뒤를 노리는 맛)
   u.dir = dirBetween(u, t);
-  const edge = attackEdge(u, t);
-  let atk = u.troops * 0.16 * (1 + ga.war / 140) * fa.atk * (0.65 + u.morale / 160) * (0.9 + ga.lead / 600);
-  atk *= 1 + (u.rankBonus || 0);            // 장군 직위 보정 — 공격
-  if (ga.skill === 'dolgyeok') atk *= 1.2;
-  if (ga.skill === 'jeogyeok' && fa.range > 1) atk *= 1.25;
-  if (ga.skill === 'sujeon' && tileAt(b, t.x, t.y).t === 'water') atk *= 1.25;
-  if (ga.skill === 'pokgyeok') atk *= 1.15;
-  if (ga.skill === 'yongmaeng') atk *= 1.08;
-  if (ga.skill === 'bigyeok') atk *= 1.1;
-  atk *= edge.mult;                       // 정면 1.0 · 측면 1.25 · 배후 1.5 × 진형 상성
-  let def = (1 + (gd.lead + gd.war) / 420) * fd.def * ter.def * (1 + (t.rankBonus || 0));
-  if (gd.skill === 'cheolbyeok') def *= 1.2;
-  if (gd.skill === 'gyeonsu') def *= 1.1;
-  if (t.defDown > 0) def *= 0.85;   // 혼란·낙석으로 방어진이 흐트러진 상태
-  let dmg = Math.round((atk / def) * (0.85 + rng() * 0.3));
+  const f = hitFactors(b, u, t);
+  const edge = f.edge;
+  const ga = unitSpec(u);
+  let dmg = Math.round((f.atk / f.def) * (0.85 + rng() * 0.3) * f.guard);
   dmg = Math.max(30, dmg);
   t.troops -= dmg;
   let moraleLoss = 4 + Math.round(dmg / Math.max(400, t.troops + dmg) * 30);
@@ -391,24 +440,19 @@ export function resolveAttack(b, u, t, rng) {
   if (ga.skill === 'wieom') moraleLoss += 2;
   t.morale = clamp(t.morale - moraleLoss, 0, 100);
 
-  const tag = edge.tags.length ? ' ' + edge.tags.join(' ') : '';
-  const mult = edge.mult !== 1 ? ` (×${edge.mult.toFixed(2)})` : '';
-  const lines = [`${u.name}의 공격!${tag} ${t.name}에게 ${dmg.toLocaleString()} 피해.${mult}`];
-  // 반격(근접, 생존 시) — 반격에도 방향·상성이 걸린다
+  const tags = [...edge.tags, ...f.arm.tags];
+  const mult = edge.mult * f.arm.mult;
+  const tag = tags.length ? ' ' + tags.join(' ') : '';
+  const multKo = mult !== 1 ? ` (×${mult.toFixed(2)})` : '';
+  const lines = [`${u.name}의 공격!${tag} ${t.name}에게 ${dmg.toLocaleString()} 피해.${multKo}`];
+  // 반격(근접, 생존 시) — 반격에도 방향·진형·병종 상성이 걸린다. 원거리 사격에는 반격이 없다.
   if (t.troops > 0 && t.morale > 0 && dist(u, t) === 1) {
-    const f2 = formOf(t);
-    everyBit: {
-      const back = attackEdge(t, u);
-      let cAtk = t.troops * 0.1 * (1 + gd.war / 160) * f2.atk * (0.55 + t.morale / 180) * (back.mult > 1 ? 1 + (back.mult - 1) * 0.5 : back.mult);
-      let cDef = (1 + (ga.lead + ga.war) / 420) * fa.def * TERRAIN[tileAt(b, u.x, u.y).t].def;
-      if (ga.skill === 'cheolbyeok') cDef *= 1.2;
-      cAtk *= 1 + (t.rankBonus || 0);     // 직위 보정 — 반격
-      cDef *= 1 + (u.rankBonus || 0);
-      const cDmg = Math.max(20, Math.round((cAtk / cDef) * (0.8 + rng() * 0.3) * 0.6));
-      u.troops -= cDmg;
-      u.morale = clamp(u.morale - 2, 0, 100);
-      lines.push(`${t.name}의 반격${back.tags.length ? ' ' + back.tags.join(' ') : ''} — ${cDmg.toLocaleString()} 피해.`);
-    }
+    const c = counterFactors(b, u, t);
+    const cDmg = Math.max(20, Math.round((c.atk / c.def) * (0.8 + rng() * 0.3) * 0.6 * c.guard));
+    u.troops -= cDmg;
+    u.morale = clamp(u.morale - 2, 0, 100);
+    const cTags = [...c.edge.tags, ...c.arm.tags];
+    lines.push(`${t.name}의 반격${cTags.length ? ' ' + cTags.join(' ') : ''} — ${cDmg.toLocaleString()} 피해.`);
   }
   const dead = [];
   for (const unit of [u, t]) {
@@ -422,7 +466,68 @@ export function resolveAttack(b, u, t, rng) {
   b.log.push(...lines);
   return {
     damage: dmg, dead: dead.map((d) => d.id), lines,
-    side: edge.side, relation: edge.relation, mult: edge.mult, tags: edge.tags,
+    side: edge.side, relation: edge.relation, sideMult: edge.sideMult, formMult: edge.formMult,
+    mult, arm: f.arm.relation, armMult: f.arm.mult, guard: f.guard,
+    atkArm: f.arm.atkArm, defArm: f.arm.defArm, distance: dist(u, t), tags,
+  };
+}
+
+/* 한 번의 공격에 걸리는 배율 — 미리보기와 실제 피해가 같은 식을 쓴다 */
+export function hitFactors(b, u, t) {
+  const ga = unitSpec(u), gd = unitSpec(t);
+  const fa = formOf(u), fd = formOf(t);
+  const ter = TERRAIN[tileAt(b, t.x, t.y).t];
+  const edge = attackEdge(u, t);
+  const arm = armEdge(b, u, t);
+  let atk = u.troops * 0.16 * (1 + ga.war / 140) * fa.atk * (0.65 + u.morale / 160) * (0.9 + ga.lead / 600);
+  atk *= 1 + (u.rankBonus || 0);            // 장군 직위 보정 — 공격
+  if (ga.skill === 'dolgyeok') atk *= 1.2;
+  if (ga.skill === 'jeogyeok' && attackRange(u) > 1) atk *= 1.25;
+  if (ga.skill === 'sujeon' && tileAt(b, t.x, t.y).t === 'water') atk *= 1.25;
+  if (ga.skill === 'pokgyeok') atk *= 1.15;
+  if (ga.skill === 'yongmaeng') atk *= 1.08;
+  if (ga.skill === 'bigyeok') atk *= 1.1;
+  atk *= edge.mult;                       // 정면 1.0 · 측면 1.25 · 배후 1.5 × 진형 상성
+  atk *= arm.mult;                        // 병종 상성 × 수군 물길 보정
+  let def = (1 + (gd.lead + gd.war) / 420) * fd.def * ter.def * (1 + (t.rankBonus || 0));
+  if (gd.skill === 'cheolbyeok') def *= 1.2;
+  if (gd.skill === 'gyeonsu') def *= 1.1;
+  if (t.defDown > 0) def *= 0.85;   // 혼란·낙석으로 방어진이 흐트러진 상태
+  return { atk, def, edge, arm, guard: arm.guard };
+}
+
+/* 반격 배율 — t가 u를 친다 */
+export function counterFactors(b, u, t) {
+  const ga = unitSpec(u), gd = unitSpec(t);
+  const fa = formOf(u), fd = formOf(t);
+  const edge = attackEdge(t, u);
+  const arm = armEdge(b, t, u);
+  let atk = t.troops * 0.1 * (1 + gd.war / 160) * fd.atk * (0.55 + t.morale / 180) * (edge.mult > 1 ? 1 + (edge.mult - 1) * 0.5 : edge.mult);
+  let def = (1 + (ga.lead + ga.war) / 420) * fa.def * TERRAIN[tileAt(b, u.x, u.y).t].def;
+  if (ga.skill === 'cheolbyeok') def *= 1.2;
+  atk *= 1 + (t.rankBonus || 0);     // 직위 보정 — 반격
+  atk *= arm.mult;                   // 병종 상성 — 반격에도 적용
+  def *= 1 + (u.rankBonus || 0);
+  return { atk, def, edge, arm, guard: arm.guard };
+}
+
+/* 공격 미리보기 — 실제 피해와 같은 식에 난수만 기대값(1.0)으로 넣는다 */
+export function previewAttack(b, u, t) {
+  if (!u || !t) return null;
+  const f = hitFactors(b, u, t);
+  const damage = Math.max(30, Math.round((f.atk / f.def) * f.guard));
+  let counter = 0;
+  if (dist(u, t) === 1 && t.troops - damage > 0 && t.morale > 0) {
+    const c = counterFactors(b, u, t);
+    counter = Math.max(20, Math.round((c.atk / c.def) * 0.95 * 0.6 * c.guard));
+  }
+  return {
+    damage, counter,
+    edge: f.edge, arm: f.arm, guard: f.guard,
+    mult: f.edge.mult * f.arm.mult,
+    relation: f.edge.relation, armRelation: f.arm.relation,
+    distance: dist(u, t), ranged: dist(u, t) > 1,
+    tags: [...f.edge.tags, ...f.arm.tags],
   };
 }
 
@@ -546,17 +651,18 @@ export function checkEnd(b) {
   return null;
 }
 
-/* AI 부대 행동 — 측면·배후와 진형 상성을 노린다 */
+/* AI 부대 행동 — 측면·배후·진형 상성과 병종 상성을 노린다 */
 export function aiUnitAct(b, u, rng) {
   if (u.acted || !u.alive) return;
   const foes = unitsOf(b, u.side === 'atk' ? 'def' : 'atk');
   if (!foes.length) return;
   const g = unitSpec(u);
 
-  // 한 번 칠 때의 기대값: 약한 부대 · 측면/배후 · 진형 상성
+  // 한 번 칠 때의 기대값: 약한 부대 · 측면/배후 · 진형 상성 · 병종 상성
   const hitScore = (t, from = u) => {
     const e = attackEdge(from, t);
-    return e.mult * (9000 / Math.max(600, t.troops));
+    const a = armEdge(b, from, t);
+    return e.mult * a.mult * a.guard * (9000 / Math.max(600, t.troops));
   };
   const inRange = foes.filter((f) => canAttack(b, u, f));
   if (inRange.length) {
@@ -583,9 +689,13 @@ export function aiUnitAct(b, u, rng) {
     const d = Math.min(...foes.map((f) => Math.abs(f.x - x) + Math.abs(f.y - y)));
     let score = -d * 10 - reach.get(k) * 0.2 + (d < nearest ? 5 : 0);
     for (const f of foes) {
-      if (Math.abs(f.x - x) + Math.abs(f.y - y) <= range) {
+      const dd = Math.abs(f.x - x) + Math.abs(f.y - y);
+      if (dd <= range) {
         const e = attackEdge({ x, y }, f);
+        const a = armEdge(b, { ...u, x, y }, f);
         score += 30 + (e.mult - 1) * 80 + (e.relation === 'advantage' ? 12 : e.relation === 'disadvantage' ? -10 : 0);
+        score += (a.mult - 1) * 70 + (a.relation === 'advantage' ? 14 : a.relation === 'disadvantage' ? -12 : 0);
+        if (dd > 1) score += 8;   // 원거리 사격 — 반격을 받지 않는다
       }
     }
     if (score > bestScore) { bestScore = score; best = { x, y }; }
