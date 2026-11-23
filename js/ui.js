@@ -2325,7 +2325,7 @@ function renderBattle() {
   $('#bt-next').textContent = battle.phase === my ? '진행 ▶' : '적 행동…';
   $('#bt-next').disabled = battleBusy || battle.phase !== my || !!battle.over;
   const cards = mine.map((u) => unitCardHTML(u, u === battleSel)).join('');
-  if (cards) $('#bt-info').insertAdjacentHTML('beforeend', `<div style="display:flex;gap:4px;overflow-x:auto;margin-top:4px">${cards}</div>`);
+  if (cards) $('#bt-info').insertAdjacentHTML('beforeend', `<div class="bt-card-row">${cards}</div>`);
 }
 
 function battleTap(clientX, clientY) {
