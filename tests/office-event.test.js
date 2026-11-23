@@ -97,7 +97,7 @@ test('관직이 높으면 같은 성의 세금 수입이 는다', () => {
   const gainRich = rich.cities[cityId].gold - r0;
   assert.ok(gainRich > gainBase, `${gainBase} → ${gainRich}`);
   const c = rich.cities[cityId];
-  assert.equal(gainRich, Math.round((c.comm * 5 + c.order * 0.8) * (1 + E.OFFICES[2].tax)));
+  assert.equal(gainRich, Math.round((c.comm * 5 + c.order * 0.8) * (1 + E.OFFICES[2].tax) * E.sizeIncomeOf(rich, cityId)));
 });
 
 test('월간 이벤트: 30% 확률로만 열리고, 한 번에 하나만 대기한다', () => {

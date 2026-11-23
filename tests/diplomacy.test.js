@@ -202,7 +202,7 @@ test('저장 양식 v6(외교·관직 이전)도 열리고 기본값으로 채�
   delete raw.pendingEvent;
   const back = E.deserialize(JSON.stringify(raw));
   assert.equal(back.version, E.SAVE_VERSION);
-  assert.equal(back.version, 10);
+  assert.equal(back.version, 11);
   assert.ok(back.diplomacy && back.diplomacy.rel && typeof back.diplomacy.rel === 'object');
   const k = E.pairKey(back.playerId, Object.keys(back.factions).find((f) => f !== back.playerId));
   assert.equal(back.diplomacy.rel[k], 40);

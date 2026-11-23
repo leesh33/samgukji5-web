@@ -245,7 +245,7 @@ test('세이브 v10: 공적·직위가 저장되고 다시 열린다', () => {
   s.generals.xiahou_dun.merit = 140;
   s.generals.xiahou_dun.rank = 1;
   const back = E.deserialize(E.serialize(s));
-  assert.equal(back.version, 10);
+  assert.equal(back.version, 11);
   assert.equal(back.generals.xiahou_dun.merit, 140);
   assert.equal(back.generals.xiahou_dun.rank, 1);
   assert.equal(E.maxTroopsOf(back, 'xiahou_dun'), 4000);
@@ -259,7 +259,7 @@ test('옛 저장(v9)에는 공적·직위가 없어 0으로 채워 열린다', (
   raw.version = 9;
   for (const g of Object.values(raw.generals)) { delete g.merit; delete g.rank; }
   const back = E.deserialize(JSON.stringify(raw));
-  assert.equal(back.version, 10);
+  assert.equal(back.version, 11);
   for (const g of Object.values(back.generals)) {
     assert.equal(g.merit, 0, `${g.id} 공적`);
     assert.equal(g.rank, 0, `${g.id} 직위`);

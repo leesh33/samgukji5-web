@@ -494,6 +494,12 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .cs-name { font-family: var(--font-head); font-size: 18px; color: var(--gold-hi); letter-spacing: 2px; font-weight: 600; text-shadow: 0 1px 2px #000, 0 0 16px rgba(232, 148, 60, 0.22); }
 .region-tag { font-size: 9px; padding: 1px 5px; border: 1px solid #5c4227; color: #c2a878; letter-spacing: 1.2px; border-radius: 2px; background: rgba(60, 40, 22, 0.5); }
 .cs-owner { font-size: 10.5px; padding: 1px 7px; border: 1px solid currentColor; white-space: nowrap; letter-spacing: 0.6px; border-radius: 2px; background: rgba(0, 0, 0, 0.28); }
+/* 성 규모 배지 — 소 < 중 < 대 < 특대 */
+.cs-size { font-size: 9.5px; line-height: 1.35; padding: 1px 6px; border-radius: 2px; letter-spacing: 0.8px; white-space: nowrap; border: 1px solid #5c4227; color: #c9b283; background: rgba(60, 40, 22, 0.5); }
+.cs-size.s0 { color: #a2957c; border-color: #4b3b28; }
+.cs-size.s1 { color: #e2c98f; border-color: #7a5a2e; }
+.cs-size.s2 { color: #ffd79a; border-color: #a8752f; box-shadow: inset 0 0 8px rgba(255, 190, 100, 0.16); }
+.cs-size.s3 { color: #fff0c8; border-color: #d9a05a; background: linear-gradient(180deg, rgba(120, 78, 28, 0.75), rgba(62, 40, 16, 0.8)); box-shadow: 0 0 9px rgba(255, 186, 96, 0.34), inset 0 0 8px rgba(255, 208, 130, 0.22); }
 .cs-right { margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
 .cs-toggle {
   height: 30px; padding: 0 11px; font-size: 11.5px; letter-spacing: 1px; color: var(--gold-hi); border-radius: 3px;
@@ -539,6 +545,9 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .stat i { font-style: normal; font-size: 9px; color: #8f7d63; letter-spacing: 0.5px; }
 .stat b { font-size: 12.5px; color: #eddec0; font-weight: 600; font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); }
 .stat b.dim { color: #c4b393; font-size: 11.5px; }
+.stat .stat-cap { font-style: normal; font-size: 8.5px; color: #7d6f57; font-variant-numeric: tabular-nums; margin-left: 1px; }
+.size-note { color: #c7b48a; }
+.size-note b { color: #ffd79a; font-weight: 600; }
 
 .cp-gens { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .cp-gens::-webkit-scrollbar { display: none; }
@@ -1207,6 +1216,11 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .info-row.fac.mine { border-left-color: var(--gold); }
 .ir-name { grid-area: name; font-size: 12.5px; color: #f3e6c4; letter-spacing: 0.6px; font-weight: 600; }
 .ir-name em { font-style: normal; font-size: 8.5px; color: #9a8f70; font-weight: 400; margin-left: 5px; }
+.ir-size { font-style: normal; font-size: 8.5px; font-weight: 500; letter-spacing: 0.6px; margin-left: 4px; padding: 0 3px; border-radius: 2px; border: 1px solid #4b3b28; color: #a2957c; vertical-align: 1px; }
+.ir-size.s1 { color: #e2c98f; border-color: #7a5a2e; }
+.ir-size.s2 { color: #ffd79a; border-color: #a8752f; }
+.ir-size.s3 { color: #fff0c8; border-color: #d9a05a; background: rgba(120, 78, 28, 0.4); }
+.ir-cap { font-style: normal; color: #7d6f57; }
 .info-row.city { grid-template-areas: "name deleg" "na na" "nb nb"; }
 .ir-nums { grid-area: nums; font-size: 9.5px; color: #b9ab86; letter-spacing: 0.1px; }
 .ir-nums b { color: #e8d7a8; }

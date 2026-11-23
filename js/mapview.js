@@ -3,6 +3,16 @@
    또렷한 도로선 · 세력 색 원형 거점 노드. 드래그·핀치 줌·탭 선택은 그대로. */
 import { CITIES, CITY_BY_ID, FACTION_COLORS } from './data.js';
 
+/* 성 규모(소·중·대·특대)별 노드 크기 배율 — 큰 성일수록 지도에서 크게 그린다 */
+export const CITY_NODE_SCALE = [0.86, 1.0, 1.2, 1.42];
+/* 노드 반지름 — 배율을 곱한 화면 크기를 규모별 최소·최대 사이로 잡아 차이를 확실히 남긴다 */
+export function cityNodeRadius(size, sz) {
+  const s = Math.max(0, Math.min(3, Math.trunc(Number(size) || 0)));
+  const min = 5.4 + s * 1.5;
+  const max = 8.6 + s * 2.4;
+  return Math.max(min, Math.min(max, sz));
+}
+
 const LAND = [
   [30, 4], [42, 3], [54, 4], [64, 6], [72, 5], [80, 6], [86, 9], [88, 14], [84, 16], [80, 17],
   [76, 18], [78, 22], [82, 24], [86, 28], [84, 31], [86, 35], [84, 38], [86, 42], [82, 46],
@@ -383,8 +393,9 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
   }
 
   /* ---------- 거점 노드 ---------- */
-  function nodeRadius(sz) {
-    return Math.max(6.4, Math.min(12.5, sz));
+  /* 반지름을 성 규모(소·중·대·특대)에 따라 확실하게 벌린다 — 지도에서 큰 성이 바로 눈에 띄게 */
+  function nodeRadius(sz, size) {
+    return cityNodeRadius(size, sz);
   }
 
   function drawCityNodes(c, t) {
@@ -397,12 +408,13 @@ export function createMapView(canvas, { onSelectCity, onTapEmpty } = {}) {
       const st = state ? state.cities[city.id] : null;
       const isOwn = !!(st && own && st.owner === own);
       const ownerId = st ? st.owner : null;
+      const size = st && Number.isInteger(st.size) ? st.size : city.size;
       const fac = ownerId && state.factions[ownerId];
       const color = ownerId ? ((fac && fac.color) || FACTION_COLORS[ownerId] || '#8a8474') : '#8d7a5c';
       items.push({
-        c: city, p, isOwn, owner: ownerId, color,
-        r: nodeRadius(sc * (city.major ? 1.22 : 1.0) * (selected === city.id ? 1.1 : 1)),
-        pri: (selected === city.id ? 4 : 0) + (isOwn ? 2 : 0) + (city.major ? 1 : 0),
+        c: city, p, isOwn, owner: ownerId, color, size,
+        r: nodeRadius(sc * (CITY_NODE_SCALE[size] || 1) * (selected === city.id ? 1.08 : 1), size),
+        pri: (selected === city.id ? 4 : 0) + (isOwn ? 2 : 0) + size * 0.6 + (city.major ? 0.4 : 0),
       });
     }
 
