@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#171009" />
+<title>개인정보처리방침 — 삼국 한 턴</title>
+<meta name="description" content="「삼국 한 턴」의 개인정보처리방침입니다. 로그인하지 않으면 게임 기록은 브라우저에만 남습니다." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2314100c'/%3E%3Crect x='3.5' y='3.5' width='25' height='25' fill='none' stroke='%23d9a05a' stroke-width='1.2'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/legal.css" />
+</head>
+<body>
+<div class="page">
+  <div class="top"><a href="./">← 삼국 한 턴</a></div>
+  <main id="doc">
+    <h1>개인정보처리방침</h1>
+    <p class="legal-meta">삼국 한 턴</p>
+    <p class="noscript">문서를 표시하려면 브라우저에서 자바스크립트를 켜 주세요. 문의: andy.leesh33@gmail.com</p>
+  </main>
+</div>
+<script type="module">
+  import { legalDocHTML } from './js/legal.js';
+  const t = legalDocHTML('privacy');
+  document.title = t.title + ' — 삼국 한 턴';
+  const doc = document.getElementById('doc');
+  doc.innerHTML = '<h1>' + t.title + '</h1>'
+    + '<p class="legal-meta">' + t.meta + '</p>'
+    + t.html
+    + '<p class="foot">' + t.foot + '</p>';
+</script>
+</body>
+</html>

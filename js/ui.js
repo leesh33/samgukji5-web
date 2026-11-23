@@ -3375,8 +3375,47 @@ function openPromotionSheet() {
 }
 
 /* ---------- 메뉴/저장 ---------- */
-function openMenu() {
-  openSheet('군의', `
+/* ---------- 🗑 계정 · 클라우드 기록 삭제 (App Store 5.1.1(v)) ----------
+   로그인한 사람이 앱 안에서 직접 지울 수 있어야 한다. 2단계 확인(내용 확인 체크 → 삭제하기)을 거친다. */
+function openDeleteAccount() {
+  const name = Cloud.state().name || '';
+  openSheet('계정 · 클라우드 기록 삭제', `
+    <div class="del-account">
+      <p class="note">${name ? `${name} 님의 ` : ''}클라우드 저장(자동 저장·슬롯 1~3)과 <b>이 기기의 저장 기록</b>을 모두 지우고 로그아웃합니다.</p>
+      <p class="note">지운 기록은 되돌릴 수 없습니다. 같은 계정으로 다시 로그인하면 새 기록으로 시작합니다.</p>
+      <p class="note">Google·카카오 계정 자체는 삭제되지 않습니다. 계정 자체의 삭제를 원하시면 <b>andy.leesh33@gmail.com</b> 으로 요청해 주세요 — 영업일 7일 이내에 처리합니다.</p>
+      <label class="del-ack"><input type="checkbox" id="del-ack" /> 위 내용을 확인했고, 삭제에 동의합니다</label>
+      <button class="btn big" id="del-go" data-act="account-delete-go" disabled style="margin-top:12px">삭제하기</button>
+      <button class="btn big ghost" data-act="sheet-close" style="margin-top:8px">취소</button>
+    </div>`);
+  const ack = $('#del-ack');
+  const go = $('#del-go');
+  if (ack && go) {
+    ack.addEventListener('change', () => { go.disabled = !ack.checked; });
+  }
+}
+
+function doDeleteAccount() {
+  const go = $('#del-go');
+  if (go) { go.disabled = true; go.textContent = '삭제하는 중…'; }
+  Cloud.deleteAccountAndData().then((out) => {
+    closeSheet();
+    game = null;
+    refreshContinue();
+    show('scr-title');
+    drawTitleArt();
+    toast(out && out.keptForOtherApps
+      ? '삼국 한 턴의 클라우드 기록과 이 기기의 저장을 지웠습니다. 같은 계정을 쓰는 다른 앱 기록은 그대로 두었습니다.'
+      : '계정과 클라우드 기록, 이 기기의 저장을 모두 지웠습니다.', 3200);
+    sfx.ok();
+  }).catch((e) => {
+    if (go) { go.disabled = false; go.textContent = '삭제하기'; }
+    toast('삭제하지 못했습니다 · ' + ((e && e.message) || '잠시 뒤 다시 시도해 주세요'), 2800);
+    sfx.fail();
+  });
+}
+
+function openMenu() {  openSheet('군의', `
     <div class="acc-box acc-menu" id="menu-account"></div>
     <button class="btn big" data-act="save-slot" data-slot="1" style="margin-bottom:8px">슬롯 1에 저장</button>
     <button class="btn big" data-act="save-slot" data-slot="2" style="margin-bottom:8px">슬롯 2에 저장</button>
@@ -3743,6 +3782,8 @@ function onClick(e) {
     case 'open-help': openHelp(); break;
     case 'legal-privacy': openLegal('privacy'); break;
     case 'legal-terms': openLegal('terms'); break;
+    case 'account-delete-open': openDeleteAccount(); break;
+    case 'account-delete-go': doDeleteAccount(); break;
     case 'save-slot': {
       const slot = el.dataset.slot;
       try {
@@ -3859,8 +3900,13 @@ export function boot() {
   show('scr-title');
   drawTitleArt();
   Cloud.mount($('#title-account'));
+  window.addEventListener('samguk-sync-signed-in', (e) => {
+    const nm = (e && e.detail && e.detail.name) || '';
+    toast(`${nm} 님으로 로그인했습니다. 저장을 동기화합니다.`, 2600);
+  });
   Cloud.start({
     onStatus: () => { const b = $('#btn-continue'); if (b) b.disabled = !localStorage.getItem(KEYS.auto); },
+    onDeleteRequest: () => openDeleteAccount(),
     onApplied: () => {
       const b = $('#btn-continue');
       if (b) b.disabled = !localStorage.getItem(KEYS.auto);

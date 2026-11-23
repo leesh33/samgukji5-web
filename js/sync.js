@@ -219,22 +219,73 @@ function put(slots, at) {
 }
 
 /* ---------- 로그인 / 로그아웃 ---------- */
-const PROVIDER_LABEL = { google: 'Google', kakao: '카카오' };
+const PROVIDER_LABEL = { google: 'Google', kakao: '카카오', apple: 'Apple' };
+
+/* ---------- iOS 앱(Expo WebView 래퍼) 다리 ----------
+   앱은 페이지 스크립트보다 먼저 아래를 심는다.
+     window.__SAMGUK_NATIVE__ = { shell: 'ios', appleAuth: true, appVersion: '1.0.0' }
+   앱 안에서는 페이지가 외부 주소로 이동하지 않는다(로그인 창은 앱이 띄운다).
+     · Apple  : 앱의 네이티브 Sign in with Apple → id_token → Supabase id_token grant
+     · Google·카카오 : 앱이 ASWebAuthenticationSession 으로 열고 `samguk://auth-callback` 으로 돌아옴
+   돌아온 주소는 앱이 window.SamgukNative.oauthCallback(url) 로 넘겨 준다(PKCE verifier 는 이 페이지에 있음).
+   웹에서는 지금처럼 페이지 이동(OAuth 리다이렉트) 방식 그대로 — 앱 밖 동작은 달라지지 않는다. */
+const NATIVE_REDIRECT = 'samguk://auth-callback';
+
+function nativeInfo() {
+  const n = globalThis.__SAMGUK_NATIVE__;
+  return (n && typeof n === 'object') ? n : null;
+}
+function nativeApp() { return !!(nativeInfo() && nativeInfo().shell); }
+function nativePost(msg) {
+  try {
+    const rn = globalThis.ReactNativeWebView;
+    if (rn && typeof rn.postMessage === 'function') {
+      rn.postMessage(JSON.stringify(msg));
+      return true;
+    }
+  } catch (e) { /* 다리가 없으면 웹 방식으로 */ }
+  return false;
+}
+
+// Apple 은 앱 안(네이티브 로그인)에서만 내보낸다 — 웹은 Google·카카오 그대로.
+function providerOn(name) {
+  if (name === 'apple') return !!(nativeInfo() && nativeInfo().appleAuth);
+  return true;
+}
 
 function signIn(provider) {
-  const p = provider === 'kakao' ? 'kakao' : 'google';
-  const base = location.origin + location.pathname;
+  const p = provider === 'kakao' ? 'kakao' : provider === 'apple' ? 'apple' : 'google';
+  if (!providerOn(p)) {
+    return Promise.reject(new Error(PROVIDER_LABEL[p] + ' 로그인은 앱에서만 쓸 수 있습니다'));
+  }
+  const native = nativeApp() ? nativeInfo() : null;
+
+  // 앱 · Apple — 네이티브 창을 띄우고 id_token 을 돌려받는다(PKCE 불필요)
+  if (native && p === 'apple') {
+    setStatus('syncing');
+    if (nativePost({ type: 'apple-signin' })) return Promise.resolve('samguk:apple-native');
+    setStatus('off');
+    return Promise.reject(new Error('Apple 로그인 창을 열지 못했습니다'));
+  }
+
   const verifier = randomString(56);
   writeJson(KEYS.pkce, { verifier, at: now() });
   setStatus('syncing');
   return challengeFor(verifier).then((challenge) => {
+    // 앱은 페이지 이동 대신 커스텀 스킴으로 돌아온다(앱이 창을 닫고 주소를 넘겨 줌)
+    const base = native ? NATIVE_REDIRECT : location.origin + location.pathname;
     const url = SUPABASE_URL + '/auth/v1/authorize?provider=' + p +
       '&redirect_to=' + encodeURIComponent(base) +
       (challenge ? '&code_challenge=' + encodeURIComponent(challenge) + '&code_challenge_method=s256' : '');
+    if (native) {
+      if (nativePost({ type: 'oauth', url })) return url;
+      setStatus('off');
+      throw new Error('로그인 창을 열지 못했습니다');
+    }
     location.assign(url);
     return url;
   }).catch((e) => {
-    setStatus('error', friendly(e));
+    if (status.state !== 'off') setStatus('error', friendly(e));
     throw e;
   });
 }
@@ -247,6 +298,124 @@ function signOut() {
   renderAll();
   if (!s) return Promise.resolve();
   return api('/auth/v1/logout', { method: 'POST', token: s.access_token }).catch(() => { /* 토큰 만료 등 */ });
+}
+
+/* ---------- 앱에서 돌아온 로그인 응답 마무리 ---------- */
+// Google·카카오: samguk://auth-callback?code=… → PKCE verifier 로 세션 교환
+function completeOAuthCallback(url) {
+  let raw = String(url || '');
+  let hash = '';
+  const hashAt = raw.indexOf('#');
+  if (hashAt >= 0) { hash = raw.slice(hashAt); raw = raw.slice(0, hashAt); }
+  const qAt = raw.indexOf('?');
+  const parsed = parseAuthParams(qAt >= 0 ? raw.slice(qAt) : '', hash);
+
+  if (parsed.error) {
+    const reason = /access_denied|cancel/i.test(parsed.error + ' ' + parsed.description)
+      ? '로그인을 취소했습니다'
+      : (parsed.description || parsed.error);
+    setStatus('error', reason);
+    return Promise.reject(new Error(reason));
+  }
+
+  let done;
+  if (parsed.accessToken) {
+    done = Promise.resolve(sessionSave({
+      access_token: parsed.accessToken,
+      refresh_token: parsed.refreshToken,
+      expires_in: parsed.expiresIn || 3600,
+    }));
+  } else if (parsed.code) {
+    const pkce = readJson(KEYS.pkce, {}) || {};
+    done = api('/auth/v1/token?grant_type=pkce', {
+      method: 'POST',
+      body: { auth_code: parsed.code, code_verifier: pkce.verifier || '' },
+    }).then((tok) => sessionSave(tok));
+  } else {
+    return Promise.reject(new Error('로그인 응답에 코드가 없습니다'));
+  }
+
+  return done.then(() => {
+    removeRaw(KEYS.pkce);
+    setStatus('syncing');
+    notifySignedIn();
+    return syncNow().then((res) => ({ ok: true, res }), () => ({ ok: true }));
+  }).catch((e) => {
+    const msg = friendly(e);
+    setStatus('error', msg);
+    throw new Error(msg);
+  });
+}
+
+// Apple 네이티브 로그인: identity token 을 Supabase 세션으로 바꾼다
+//   (Supabase Apple provider Client IDs 에 앱 번들 ID com.odol.dotsamguk 이 들어 있어야 통과)
+function completeAppleSignIn(idToken, nonce) {
+  const tok = String(idToken || '');
+  if (!tok) return Promise.reject(new Error('Apple 로그인 응답이 비어 있습니다'));
+  setStatus('syncing');
+  return api('/auth/v1/token?grant_type=id_token', {
+    method: 'POST',
+    body: { provider: 'apple', id_token: tok, nonce: nonce ? String(nonce) : '' },
+  }).then((res) => sessionSave(res)).then(() => {
+    setStatus('syncing');
+    notifySignedIn();
+    return syncNow().then((res) => ({ ok: true, res }), () => ({ ok: true }));
+  }).catch((e) => {
+    const msg = friendly(e);
+    setStatus('error', msg);
+    throw new Error(msg);
+  });
+}
+
+function notifySignedIn() {
+  try {
+    if (typeof globalThis.CustomEvent === 'function' && globalThis.dispatchEvent) {
+      globalThis.dispatchEvent(new globalThis.CustomEvent('samguk-sync-signed-in', {
+        detail: { name: displayName(user()) },
+      }));
+    }
+  } catch (e) { /* 무시 */ }
+}
+
+/* ---------- 계정 · 클라우드 기록 삭제 (App Store 5.1.1(v)) ----------
+   · Supabase RPC samguk_delete_my_account() — 본인 samguk_saves 행을 지우고,
+     같은 계정으로 다른 앱(릴스핀·인생 한 턴)에 남긴 기록이 없을 때만 auth 계정까지 지운다.
+   · RPC 가 아직 없으면(404·400 schema cache) RLS 로 본인 행을 직접 지운다 — 그래도 기록은 모두 사라진다.
+   · 이 기기의 저장(자동·슬롯 1~3)도 함께 지우고 로그아웃한다. */
+function purgeLocal() {
+  removeRaw('samguk5.auto');
+  for (let i = 1; i <= 3; i++) removeRaw('samguk5.slot' + i);
+  removeRaw(KEYS.meta);
+}
+
+function deleteAccount() {
+  const s = session();
+  if (!s || !s.user || !s.user.id) return Promise.reject(new Error('로그인한 뒤에 시도해 주세요'));
+  const uid = s.user.id;
+  setStatus('syncing');
+  return withToken((t) => api('/rest/v1/rpc/samguk_delete_my_account', {
+    method: 'POST', token: t, body: {},
+  }).catch((e) => {
+    if (e && e.status === 401) throw e;
+    const msg = String((e && e.message) || '');
+    const missing = e && (e.status === 404 || e.status === 400) &&
+      /does not exist|schema cache|Could not find|not find/i.test(msg);
+    if (!missing) throw e;
+    return api('/rest/v1/' + TABLE + '?user_id=eq.' + encodeURIComponent(uid), {
+      method: 'DELETE', token: t, prefer: 'return=minimal',
+    }).then(() => ({ ok: true, accountDeleted: false, dataWiped: true }));
+  })).then((out) => {
+    purgeLocal();
+    removeRaw(KEYS.session);
+    removeRaw(KEYS.pkce);
+    setStatus('off');
+    renderAll();
+    return out || { ok: true };
+  }).catch((e) => {
+    const msg = friendly(e);
+    setStatus(session() ? 'error' : 'off', msg);
+    throw new Error(msg);
+  });
 }
 
 function cleanUrl() {
@@ -457,6 +626,7 @@ function render(el) {
   if (!s) {
     const expired = status.state === 'expired';
     const err = status.state === 'error' && status.error;
+    const apple = !!(nativeInfo() && nativeInfo().appleAuth);
     html =
       '<div class="acc-row">' +
         '<button type="button" class="acc-pill google" data-cloud="in-google">' +
@@ -464,6 +634,12 @@ function render(el) {
         '<button type="button" class="acc-pill kakao" data-cloud="in-kakao">' +
           '<span class="acc-badge">K</span><span>카카오로 로그인</span></button>' +
       '</div>' +
+      (apple
+        ? '<div class="acc-row">' +
+            '<button type="button" class="acc-pill apple" data-cloud="in-apple">' +
+              '<span class="acc-badge">A</span><span>Apple로 로그인</span></button>' +
+          '</div>'
+        : '') +
       (expired || err
         ? '<div class="acc-note warn">' + esc(status.error || EXPIRED_TEXT) + '</div>'
         : '<div class="acc-note">' + (compact
@@ -483,7 +659,9 @@ function render(el) {
       '</div>' +
       '<div class="acc-note">' + esc(who) + (mail ? ' · ' + esc(mail) : '') + '</div>' +
       (status.state === 'error' && status.error
-        ? '<div class="acc-note warn">' + esc(shortError(status.error)) + '</div>' : '');
+        ? '<div class="acc-note warn">' + esc(shortError(status.error)) + '</div>' : '') +
+      (compact ? ''
+        : '<button type="button" class="acc-out danger" data-cloud="delete">계정 · 클라우드 기록 삭제</button>');
   }
 
   if (el.innerHTML !== html) el.innerHTML = html;
@@ -507,7 +685,13 @@ export function mount(el) {
       const act = btn.getAttribute('data-cloud');
       if (act === 'in-google') signIn('google').catch(() => { /* 상태에 표시됨 */ });
       else if (act === 'in-kakao') signIn('kakao').catch(() => { /* 상태에 표시됨 */ });
+      else if (act === 'in-apple') signIn('apple').catch(() => { /* 상태에 표시됨 */ });
       else if (act === 'out') signOut();
+      else if (act === 'delete') {
+        if (typeof hooks.onDeleteRequest === 'function') {
+          try { hooks.onDeleteRequest(); } catch (e) { /* 무시 */ }
+        }
+      }
       else if (act === 'sync') syncNow();
       else if (act === 'retry') syncNow();
     });
@@ -543,3 +727,25 @@ export function state() {
 }
 
 export function currentUser() { return user(); }
+
+export function signOutNow() { return signOut(); }
+
+/* App Store 5.1.1(v) — 계정 삭제. ui 가 2단계 확인을 거쳐 부른다. */
+export function deleteAccountAndData() { return deleteAccount(); }
+
+/* 앱(Expo WebView)이 부르는 다리 — 웹에서는 그대로 무해하다. */
+try {
+  globalThis.SamgukNative = {
+    oauthCallback(url) {
+      return completeOAuthCallback(url).then(() => true, () => false);
+    },
+    appleSignIn(idToken, nonce) {
+      return completeAppleSignIn(idToken, nonce).then(() => true, () => false);
+    },
+    native: nativeApp,
+    appleReady() { return !!(nativeInfo() && nativeInfo().appleAuth); },
+    deleteAccount: deleteAccountAndData,
+    state,
+    signOut: signOutNow,
+  };
+} catch (e) { /* 무시 */ }
