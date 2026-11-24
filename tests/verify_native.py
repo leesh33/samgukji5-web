@@ -106,7 +106,7 @@ with sync_playwright() as p:
     step("앱: 구글을 누르면 authorize 주소를 앱에 넘긴다(페이지 이동 없음)",
          "supabase.co/auth/v1/authorize" in url and "provider=google" in url
          and "redirect_to=samguk%3A%2F%2Fauth-callback" in url, url[:200])
-    step("앱: 구글 로그인 창이 페이지를 떠나지 않았다", "127.0.0.1" in page.url or "localhost" in page.url, page.url)
+    step("앱: 구글 로그인 창이 페이지를 떠나지 않았다", page.url.startswith(BASE.split("index.html")[0]), page.url)
     ctx.close()
 
     # ③ 로그인 상태 — 계정 삭제 버튼과 2단계 확인

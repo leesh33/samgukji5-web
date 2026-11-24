@@ -1,5 +1,7 @@
-downloads/
+# 배포에 넣지 않는 것 — 사이트 화면과 자산만 올린다
 tests/
+downloads/
 supabase/
+tools/
 .vercel/
 *.log
