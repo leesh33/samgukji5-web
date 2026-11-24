@@ -156,7 +156,7 @@ def finish_battle(page, max_wait=26):
 
 
 def new_game(page):
-    page.goto(BASE, wait_until="networkidle")
+    page.goto(BASE, wait_until="networkidle", timeout=25000)
     page.wait_for_timeout(700)
     page.click('[data-act="new"]')
     page.wait_for_timeout(350)
@@ -171,6 +171,14 @@ def wait_provoke(page, rounds=8):
     for _ in range(rounds):
         if page.locator('[data-act="provoke-accept"]').count():
             return True
+        # 돌발 이벤트 시트가 먼저 떠 있으면 답하고 넘어간다(도발은 다음 적 차례에 다시 노린다)
+        if sheet_open(page) and sheet_title(page) == "전장의 변수":
+            try:
+                page.locator('[data-act="battle-event-go"]').last.click()
+                page.wait_for_timeout(600)
+            except Exception:
+                pass
+            continue
         if page.locator('[data-act="bt-close"]').count() or not page.locator("#scr-battle").is_visible():
             return False
         if page.locator('[data-act="duel-act"]').count():

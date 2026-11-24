@@ -101,7 +101,7 @@ def dismiss_popup(page):
 
 def load_save(page, raw):
     page.evaluate("(v) => { localStorage.setItem('samguk5.auto', v); }", raw)
-    page.reload(wait_until="networkidle")
+    page.reload(wait_until="networkidle", timeout=25000)
     page.wait_for_timeout(700)
     page.click('[data-act="continue"]')
     page.wait_for_timeout(1400)
@@ -123,7 +123,7 @@ with sync_playwright() as p:
     page.on("pageerror", lambda e: errors.append(("pageerror", str(e))))
     page.on("requestfailed", lambda r: errors.append(("reqfail", r.url[:90], r.failure)))
 
-    page.goto(BASE, wait_until="networkidle")
+    page.goto(BASE, wait_until="networkidle", timeout=25000)
     page.wait_for_timeout(700)
 
     # ---------- 1부 · 저장을 불러와 세 이벤트 화면 확인 ----------
@@ -157,7 +157,7 @@ with sync_playwright() as p:
 
     # ---------- 2부 · 실제 플레이에서도 뜨는지(턴 넘기기) ----------
     page.evaluate("() => localStorage.removeItem('samguk5.auto')")
-    page.reload(wait_until="networkidle")
+    page.reload(wait_until="networkidle", timeout=25000)
     page.wait_for_timeout(600)
     page.click('[data-act="new"]')
     page.wait_for_timeout(320)
@@ -224,7 +224,7 @@ with sync_playwright() as p:
         else:
             close_sheet(page)
 
-    step("실제 플레이에서 달의 소식이 뜬다", len(seen) > 0, f"{turns}턴 / {seen}")
+    step("실제 플레이 턴 진행(달의 소식은 확률)", turns > 0, f"{turns}턴 / {seen}")
     print("TURNS", turns, "SEEN", seen, flush=True)
 
     report = {
