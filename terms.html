@@ -23,10 +23,7 @@
   const t = legalDocHTML('terms');
   document.title = t.title + ' — 삼국 한 턴';
   const doc = document.getElementById('doc');
-  doc.innerHTML = '<h1>' + t.title + '</h1>'
-    + '<p class="legal-meta">' + t.meta + '</p>'
-    + t.html
-    + '<p class="foot">' + t.foot + '</p>';
+  doc.innerHTML = '<h1>' + t.title + '</h1>' + t.html;
 </script>
 </body>
 </html>
