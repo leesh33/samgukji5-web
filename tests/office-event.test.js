@@ -96,8 +96,13 @@ test('관직이 높으면 같은 성의 세금 수입이 는다', () => {
   const gainBase = base.cities[cityId].gold - b0;
   const gainRich = rich.cities[cityId].gold - r0;
   assert.ok(gainRich > gainBase, `${gainBase} → ${gainRich}`);
-  const c = rich.cities[cityId];
-  assert.equal(gainRich, Math.round((c.comm * 5 + c.order * 0.8) * (1 + E.OFFICES[2].tax) * E.sizeIncomeOf(rich, cityId)));
+  // 세입·급료는 cityMonthlyBalance 한 곳에서 계산한다 — 화면과 턴 진행이 같은 식을 쓴다
+  const cb = E.cityMonthlyBalance(base, cityId);
+  const cr = E.cityMonthlyBalance(rich, cityId);
+  assert.ok(cr.goldIn > cb.goldIn, `세입 ${cb.goldIn} → ${cr.goldIn}`);
+  assert.equal(cr.goldIn, Math.round((rich.cities[cityId].comm * 5 + rich.cities[cityId].order * 0.8) * (1 + E.OFFICES[2].tax) * E.sizeIncomeOf(rich, cityId)));
+  assert.ok(cr.salary > 0, '병사 급료가 붙는다');
+  assert.equal(gainRich, cr.goldNet);
 });
 
 test('월간 이벤트: 30% 확률로만 열리고, 한 번에 하나만 대기한다', () => {

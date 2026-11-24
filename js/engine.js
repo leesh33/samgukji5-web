@@ -456,6 +456,15 @@ export function cityStatCap(state, cityId, key) {
 }
 export function citySizeKoOf(state, cityId) { return citySizeKo(citySizeOf(state, cityId)); }
 export function cityTroopsCap(state, cityId) { return sizeTroopCap(citySizeOf(state, cityId)); }
+/* 주둔 병력 상한 — 성 규모가 정한 만큼만 성에 둘 수 있다(함락·명의·이벤트로 늘어난 병력도 맞춘다) */
+export function clampCityTroops(c) {
+  if (!c) return 0;
+  const cap = sizeTroopCap(cSize(c));
+  if (c.troops > cap) c.troops = cap;
+  if (c.troops < 0) c.troops = 0;
+  return c.troops;
+}
+const cSize = (c) => (Number.isInteger(c.size) ? c.size : 0);
 export function sizeDraftOf(state, cityId) { return sizeDraftMul(citySizeOf(state, cityId)); }
 export function sizeIncomeOf(state, cityId) { return sizeIncomeMul(citySizeOf(state, cityId)); }
 /* 다음 규모까지 남은 내정 합계 — 0이면 승격 조건을 채웠다(특대형은 null) */
@@ -504,6 +513,65 @@ export function lordOf(state, fid) {
   const f = state.factions[fid];
   if (!f || !f.lord) return null;
   return generalOf(state, f.lord);
+}
+
+/* 군주가 죽거나 다른 세력으로 떠나면 세력의 차기 군주를 세운다.
+   군주 없는 세력(설령 성이 남아 있어도)이 화면과 규칙 사이에서 어긋나지 않게 하는 안전장치다. */
+export function ensureLord(state, fid) {
+  const f = state.factions[fid];
+  if (!f || !f.alive) return null;
+  if (!factionCities(state, fid).length) return null;
+  const cur = state.generals[f.lord];
+  if (cur && !cur.dead && cur.faction === fid && !cur.captive) return cur;
+  const pool = factionGenerals(state, fid).filter((g) => !g.captive && !g.dead);
+  if (!pool.length) return null;
+  pool.sort((a, b) => {
+    const ra = rankInfoOf(state, a.id).rank, rb = rankInfoOf(state, b.id).rank;
+    if (rb !== ra) return rb - ra;
+    const ga = generalOf(state, a.id) || {}, gb = generalOf(state, b.id) || {};
+    return ((gb.lead || 0) + (gb.war || 0) + (gb.pol || 0) + (gb.cha || 0)) - ((ga.lead || 0) + (ga.war || 0) + (ga.pol || 0) + (ga.cha || 0));
+  });
+  const next = pool[0];
+  const prevKo = cur ? (generalOf(state, f.lord) || {}).ko : '';
+  const nextKo = (generalOf(state, next.id) || {}).ko || next.id;
+  f.lord = next.id;
+  next.loyalty = 100;
+  next.captive = false;
+  if (!next.city || !state.cities[next.city] || state.cities[next.city].owner !== fid) {
+    placeGeneral(state, next.id, fid, factionCities(state, fid)[0].id);
+  }
+  log(state, `${f.name}군의 새 군주로 ${nextKo}${prevKo && prevKo !== nextKo ? `(옛 군주 ${prevKo})` : ''}가 섰습니다.`);
+  return next;
+}
+
+/* 패잔 장수가 몸을 피할 성 — 12명 상한을 넘기지 않도록 자리가 남은 성을 고른다 */
+/* 장수를 세력 안의 성에 앉힌다 — 원하는 성이 차 있으면 자리가 남은 성으로 보낸다(무장이 성 밖에 매달리지 않게) */
+export function placeGeneral(state, gid, fid, preferCityId = null) {
+  const g = state.generals[gid];
+  if (!g) return null;
+  const cities = factionCities(state, fid);
+  if (!cities.length) return null;
+  const has = (c) => generalsInCity(state, c.id).length < MAX_OFFICERS_PER_CITY;
+  const prefer = preferCityId ? cities.find((c) => c.id === preferCityId) : null;
+  let dest = prefer && has(prefer) ? prefer : cities.filter(has)[0] || null;
+  if (!dest) {
+    // 모두 차 있으면 가장 적게 모인 성으로
+    dest = cities.slice().sort((a, b) => generalsInCity(state, a.id).length - generalsInCity(state, b.id).length)[0];
+  }
+  g.faction = fid;
+  if (dest) g.city = dest.id;
+  return g.city;
+}
+
+function refugeCityFor(state, fid, fromCityId, rng) {
+  const cands = factionCities(state, fid).filter((c) => c.id !== fromCityId);
+  if (!cands.length) return null;
+  const load = (c) => generalsInCity(state, c.id).length;
+  const room = cands.filter((c) => load(c) < MAX_OFFICERS_PER_CITY);
+  const pool = room.length ? room : cands;
+  const min = Math.min(...pool.map(load));
+  const best = pool.filter((c) => load(c) === min);
+  return best[Math.floor(rng() * best.length)].id;
 }
 export function factionStrength(state, fid) {
   const cs = factionCities(state, fid);
@@ -1223,6 +1291,31 @@ export function cityPower(state, cityId, defensive = true) {
   if (defensive) p *= 1 + c.def / 420 + c.order / 700;
   return Math.round(p);
 }
+/* ---------- 출진 예상 ---------- */
+/* 출진 시트의 '예상 전력' — 실제 격자 전장에서 잰 승률을 옮긴 어림값이다.
+   병력이 수비의 1.2배면 반반, 1.5배면 거의 확실하다(전장 시뮬레이션 200판 기준). */
+export const SIEGE_EVEN = 0.9;    // 이 비율 아래는 열세
+export const SIEGE_SAFE = 1.2;   // 이 비율부터는 우세
+/* opts: { generals: [gid], troops } — 고른 장수와 나설 병력으로 잰다 */
+export function siegeOdds(state, fromCityId, toCityId, opts = {}) {
+  const from = state.cities[fromCityId];
+  const to = state.cities[toCityId];
+  if (!from || !to) return null;
+  const gids = (opts.generals && opts.generals.length ? opts.generals : generalsInCity(state, fromCityId).map((g) => g.id)).slice(0, MAX_ARMY);
+  const best = gids.reduce((m, gid) => {
+    const t = generalOf(state, gid);
+    return t ? Math.max(m, ((t.lead || 0) + (t.war || 0)) / 2) : m;
+  }, 40);
+  const factor = (0.7 + from.train / 180) * (0.72 + best / 260);
+  const troops = Math.max(0, Math.round(typeof opts.troops === 'number' ? opts.troops : from.troops));
+  const myPower = troops * factor;
+  const defPower = cityPower(state, toCityId, true);
+  const ratio = defPower > 0 ? myPower / defPower : 99;
+  const recommend = factor > 0 ? Math.ceil((defPower * SIEGE_SAFE) / factor) : 0;
+  const label = ratio >= SIEGE_SAFE ? '우세' : ratio >= SIEGE_EVEN ? '호각' : '열세';
+  return { myPower: Math.round(myPower), defPower, ratio, recommend, label, best, factor };
+}
+
 /* 적 성 — 동맹·정전 중인 세력의 성은 공격 대상에서 빠진다 */
 export function adjacentEnemies(state, cityId) {
   const own = ownerOf(state, cityId);
@@ -1427,6 +1520,45 @@ export function cleanDiplomacy(state) {
     }
   }
   ensureDiplomacy(state);
+}
+
+/* 세력 안에서 모자란 몫을 다른 성에서 가져온다 — 창고가 따로 있어도 한 나라의 살림은 하나다 */
+function coverDeficitFromRealm(state, fid, cityId, key, need) {
+  let left = need;
+  const others = factionCities(state, fid)
+    .filter((c) => c.id !== cityId && c[key] > 0)
+    .sort((a, b) => b[key] - a[key]);
+  for (const o of others) {
+    if (left <= 0) break;
+    const take = Math.min(o[key], left);
+    o[key] -= take;
+    left -= take;
+  }
+  return need - left;
+}
+
+/* ---------- 월 수입·급료 ---------- */
+/* 병사 급료 — 병력이 늘수록 달마다 금이 든다. 성의 세입에서 먼저 빼고, 모자라면 병사가 떠난다.
+   금이 쌓이기만 하던 후반 경제에 '군대를 키우면 돈이 든다'는 축을 세운다. */
+export const SALARY_PER_TROOP = 1 / 35;   // 병력 35명당 금 1
+export const SALARY_PER_GENERAL = 5;      // 주둔 장수 1명당 금 5
+export function citySalaryOf(state, cityId) {
+  const c = state.cities[cityId];
+  if (!c) return 0;
+  return Math.round(c.troops * SALARY_PER_TROOP) + generalsInCity(state, cityId).length * SALARY_PER_GENERAL;
+}
+/* 성 하나의 월 수지 — 턴 진행과 화면이 같은 식을 쓴다 */
+export function cityMonthlyBalance(state, cityId) {
+  const c = state.cities[cityId];
+  if (!c) return null;
+  const office = OFFICES[officeLevel(state, c.owner)] || OFFICES[0];
+  const tax = 1 + office.tax;
+  const mul = sizeIncomeMul(c.size);
+  const goldIn = Math.round((c.comm * 5 + c.order * 0.8) * tax * mul);
+  const foodIn = Math.round((c.agri * 7 + c.water * 1.5) * mul);
+  const salary = citySalaryOf(state, cityId);
+  const foodOut = Math.ceil(c.troops / 15);
+  return { goldIn, salary, goldNet: goldIn - salary, foodIn, foodOut, foodNet: foodIn - foodOut };
 }
 
 export function factionGold(state, fid) {
@@ -1844,7 +1976,9 @@ export function buildEvent(state, id, rng = Math.random) {
   const f = state.factions[fid];
   const cs = factionCities(state, fid);
   const lordG = f && state.generals[f.lord] ? state.generals[f.lord] : null;
-  const lordCity = lordG && lordG.city ? lordG.city : (cs[0] ? cs[0].id : null);
+  // 유랑 무장은 반드시 아군 성에 들어온다 — 군주가 적성에 있거나 없는 경우에도 성이 비지 않게
+  const ownedIds = cs.map((c) => c.id);
+  const lordCity = lordG && lordG.city && ownedIds.includes(lordG.city) ? lordG.city : (ownedIds[0] || null);
   const season = SEASON_KO[seasonOf(state.month)];
   const ev = { id, title: '', text: '', options: [], data: {} };
   if (id === 'harvest') {
@@ -1940,10 +2074,16 @@ export function resolveEvent(state, choiceId = null) {
     if (opt.id === 'accept') {
       const g = state.generals[ev.data.gid];
       const t = generalOf(state, ev.data.gid);
-      if (g) {
-        g.faction = fid; g.city = ev.data.city; g.loyalty = 62; g.acted = true;
+      // 합류하는 성은 반드시 지금 아군이 가진 성이어야 한다(적성에 떨어져 갈힌 장수가 되지 않게)
+      const owned = cs.map((c) => c.id);
+      const dest = ev.data.city && owned.includes(ev.data.city) ? ev.data.city : owned[0];
+      if (g && dest) {
+        placeGeneral(state, ev.data.gid, fid, dest);
+        g.loyalty = 62; g.acted = true;
         bumpFame(state, fid, 2);
         msg = `${t ? t.ko : '무장'}이 아군이 되었습니다. (충성 62 · 명성 +2)`;
+      } else {
+        msg = `${ev.data.ko}을(를) 받아들일 성이 없어 돌려보냈습니다.`;
       }
     } else {
       msg = `${withJosa(ev.data.ko, '을')} 돌려보냈습니다.`;
@@ -1977,7 +2117,7 @@ export function resolveEvent(state, choiceId = null) {
     msg = irrigate ? '수리 시설을 손보아 가뭄 피해를 줄였습니다. (금 250)' : `가뭄으로 수리와 농업이 메말랐습니다. 쌀이 비싸졌습니다(금 100으로 식량 ${ricePriceOf(state)}).`;
   } else if (ev.id === 'doctor') {
     let add = 0;
-    for (const c of cs) { const inc = Math.round(c.troops * 0.07); c.troops += inc; add += inc; }
+    for (const c of cs) { const inc = Math.round(c.troops * 0.07); c.troops += inc; clampCityTroops(c); add += inc; }
     bumpFame(state, fid, 1);
     msg = `명의가 병사 ${fmtOr(add)}명을 되살렸습니다. 명성 +1`;
   }
@@ -2306,7 +2446,7 @@ export function runCommand(state, type, opts) {
       const f = state.factions[state.playerId];
       const chance = hireChance(state, c.id, target.id, opts.officerId);
       if (rng() < chance) {
-        target.faction = state.playerId;
+        placeGeneral(state, target.id, state.playerId, c.id);
         target.loyalty = 58 + Math.floor(t.cha / 9) + Math.floor(affinityOf(state, target.id) / 12);
         const aff = bumpAffinity(state, target.id, 8);
         state.stats.recruited++;
@@ -2946,6 +3086,11 @@ export function resolveTournamentReward(state, choice, opts = {}) {
 }
 
 /* ---------- 턴 진행 ---------- */
+/* AI 세력이 공격을 결정하는 선 — 수비 전력의 이만큼은 되어야 나선다.
+   실제 전술 전투에서는 병력이 수비의 1.2~1.5배는 되어야 이기므로,
+   1.02배에서 곧바로 나서면 병력만 축내고 성은 못 얻는다(성 변경만 반복되는 교착). */
+export const AI_ATTACK_RATIO = 1.22;
+
 export function endTurnPhase1(state) {
   const rng = rngOf(state);
   state.pendingBattles = [];
@@ -2957,24 +3102,26 @@ export function endTurnPhase1(state) {
     aiEconomy(state, fid, rng);
   }
 
-  // AI 공격 결정
+  // AI 공격 결정 — 한 달에 한 성은 한 번만 공격받는다(여러 세력이 달려들어 순식간에 무너지는 것을 막는다)
   const attacks = [];
+  const claimed = new Set();
   for (const fid of Object.keys(state.factions)) {
     const f = state.factions[fid];
     if (!f.alive || f.isPlayer) continue;
     const cands = [];
     for (const c of factionCities(state, fid)) {
       for (const en of adjacentEnemies(state, c.id)) {
+        if (claimed.has(en)) continue;
         const atk = cityPower(state, c.id, false) * (0.9 + rng() * 0.5);
         const def = cityPower(state, en, true);
-        if (atk > def * 1.02 && c.troops > 2500) cands.push({ from: c.id, to: en, score: atk / def, fid });
+        if (atk > def * AI_ATTACK_RATIO && c.troops > 2500) cands.push({ from: c.id, to: en, score: atk / def, fid });
       }
     }
     if (!cands.length) continue;
     cands.sort((a, b) => b.score - a.score);
     const chosen = cands[0];
     const appetite = 0.42 + f.fame / 260;
-    if (rng() < appetite) attacks.push(chosen);
+    if (rng() < appetite) { attacks.push(chosen); claimed.add(chosen.to); }
   }
 
   for (const a of attacks) {
@@ -2988,6 +3135,16 @@ export function endTurnPhase1(state) {
   reconcileAllAssignments(state);
   bumpRng(state, 3);
   return state.pendingBattles;
+}
+
+/* 한 나라의 창고에서 낸다 — 이 성에서 먼저, 모자라면 다른 성에서 */
+function payFromRealm(state, fid, cityId, key, need) {
+  const c = state.cities[cityId];
+  const pay = Math.min(c[key], need);
+  c[key] -= pay;
+  let left = need - pay;
+  if (left > 0) left -= coverDeficitFromRealm(state, fid, cityId, key, left);
+  return left <= 0;
 }
 
 function aiEconomy(state, fid, rng) {
@@ -3010,16 +3167,20 @@ function aiEconomy(state, fid, rng) {
     const needFood = c.food < c.troops / 12;
     const stat = needFood ? 'agri' : (c.agri < c.comm ? 'agri' : 'comm');
     const cap = sizeCap(c.size);
-    if (c.troops < 9000 && c.gold > 1600 && c.food > 2500) {
-      c.gold -= 250; c.food -= 400;
-      c.troops += Math.min(Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size)), Math.max(0, sizeTroopCap(c.size) - c.troops));
-      c.order = clamp(c.order - 3, 0, ORDER_CAP);
-    } else if (c.troops < 3000 && c.gold > 600 && c.food > 1200) {
-      c.gold -= 250; c.food -= 400;
-      c.troops += Math.min(Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size)), Math.max(0, sizeTroopCap(c.size) - c.troops));
+    const troopCap = sizeTroopCap(c.size);
+    const target = Math.round(troopCap * 0.7);   // 성 상한의 70%까지는 병력을 채운다(금이 되는 만큼)
+    const realmGold = factionGold(state, fid);
+    const realmFood = factionFood(state, fid);
+    // 병력은 나라 전체의 살림으로 본다 — 다른 성 창고에서 꺼내 올 수 있으므로
+    if (c.troops < target && realmGold > 900 && realmFood > 1400) {
+      payFromRealm(state, fid, c.id, 'gold', 250);
+      payFromRealm(state, fid, c.id, 'food', 400);
+      c.troops += Math.min(Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size)), Math.max(0, troopCap - c.troops));
       c.order = clamp(c.order - 3, 0, ORDER_CAP);
     } else if (c.order < 45) {
       c.order = clamp(c.order + 3 + Math.floor(t.pol / 22), 0, ORDER_CAP);
+    } else if (c.train < 70) {
+      c.train = clamp(c.train + 4, 0, 100);
     } else if (stat === 'agri' && c.agri < cap) {
       c.agri = clamp(c.agri + 2 + Math.floor(t.pol / 26), 0, cap);
     } else if (c.comm < cap) {
@@ -3033,6 +3194,21 @@ function aiEconomy(state, fid, rng) {
     g.acted = true;
     ap--;
   }
+  // 충성이 낮은 장수는 포상으로 달랜다 — 금이 남아돌면 병사도 장수도 없는 셈이 된다
+  if (rng() < 0.5) {
+    for (const c of factionCities(state, fid)) {
+      const lord = state.factions[fid].lord;
+      const low = generalsInCity(state, c.id).filter((x) => x.id !== lord && (x.loyalty || 0) < 70);
+      if (!low.length || c.gold < 900) continue;
+      low.sort((a, b) => (a.loyalty || 0) - (b.loyalty || 0));
+      const target = low[0];
+      const officer = generalsInCity(state, c.id).sort((a, b) => generalOf(state, b.id).cha - generalOf(state, a.id).cha)[0];
+      const cha = officer ? generalOf(state, officer.id).cha : 60;
+      c.gold -= 120;
+      target.loyalty = clamp((target.loyalty || 0) + 8 + Math.floor(cha / 10), 0, 100);
+      break;
+    }
+  }
   // 재야 장수 등용 시도
   if (rng() < 0.5) {
     for (const c of factionCities(state, fid)) {
@@ -3044,8 +3220,9 @@ function aiEconomy(state, fid, rng) {
       const tg = generalOf(state, free[0].id);
       if (rng() < clamp(0.2 + t.cha / 400, 0.05, 0.6)) {
         const g = state.generals[free[0].id];
-        g.faction = fid; g.loyalty = 70;
-        log(state, `${f.name}군이 ${c.ko}에서 ${withJosa(tg.ko, '을')} 등용했습니다.`);
+        placeGeneral(state, g.id, fid, c.id);
+        g.loyalty = 70;
+        log(state, `${f.name}군이 ${cityName(c.id)}에서 ${withJosa(tg.ko, '을')} 등용했습니다.`);
         break;
       }
     }
@@ -3072,6 +3249,7 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
   if (attackerWins) {
     toC.owner = atkFid;
     toC.troops = Math.max(600, Math.round(fromC.troops * (0.35 + rng() * 0.2)));
+    clampCityTroops(toC);
     toC.train = Math.max(30, Math.round(fromC.train * 0.8));
     toC.order = clamp(toC.order - 15, 10, ORDER_CAP);
     fromC.troops = Math.max(500, Math.round(fromC.troops * 0.45));
@@ -3099,18 +3277,21 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
 export function moveGeneralsOnCapture(state, cityId, defFid, atkFid, rng) {
   // 포로로 잡혀 있는 장수는 그 자리에 묶인다
   const defGens = Object.values(state.generals).filter((g) => g.city === cityId && g.faction === defFid && !g.captive && !g.dead);
-  const refuge = defFid ? factionCities(state, defFid).filter((c) => c.id !== cityId) : [];
+  const lordId = defFid && state.factions[defFid] ? state.factions[defFid].lord : null;
   for (const g of defGens) {
     const r = rng();
-    if (r < 0.18 && atkFid !== state.playerId) {
+    // 군주는 흘어지지 않는다 — 남은 성으로 반드시 피신한다(군주가 재야가 되면 세력이 머리 없이 남는다)
+    if (r < 0.18 && atkFid !== state.playerId && g.id !== lordId) {
       // AI가 포로를 거두지 않음 → 재야로
       g.faction = null; g.city = cityId; g.loyalty = 0;
-    } else if (refuge.length) {
-      g.city = refuge[Math.floor(rng() * refuge.length)].id;
     } else {
-      g.faction = null; g.city = cityId; g.loyalty = 0;
+      const refuge = refugeCityFor(state, defFid, cityId, rng);
+      if (refuge) g.city = refuge;
+      else { g.faction = null; g.city = cityId; g.loyalty = 0; }
     }
   }
+  // 군주가 이 성에서 사라졌으면(사망·포로·이탈) 세력의 차기 군주를 세운다
+  if (defFid) ensureLord(state, defFid);
 }
 
 
@@ -3207,13 +3388,15 @@ export function recruitPrisoner(state, gid, rng = Math.random) {
   const held = treasureOf(state, gid);
   g.captive = false;
   g.dead = false;
-  g.faction = state.playerId;
-  g.city = rec.city;
+  // 포로를 잡아 둔 성이 자리가 차 있으면 자리가 남은 성으로 보낸다
+  placeGeneral(state, gid, state.playerId, rec.city);
   g.loyalty = clamp(46 + Math.round((lord ? lord.cha : 60) / 6) - (rec.isLord ? 12 : 0), 30, 88);
   const aff = bumpAffinity(state, gid, 12);
   state.stats.recruited++;
   if (held) gainTreasure(state, held.id, { holder: gid });
   dropPrisoner(state, gid);
+  // 적 군주를 불러들였다면 그 세력에는 차기 군주가 필요하다
+  if (rec.faction) ensureLord(state, rec.faction);
   log(state, `${withJosa(t.ko, '이')} ${state.factions[state.playerId].name}군에 합류했습니다. (충성 ${g.loyalty} · 친밀도 ${aff})`);
   return { ok: true, accepted: true, chance, loyalty: g.loyalty, aff, msg: `${withJosa(t.ko, '이')} 고개를 숙였습니다! 충성 ${g.loyalty}로 아군이 되었습니다.` };
 }
@@ -3227,8 +3410,12 @@ export function releasePrisoner(state, gid) {
   const home = factionCities(state, rec.faction);
   const alive = home.length > 0 && state.factions[rec.faction] && state.factions[rec.faction].alive;
   g.captive = false;
-  g.faction = alive ? rec.faction : null;
-  g.city = alive ? (home.some((c) => c.id === rec.homeCity) ? rec.homeCity : home[0].id) : rec.city;
+  if (alive) {
+    placeGeneral(state, gid, rec.faction, home.some((c) => c.id === rec.homeCity) ? rec.homeCity : home[0].id);
+  } else {
+    g.faction = null;
+    g.city = rec.city;
+  }
   g.loyalty = alive ? Math.max(g.loyalty || 0, 55) : 0;
   state.stats.released = (state.stats.released || 0) + 1;
   bumpFame(state, state.playerId, 5);
@@ -3261,6 +3448,7 @@ export function executePrisoner(state, gid) {
   bumpFame(state, state.playerId, rec.isLord ? -4 : -2);
   dropPrisoner(state, gid);
   checkFactionDeath(state, rec.faction);
+  ensureLord(state, rec.faction);
   log(state, `${withJosa(t.ko, '의')} 목을 베었습니다. 그 이름은 이제 기록에만 남습니다.`);
   return { ok: true, msg: `${withJosa(t.ko, '을')} 참수했습니다. 다시는 나타나지 않습니다.`, treasure: spoils ? spoils.treasure : null };
 }
@@ -3302,21 +3490,36 @@ export function endTurnPhase2(state) {
   runDelegations(state, rngOf(state));
   // 다른 경로(AI·위임·이벤트)로 내정이 다 채워진 성도 규모가 오른다
   checkAllCitySizeUps(state);
-  // 월 수입·소비 — 성 규모가 크면 세입도 조금 두둑하다
+  // 월 수입·소비 — 성 규모가 크면 세입도 조금 두둑하다. 병력만큼 급료도 나간다
   for (const c of Object.values(state.cities)) {
     if (!c.owner) continue;
-    const office = OFFICES[officeLevel(state, c.owner)] || OFFICES[0];
-    const tax = 1 + office.tax;
-    const mul = sizeIncomeMul(c.size);
-    const gold = Math.round((c.comm * 5 + c.order * 0.8) * tax * mul);
-    const food = Math.round((c.agri * 7 + c.water * 1.5) * mul);
-    c.gold += gold;
-    c.food += food - Math.ceil(c.troops / 18);
+    const bal = cityMonthlyBalance(state, c.id);
+    c.gold += bal.goldNet;
+    c.food += bal.foodNet;
+  }
+  // 모자란 성은 같은 세력의 다른 성 창고에서 메운다(한 나라의 살림으로 본다)
+  for (const c of Object.values(state.cities)) {
+    if (!c.owner) continue;
+    if (c.gold < 0) {
+      const deficit = -c.gold;
+      c.gold = 0;
+      const short = deficit - coverDeficitFromRealm(state, c.owner, c.id, 'gold', deficit);
+      if (short > 0) {
+        const lost = Math.max(0, Math.min(c.troops - 300, Math.round(short * 2)));
+        c.troops = Math.max(300, c.troops - lost);
+        c.order = clamp(c.order - 4, 0, ORDER_CAP);
+        if (c.owner === state.playerId) log(state, `${cityName(c.id)}의 급료 ${fmtOr(short)}금을 마련하지 못해 병사 ${fmtOr(lost)}명이 떠났습니다. (치안 -4)`);
+      }
+    }
     if (c.food < 0) {
       const deficit = -c.food;
       c.food = 0;
-      c.troops = Math.max(300, c.troops - Math.round(deficit * 8));
-      if (c.owner === state.playerId) log(state, `${cityName(c.id)}의 식량이 바닥나 병사가 이탈했습니다.`);
+      const short = deficit - coverDeficitFromRealm(state, c.owner, c.id, 'food', deficit);
+      if (short > 0) {
+        const lost = Math.round(short * 8);
+        c.troops = Math.max(300, c.troops - lost);
+        if (c.owner === state.playerId) log(state, `${cityName(c.id)}의 식량이 바닥나 병사 ${fmtOr(lost)}명이 이탈했습니다.`);
+      }
     }
   }
   // 재해·풍작
@@ -3339,10 +3542,12 @@ export function endTurnPhase2(state) {
       if (c.owner === state.playerId) log(state, `${cityName(c.id)}에 풍작이 들어 식량 ${bonus}을 얻었습니다.`);
     }
   }
-  // 충성도 이탈
+  // 충성도 이탈 — 군주는 끝까지 남는다
   for (const g of Object.values(state.generals)) {
     if (!g.faction || g.captive || g.dead) continue;
     if (g.faction === state.playerId) continue;
+    const f = state.factions[g.faction];
+    if (f && f.lord === g.id) continue;
     if (g.loyalty < 40 && rng() < 0.05) {
       g.faction = null; g.loyalty = 0;
     }
@@ -3361,6 +3566,8 @@ export function endTurnPhase2(state) {
     if (!(state.scouted[cid].until > state.turn)) delete state.scouted[cid];
   }
   for (const fid of Object.keys(state.factions)) if (state.factions[fid].alive) checkFactionDeath(state, fid);
+  // 군주가 없거나 다른 세력으로 떠난 세력에는 차기 군주를 세운다
+  for (const fid of Object.keys(state.factions)) if (state.factions[fid].alive) ensureLord(state, fid);
   cleanDiplomacy(state);
   // 참모가 없으면 다시 앉히고, 쌀 시세를 새로 정한다
   autoAdvisor(state);
@@ -3415,6 +3622,7 @@ export function applyBattleResult(state, result, rng = null) {
     const losingFid = defFid;
     to.owner = atkFid;
     to.troops = Math.max(500, Math.round(result.atkSurvivors || from.troops * 0.6));
+    clampCityTroops(to);
     to.order = clamp(to.order - 12, 10, ORDER_CAP);
     to.def = clamp(to.def - 8, 20, 99);
     // 편성 출진이면 성 총병력은 이미 나설 때 빠졌다 — 생존 병력은 함락한 성에 들어간다

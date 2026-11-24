@@ -967,6 +967,15 @@ function onDocPointerDown(e) {
   syncCmdPopover();
 }
 
+/* 성의 월 수지 — 금·식량 칸에 이번 달 수지를 작게 덧붙인다(별도 줄을 두면 지도가 좁아진다) */
+function balanceOf(cityId) {
+  return E.cityMonthlyBalance(game, cityId);
+}
+function balanceTag(n) {
+  if (!Number.isFinite(n)) return '';
+  const cls = n >= 0 ? 'up' : 'down';
+  return `<em class="stat-net ${cls}">${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}</em>`;
+}
 function renderCityPanel(dir = 0) {
   const panel = $('#citypanel');
   if (!selectedCity) { panel.classList.add('hidden'); cmdCtx = null; syncCmdPopover(); return; }
@@ -975,7 +984,7 @@ function renderCityPanel(dir = 0) {
   const mine = c.owner === game.playerId;
   const ownerName = c.owner ? fname(c.owner) : '재야';
   const gens = mine ? E.generalsInCity(game, selectedCity) : Object.values(game.generals).filter((g) => g.city === selectedCity && g.faction === c.owner && !g.captive && !g.dead);
-  const genHTML = gens.slice(0, 12).map((g) => {
+  const genHTML = gens.map((g) => {
     const t = gd(g.id);
     const rk = E.rankInfoOf(game, g.id);
     const arm = E.armOf(game, g.id);
@@ -1096,8 +1105,8 @@ function renderCityPanel(dir = 0) {
         <div class="stat"><i>수리</i><b>${c.water}</b><em class="stat-cap">/${cap}</em></div>
         <div class="stat"><i>병력</i><b>${fmt(c.troops)}</b></div>
         <div class="stat"><i>훈련</i><b>${c.train}</b></div>
-        <div class="stat"><i>금</i><b>${fmt(c.gold)}</b></div>
-        <div class="stat"><i>식량</i><b>${fmt(c.food)}</b></div>
+        <div class="stat" title="${mine ? `월 세입 금 ${fmt(balanceOf(selectedCity).goldIn)} − 병사 급료 ${fmt(balanceOf(selectedCity).salary)}` : ''}"><i>금${mine ? balanceTag(balanceOf(selectedCity).goldNet) : ''}</i><b>${fmt(c.gold)}</b></div>
+        <div class="stat" title="${mine ? `월 생산 식량 ${fmt(balanceOf(selectedCity).foodIn)} − 군량 ${fmt(balanceOf(selectedCity).foodOut)}` : ''}"><i>식량${mine ? balanceTag(balanceOf(selectedCity).foodNet) : ''}</i><b>${fmt(c.food)}</b></div>
       </div>
       ${gens.length ? `<div class="cp-gens">${genHTML}</div>` : '<div class="cp-gens"><span class="none">주둔 장수 없음</span></div>'}
       ${delegHTML}
@@ -1727,7 +1736,12 @@ function marchSheetHTML() {
   const useAssign = plan.hasAssigned;
   const ask = Math.round(c.troops * p.ratio);
   const going = useAssign ? plan.total : Math.min(ask, capSum);
-  const myPower = Math.round(going * (0.7 + c.train / 180) * 0.95);
+  // 예상 전력 — 실제 전장 승률을 옮긴 값(수비보다 이만큼은 강해야 한다)
+  const odds = E.siegeOdds(game, p.cityId, p.targetId, { generals: p.generals, troops: going });
+  const myPower = odds ? odds.myPower : Math.round(going * (0.7 + c.train / 180) * 0.95);
+  const oddsKo = odds ? (odds.label === '우세' ? '승산 높음' : odds.label === '호각' ? '반반' : '열세') : '';
+  const oddsColor = odds && odds.label === '우세' ? '#8ed18e' : odds && odds.label === '호각' ? '#d9c07a' : '#e08a7a';
+  const needMore = odds && going < odds.recommend ? ` — 수비를 이기려면 병력 ${fmt(odds.recommend)} 안팎이 필요합니다` : '';
   const ratioRow = useAssign
     ? `<div class="field-row"><label>출진 병력 ${fmt(going)} / ${fmt(c.troops)}</label><span class="rg-tag">부대 편성</span></div>
     <p class="note">부대 편성대로 출진합니다 — 편성하지 않은 병력(예비병 ${fmt(Math.max(0, c.troops - plan.total))})은 성에 남습니다. 병력을 다시 나누려면 <b>군사 › 부대 편성</b>.</p>`
@@ -1739,7 +1753,7 @@ function marchSheetHTML() {
       ${enemies.map((e) => `<button class="pick-chip ${e === p.targetId ? 'on' : ''}" data-act="march-target" data-city="${e}">${CITY_BY_ID[e].ko}</button>`).join('')}
     </div></div>
     <p class="note">${CITY_BY_ID[p.targetId].ko}: ${tname}군 · 병력 ${fmt(target.troops)} · 성 방어 ${target.def}<br>
-    예상 전력 — 아군 ${fmt(myPower)} vs 수비 ${fmt(defPower)}${myPower > defPower ? ' <span style="color:#8ed18e">(우세)</span>' : ' <span style="color:#e08a7a">(열세)</span>'}</p>
+    예상 전력 — 아군 ${fmt(myPower)} vs 수비 ${fmt(defPower)} <span style="color:${oddsColor};font-weight:600">(${oddsKo})</span>${needMore}</p>
     ${ratioRow}
     <p class="note">출진 장수 (최대 5명)</p>
     <div class="chip-row">${gens.map((g) => {
