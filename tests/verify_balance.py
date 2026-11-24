@@ -151,15 +151,20 @@ with sync_playwright() as p:
     shot(page, f"live-balance-march-{TAG}")
 
     # ---------- 4. 장수가 13명인 성도 전원 보인다(184 원소의 계) ----------
-    page.reload(wait_until="networkidle"); page.wait_for_timeout(700)
-    page.click('[data-act="new"]'); page.wait_for_timeout(300)
-    page.click('.sc-card[data-id="s184"]'); page.wait_for_timeout(350)
-    if page.locator('.lord-card[data-id="yuanshao"]').count():
-        page.click('.lord-card[data-id="yuanshao"]'); page.wait_for_timeout(1300)
-        page.click('[data-act="info"]'); page.wait_for_timeout(280)
-        page.click('[data-act="info-tab"][data-tab="cities"]'); page.wait_for_timeout(280)
-        page.click('[data-act="info-city"][data-city="ji"]'); page.wait_for_timeout(600)
-        counts = page.evaluate("""async () => {
+    # 같은 페이지를 새로 고치는 대신 새 탭에서 연다(자원 요청이 몰리지 않게)
+    page2 = ctx.new_page()
+    page2.on("console", lambda m: errors.append(("console", m.text)) if m.type == "error" else None)
+    page2.on("pageerror", lambda e: errors.append(("pageerror", str(e))))
+    page2.on("requestfailed", lambda r: errors.append(("reqfail", r.url[:100])))
+    page2.goto(BASE, wait_until="networkidle"); page2.wait_for_timeout(700)
+    page2.click('[data-act="new"]'); page2.wait_for_timeout(300)
+    page2.click('.sc-card[data-id="s184"]'); page2.wait_for_timeout(350)
+    if page2.locator('.lord-card[data-id="yuanshao"]').count():
+        page2.click('.lord-card[data-id="yuanshao"]'); page2.wait_for_timeout(1300)
+        page2.click('[data-act="info"]'); page2.wait_for_timeout(280)
+        page2.click('[data-act="info-tab"][data-tab="cities"]'); page2.wait_for_timeout(280)
+        page2.click('[data-act="info-city"][data-city="ji"]'); page2.wait_for_timeout(600)
+        counts = page2.evaluate("""async () => {
           const ui = await import('./js/ui.js');
           const E = await import('./js/engine.js');
           const g = ui.game;
@@ -169,7 +174,8 @@ with sync_playwright() as p:
         }""")
         step("장수 13명인 성에서도 13명 모두 보인다(12명에서 잘리지 않음)",
              counts["shown"] == counts["total"] and counts["total"] >= 13, counts)
-        shot(page, f"live-balance-gen13-{TAG}")
+        page2.screenshot(path=os.path.join(OUT, f"live-balance-gen13-{TAG}.png"))
+        print("SHOT live-balance-gen13-%s.png" % TAG, flush=True)
 
     # ---------- 5. 마무리 — 넘침·한자·오류 ----------
     ov = overflow(page)
