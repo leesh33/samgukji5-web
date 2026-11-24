@@ -1015,7 +1015,8 @@ function renderCityPanel(dir = 0) {
     }).join('');
     const diploSub = game.actionPoints >= 1 ? '증정·동맹' : '행동력 부족';
     const diploTab = `<button class="btn diplo" data-act="diplomacy" data-city="${selectedCity}">외교<small>${diploSub}</small></button>`;
-    cmdHTML = `<div class="cp-cmds">${tabs}${diploTab}<button class="btn ${plotReady ? 'plot' : ''}" data-act="cmd" data-cmd="plot" data-city="${selectedCity}" ${plotReady ? '' : 'disabled'}>계략<small>${plotSub}</small></button></div>`;
+    const specialTab = `<button class="btn special" data-act="special-menu" data-city="${selectedCity}">특수<small>순찰·연회</small></button>`;
+    cmdHTML = `<div class="cp-cmds">${tabs}${diploTab}<button class="btn ${plotReady ? 'plot' : ''}" data-act="cmd" data-cmd="plot" data-city="${selectedCity}" ${plotReady ? '' : 'disabled'}>계략<small>${plotSub}</small></button>${specialTab}</div>`;
     cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies, learnCount: E.cityLearnableFormations(game, selectedCity).length, assigned: E.armyBreakdown(game, selectedCity).assigned };
   } else {
     cmdCtx = null;
@@ -1024,15 +1025,15 @@ function renderCityPanel(dir = 0) {
     const plotSrc = E.adjacentFriends(game, selectedCity).filter((id) => E.generalsInCity(game, id).length);
     if (c.owner) {
       cmdHTML = src.length
-        ? `<button class="btn march" data-act="attack-enemy" data-city="${selectedCity}" style="grid-column:span 2">공격</button>`
-        : `<button class="btn" disabled style="grid-column:span 2">${pacified ? (E.isAllied(game, game.playerId, c.owner) ? '동맹 중' : '정전 중') : '공격 불가'}</button>`;
+        ? `<button class="btn march" data-act="attack-enemy" data-city="${selectedCity}">공격</button>`
+        : `<button class="btn" disabled>${pacified ? (E.isAllied(game, game.playerId, c.owner) ? '동맹 중' : '정전 중') : '공격 불가'}</button>`;
       cmdHTML += plotSrc.length && !pacified
-        ? `<button class="btn plot" data-act="plot-city" data-city="${selectedCity}" style="grid-column:span 2">계략</button>`
-        : `<button class="btn" disabled style="grid-column:span 2">${pacified ? '계략 불가' : '계략 불가'}</button>`;
+        ? `<button class="btn plot" data-act="plot-city" data-city="${selectedCity}">계략</button>`
+        : `<button class="btn" disabled>계략 불가</button>`;
     } else {
       cmdHTML = '<button class="btn" disabled style="grid-column:span 2">공격 불가</button>';
     }
-    cmdHTML = `<div class="cp-cmds">${cmdHTML}</div>`;
+    cmdHTML = `<div class="cp-cmds foe">${cmdHTML}</div>`;
   }
 
   const own = ownCityIds();
@@ -3537,7 +3538,7 @@ function openHelp() {
     <b style="color:#e6d9b3">14. 원군</b> — 출진할 때 인접한 아군·동맹 성에서 원군을 고르면 2라운드에 전장 가장자리로 들어옵니다. 방어전에서는 자동으로 합류합니다.<br>
     <b style="color:#e6d9b3">15. 달의 소식</b> — 새 달에 풍작·도적·역병·가뭄·유랑 무장 같은 일이 생깁니다. 선택에 따라 결과가 달라집니다.<br>
     <b style="color:#e6d9b3">16. 교역</b> — 성 시트의 내정 → 교역. 금 100으로 사는 식량(쌀 시세)이 달마다 흔들립니다. 풍작이면 싸지고 가뭄이면 비싸집니다. 행동력 1로 금과 식량을 맞바꿉니다.<br>
-    <b style="color:#e6d9b3">17. 특수</b> — 지도 위 특수에서 순찰(치안·명성, 가끔 보물)·연회(장수 충성·친밀)·징세(금, 대신 치안·명성 손해)·구휼(식량으로 치안·명성)을 씁니다.<br>
+    <b style="color:#e6d9b3">17. 특수</b> — 성 시트 하단 명령 줄의 특수에서 순찰(치안·명성, 가끔 보물)·연회(장수 충성·친밀)·징세(금, 대신 치안·명성 손해)·구휼(식량으로 치안·명성)을 씁니다.<br>
     <b style="color:#e6d9b3">18. 보물</b> — 적토마·청룡언월도·손자병법 같은 보물 14종. 탐색·순찰·포로 처분·세력 멸망으로 얻고, 장수에게 수여하면 능력치가 오릅니다(정보 → 보물 도감).<br>
     <b style="color:#e6d9b3">19. 참모</b> — 군주를 뺀 부하 장수 중 지력이 가장 높은 장수가 참모로 앉아 계략·등용·외교 성공률을 2~8% 올리고 조언을 합니다(정보에서 변경).<br>
     <b style="color:#e6d9b3">20. 담당</b> — 성마다 직할·내정 위임·군사 위임을 정합니다. 위임한 성은 턴이 바뀔 때 행동력 없이 스스로 개발·징병·훈련을 합니다.<br>
@@ -3688,7 +3689,7 @@ function onClick(e) {
     /* 교역 · 특수 · 보물 · 참모 · 정보 */
     case 'trade': doTrade(el.dataset.kind, Number(el.dataset.amount)); break;
     case 'trade-open': openTradeSheet(specialCity || selectedCity); break;
-    case 'special-menu': openSpecialSheet(); break;
+    case 'special-menu': openSpecialSheet(el.dataset.city || null); break;
     case 'special': doSpecial(el.dataset.kind); break;
     case 'special-city': specialCity = el.dataset.city; renderSpecialSheet(); sfx.click(); break;
     case 'treasures': openTreasureSheet(); break;

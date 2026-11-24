@@ -159,7 +159,22 @@ with sync_playwright() as p:
     step("본 게임 진입", page.locator("#scr-game").is_visible(), page.locator("#hud-faction").inner_text())
 
     bar = page.locator(".mapbar .mapbtn").all_inner_texts()
-    step("상단 지도 메뉴(권역·내 성·정보·특수)", [t.replace("\n", " ").strip() for t in bar][:4] == ["권역 ▾", "내 성", "정보", "특수"], bar)
+    step("상단 지도 메뉴(권역·내 성·정보) 3개 — 특수는 하단으로 내려감",
+         [t.replace("\n", " ").strip() for t in bar] == ["권역 ▾", "내 성", "정보"], bar)
+    cmdbar = page.evaluate("""() => {
+      const btns = [...document.querySelectorAll('.cp-cmds .btn')];
+      const rows = new Set(btns.map(b => Math.round(b.getBoundingClientRect().top)));
+      return {
+        labels: btns.map(b => b.childNodes[0].textContent.trim()),
+        rows: rows.size,
+        clipped: btns.filter(b => b.scrollWidth > b.clientWidth + 1 || b.scrollHeight > b.clientHeight + 1).length,
+        grid: getComputedStyle(document.querySelector('.cp-cmds')).gridTemplateColumns.split(' ').length,
+      };
+    }""")
+    step("하단 성 시트 명령 줄 6×1(내정·인사·군사·외교·계략·특수)",
+         cmdbar["labels"] == ["내정", "인사", "군사", "외교", "계략", "특수"] and cmdbar["rows"] == 1 and cmdbar["grid"] == 6,
+         cmdbar)
+    step("하단 버튼 글자 잘림 없음", cmdbar["clipped"] == 0, cmdbar["clipped"])
     o = overflow(page)
     step("가로 넘침 없음(지도)", len(o["bad"]) == 0, o)
 
@@ -198,7 +213,7 @@ with sync_playwright() as p:
     close_sheet(page)
 
     # ---------- 특수 ----------
-    page.click('.mapbar [data-act="special-menu"]')
+    page.click('.cp-cmds [data-act="special-menu"]')
     page.wait_for_timeout(500)
     step("특수 시트 열림", sheet_title(page) == "특수", sheet_title(page))
     kinds = {k: page.locator(f'[data-act="special"][data-kind="{k}"]').count() for k in ("patrol", "banquet", "levy", "relief")}
@@ -216,7 +231,7 @@ with sync_playwright() as p:
         page.wait_for_timeout(800)
         step("순찰 실행(행동력 소감)", ap_now(page) < ap0 or not sheet_open(page), f"{ap0} -> {ap_now(page)}")
         if not sheet_open(page):
-            page.click('.mapbar [data-act="special-menu"]')
+            page.click('.cp-cmds [data-act="special-menu"]')
             page.wait_for_timeout(400)
         o = overflow(page)
         step("가로 넘침 없음(순찰 뒤 특수)", len(o["bad"]) == 0, o)
@@ -256,7 +271,7 @@ with sync_playwright() as p:
 
     # ---------- 참모 ----------
     close_sheet(page)
-    page.click('.mapbar [data-act="special-menu"]')
+    page.click('.cp-cmds [data-act="special-menu"]')
     page.wait_for_timeout(450)
     if page.locator('[data-act="advisor"]').count():
         page.click('.sheet-body [data-act="advisor"]')

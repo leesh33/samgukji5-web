@@ -342,19 +342,24 @@ test('항복 권고는 동맹 중인 세력에 보낼 수 없다', () => {
   assert.match(r.msg, /동맹/);
 });
 
-test('하단 성 시트 1차 메뉴에 외교가 있고 5칸으로 배치된다', () => {
+test('하단 성 시트 1차 메뉴에 외교·특수가 있고 6칸으로 배치된다', () => {
   const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
   const ui = read('../js/ui.js');
   const css = read('../css/style.css');
   const bar = ui.match(/cmdHTML = `<div class="cp-cmds">[\s\S]*?<\/div>`/);
   assert.ok(bar, '하단 명령 바 코드');
   assert.match(bar[0], /\$\{diploTab\}/, '하단 외교 버튼이 1차 메뉴에 붙는다');
+  assert.match(bar[0], /\$\{specialTab\}/, '하단 특수 버튼이 1차 메뉴에 붙는다');
   assert.match(bar[0], /계략/, '계략 버튼 유지');
   const tab = ui.match(/const diploTab = `[^`]*`/);
   assert.ok(tab, 'diploTab 정의');
   assert.match(tab[0], /data-act="diplomacy"/);
   assert.match(tab[0], />외교</);
-  assert.match(css, /\.cp-cmds \{[^}]*repeat\(5, 1fr\)/, '5칸 배치');
+  const sp = ui.match(/const specialTab = `[^`]*`/);
+  assert.ok(sp, 'specialTab 정의');
+  assert.match(sp[0], /data-act="special-menu"/);
+  assert.match(sp[0], />특수</);
+  assert.match(css, /\.cp-cmds \{[^}]*repeat\(6, 1fr\)/, '6칸 배치');
   assert.match(css, /\.dp-btns \{[^}]*repeat\(3, 1fr\)/, '외교 버튼 3열');
   assert.match(ui, /data-kind="giftGold"/);
   assert.match(ui, /data-kind="giftFood"/);

@@ -618,7 +618,9 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .gd-row > span:first-child { min-width: 66px; color: #a2917a; font-size: 10px; }
 .gd-row b { color: #f0e2c4; font-weight: 600; }
 .gd-row b em { font-style: normal; font-size: 9.5px; color: #a8d18a; font-weight: 400; margin-left: 3px; }
-.cp-cmds { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 5px; }
+.cp-cmds { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 5px; }
+/* 적 성·재야 성을 골랐을 때는 공격·계략 두 칸이 줄을 꽉 채운다 */
+.cp-cmds.foe { grid-template-columns: repeat(2, 1fr); }
 .cp-cmds .btn, .cmdp .btn { width: 100%; min-height: 42px; font-size: 12px; letter-spacing: 0.6px; padding: 4px 2px; flex-direction: column; gap: 0; }
 .cp-cmds .btn small, .cmdp .btn small { font-size: 8.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
 .cp-cmds .btn.cmd-tab { color: #e2cfab; }
@@ -1122,7 +1124,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   #scr-game .citypanel::before { display: none; }
   #scr-game .cs-body { display: block; max-height: none; }
   #scr-game .cs-toggle { display: none; }
-  #scr-game .cp-cmds { grid-template-columns: repeat(5, 1fr); }
+  #scr-game .cp-cmds { grid-template-columns: repeat(6, 1fr); }
   .cp-gens { flex-wrap: wrap; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
   .scroll { max-width: 900px; margin: 0 auto; width: 100%; }
@@ -1132,7 +1134,7 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   body { font-size: 13.5px; }
   .citypanel { max-height: 60vh; }
   .lord-grid { grid-template-columns: repeat(4, 1fr); }
-  .cp-cmds { grid-template-columns: repeat(5, 1fr); }
+  .cp-cmds { grid-template-columns: repeat(6, 1fr); }
   .cmdp .btn { min-height: 46px; }
   .bt-cmds { grid-template-columns: repeat(5, 1fr); }
   /* 넓은 화면에서는 자원 칸이 늘어나지 않게 폭을 잡고 왼쪽으로 모은다 */
