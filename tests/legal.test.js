@@ -48,6 +48,18 @@ test('구글·카카오 로그인과 클라우드 저장, 문의처를 담는다
   assert.ok(p.includes('14세'), '아동 조항');
 });
 
+test('Apple 로그인과 앱 안 계정·클라우드 기록 즉시 삭제를 담는다', () => {
+  const p = text(LEGAL_DOCS.privacy);
+  const t = text(LEGAL_DOCS.terms);
+  for (const s of [p, t]) {
+    assert.ok(s.includes('Apple'), 'Apple 로그인 언급');
+    assert.ok(s.includes('계정 · 클라우드 기록 삭제'), '앱 안 삭제 경로');
+    assert.ok(s.includes('즉시'), '즉시 삭제 안내');
+  }
+  assert.ok(p.includes('이메일 가리기'), 'Apple 이메일 가리기 안내');
+  assert.ok(p.includes('Apple Inc.'), 'Apple 처리 위탁');
+});
+
 test('문서에 한자가 한 자도 없다', () => {
   const hit = blob.match(CJK);
   assert.equal(hit, null, hit && hit[0]);

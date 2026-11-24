@@ -3382,8 +3382,8 @@ function openDeleteAccount() {
   openSheet('계정 · 클라우드 기록 삭제', `
     <div class="del-account">
       <p class="note">${name ? `${name} 님의 ` : ''}클라우드 저장(자동 저장·슬롯 1~3)과 <b>이 기기의 저장 기록</b>을 모두 지우고 로그아웃합니다.</p>
-      <p class="note">지운 기록은 되돌릴 수 없습니다. 같은 계정으로 다시 로그인하면 새 기록으로 시작합니다.</p>
-      <p class="note">Google·카카오 계정 자체는 삭제되지 않습니다. 계정 자체의 삭제를 원하시면 <b>andy.leesh33@gmail.com</b> 으로 요청해 주세요 — 영업일 7일 이내에 처리합니다.</p>
+      <p class="note">누르면 곧바로(즉시) 지워지고 되돌릴 수 없습니다. 같은 계정으로 다시 로그인하면 새 기록으로 시작합니다.</p>
+      <p class="note">로그인에 쓴 Google·카카오·Apple 계정 자체는 지워지지 않습니다. 삼국 한 턴에만 쓰는 계정이면 이 게임의 계정까지 함께 지우고, 다른 앱에서도 같은 계정을 쓰고 있으면 그 앱의 기록은 그대로 둡니다. 계정 자체의 삭제를 원하시면 <b>andy.leesh33@gmail.com</b> 으로 요청해 주세요 — 영업일 7일 이내에 처리합니다.</p>
       <label class="del-ack"><input type="checkbox" id="del-ack" /> 위 내용을 확인했고, 삭제에 동의합니다</label>
       <button class="btn big" id="del-go" data-act="account-delete-go" disabled style="margin-top:12px">삭제하기</button>
       <button class="btn big ghost" data-act="sheet-close" style="margin-top:8px">취소</button>
