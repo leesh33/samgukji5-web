@@ -2038,13 +2038,39 @@ export function wandererCandidate(state) {
   return Object.values(state.generals).find((g) => !g.faction && !g.captive && !g.dead && g.city && !mine.includes(g.city)) || null;
 }
 
+/* 재야 명장 천거 — 아직 세력이 없는 장수 중 가장 이름난 이 */
+export function sageCandidate(state) {
+  const sum = (g) => (g.lead || 0) + (g.war || 0) + (g.int || 0) + (g.pol || 0) + (g.cha || 0);
+  return Object.values(state.generals)
+    .filter((g) => !g.faction && !g.captive && !g.dead)
+    .sort((a, b) => sum(b) - sum(a))[0] || null;
+}
+
+/* 천거를 받아들였을 때 등용될 확률 — 명성·군주 매력·친밀도가 바탕 */
+export function sageChance(state, gid) {
+  const t = generalOf(state, gid);
+  if (!t) return 0;
+  const f = state.factions[state.playerId];
+  const lord = lordOf(state, state.playerId);
+  const fame = f ? f.fame : 45;
+  const cha = lord ? lord.cha : (t.cha || 60);
+  const base = 0.42 + (fame - 45) / 220 + (cha - 60) / 260 + affinityOf(state, gid) / 500;
+  return clamp(base, 0.25, 0.9);
+}
+
+export const TREASURE_MERCHANT_PRICE = [300, 400, 500];
+export const REMNANT_GOLD = [350, 600];
+export const SAGE_PRICE = 400;
+
 export function monthlyEventPool(state) {
   const season = seasonOf(state.month);
-  return ['harvest', 'bandits', 'wanderer', 'plague', 'drought', 'doctor'].filter((id) => {
+  return ['harvest', 'bandits', 'wanderer', 'plague', 'drought', 'doctor', 'treasureMerchant', 'remnant', 'sage'].filter((id) => {
     if (id === 'harvest') return season === 'spring' || season === 'autumn';
     if (id === 'plague' || id === 'drought') return season === 'summer';
     if (id === 'doctor') return season === 'winter';
     if (id === 'wanderer') return !!wandererCandidate(state);
+    if (id === 'treasureMerchant') return lostTreasures(state).length > 0;   // 내놓을 보물이 있어야 상인이 온다
+    if (id === 'sage') return !!sageCandidate(state);
     return true;
   });
 }
@@ -2113,6 +2139,46 @@ export function buildEvent(state, id, rng = Math.random) {
     ev.text = `이름난 의원이 찾아와 군중의 상처를 돌봐 주겠다고 합니다. 병력이 회복됩니다.`;
     ev.options = [{ id: 'welcome', ko: '맞이한다', hint: '모든 성 병력 +7% · 명성 +1' }];
     ev.data = {};
+    return ev;
+  }
+  if (id === 'treasureMerchant') {
+    const lost = lostTreasures(state);
+    if (!lost.length) return null;
+    const tr = lost[Math.floor(rng() * lost.length)] || lost[0];
+    const price = TREASURE_MERCHANT_PRICE[Math.floor(rng() * TREASURE_MERCHANT_PRICE.length)] || TREASURE_MERCHANT_PRICE[0];
+    ev.title = '보물 상인';
+    ev.text = `떠돌이 상인이 낡은 궤짝을 열어 ${withJosa(tr.ko, '을')} 내밉니다. (${treasureBonusText(tr)}) 값을 치르면 우리 것이 됩니다.`;
+    ev.options = [
+      { id: 'buy', ko: '산다', hint: `금 ${fmtOr(price)} · ${tr.ko} 획득`, gold: price },
+      { id: 'pass', ko: '거절한다', hint: '금을 쓰지 않는다' },
+    ];
+    ev.data = { tid: tr.id, price };
+    return ev;
+  }
+  if (id === 'remnant') {
+    const gold = REMNANT_GOLD[0] + Math.round(rng() * (REMNANT_GOLD[1] - REMNANT_GOLD[0]));
+    ev.title = '도적 잔당';
+    ev.text = `흩어진 도적 잔당이 성 아래 마을을 어슬렁거립니다. 소규모로 출동하면 잔당을 쓸어내고 치안과 이름을 세울 수 있습니다.`;
+    ev.options = [
+      { id: 'sweep', ko: '소규모 출동', hint: `병력 -300 · 치안 +6 · 명성 +2 · 금 +${fmtOr(gold)}` },
+      { id: 'parley', ko: '회유한다', hint: '금 200 · 모든 성 치안 +3 · 명성 +1', gold: 200 },
+      { id: 'ignore', ko: '방치한다', hint: '모든 성 치안 -5 · 금 -5%' },
+    ];
+    ev.data = { gold, city: lordCity };
+    return ev;
+  }
+  if (id === 'sage') {
+    const cand = sageCandidate(state);
+    const t = cand ? generalOf(state, cand.id) : null;
+    if (!cand || !t) return null;
+    const chance = Math.round(sageChance(state, cand.id) * 100);
+    ev.title = '재야 명장 천거';
+    ev.text = `이름난 선비가 찾아와 ${withJosa(t.ko, '을')} 천거합니다. (통 ${t.lead} · 무 ${t.war} · 지 ${t.int}) 예우를 갖추면 휘하로 들일 수 있습니다.`;
+    ev.options = [
+      { id: 'honor', ko: '예우를 갖춘다', hint: `금 ${fmtOr(SAGE_PRICE)} · 등용 성공률 ${chance}% · 명성 +3`, gold: SAGE_PRICE },
+      { id: 'decline', ko: '사양한다', hint: '금을 쓰지 않는다' },
+    ];
+    ev.data = { gid: cand.id, ko: t.ko, city: lordCity, chance };
     return ev;
   }
   return null;
@@ -2198,6 +2264,78 @@ export function resolveEvent(state, choiceId = null) {
     for (const c of cs) { const inc = Math.round(c.troops * 0.07); c.troops += inc; clampCityTroops(c); add += inc; }
     bumpFame(state, fid, 1);
     msg = `명의가 병사 ${fmtOr(add)}명을 되살렸습니다. 명성 +1`;
+  } else if (ev.id === 'treasureMerchant') {
+    const price = ev.data.price || TREASURE_MERCHANT_PRICE[0];
+    const tr = TREASURE_BY_ID[ev.data.tid];
+    if (opt.id === 'buy' && tr) {
+      if (factionGold(state, fid) < price) {
+        msg = `금이 모자라 ${withJosa(tr.ko, '을')} 사지 못했습니다. (금 ${fmtOr(price)} 필요)`;
+      } else {
+        spendFactionGold(state, fid, price);
+        gainTreasure(state, tr.id, { holder: null });
+        msg = `보물 상인에게 금 ${fmtOr(price)}을 주고 ${withJosa(tr.ko, '을')} 얻었습니다. (${treasureBonusText(tr)}) — 특수 › 보물에서 장수에게 수여하세요.`;
+      }
+    } else {
+      msg = '보물 상인을 그냥 돌려보냈습니다.';
+    }
+  } else if (ev.id === 'remnant') {
+    if (opt.id === 'sweep') {
+      const c = state.cities[ev.data.city] || cs.slice().sort((a, b) => b.troops - a.troops)[0];
+      if (c) {
+        c.troops = Math.max(300, c.troops - 300);
+        c.order = clamp(c.order + 6, 0, ORDER_CAP);
+        c.gold += ev.data.gold;
+      }
+      bumpFame(state, fid, 2);
+      msg = `잔당을 쓸어내어 ${c ? cityName(c.id) : '성'}에 금 ${fmtOr(ev.data.gold)}과 치안 +6을 얻고 명성 +2를 세웠습니다.`;
+    } else if (opt.id === 'parley') {
+      const paid = factionGold(state, fid) >= 200;
+      if (paid) spendFactionGold(state, fid, 200);
+      if (paid) {
+        for (const c of cs) c.order = clamp(c.order + 3, 0, ORDER_CAP);
+        bumpFame(state, fid, 1);
+        msg = '잔당에게 금 200을 주고 회유해 모든 성 치안 +3 · 명성 +1을 얻었습니다.';
+      } else {
+        for (const c of cs) c.order = clamp(c.order - 2, 0, ORDER_CAP);
+        msg = '회유할 금이 모자라 잔당이 흩어졌습니다. 모든 성 치안 -2.';
+      }
+    } else {
+      let take = 0;
+      for (const c of cs) {
+        c.order = clamp(c.order - 5, 0, ORDER_CAP);
+        const cut = Math.round(c.gold * 0.05);
+        c.gold = Math.max(0, c.gold - cut);
+        take += cut;
+      }
+      msg = `잔당을 방치해 모든 성 치안 -5 · 금 ${fmtOr(take)}을 약탈당했습니다.`;
+    }
+  } else if (ev.id === 'sage') {
+    const gid = ev.data.gid;
+    const g = state.generals[gid];
+    const t = generalOf(state, gid);
+    if (opt.id === 'honor' && g && t && !g.faction) {
+      const price = SAGE_PRICE;
+      if (factionGold(state, fid) < price) {
+        msg = `금이 모자라 ${withJosa(t.ko, '을')} 예우하지 못했습니다. (금 ${fmtOr(price)} 필요)`;
+      } else {
+        spendFactionGold(state, fid, price);
+        const owned = cs.map((c) => c.id);
+        const dest = ev.data.city && owned.includes(ev.data.city) ? ev.data.city : owned[0];
+        const rng2 = rngOf(state);
+        if (dest && rng2() < sageChance(state, gid)) {
+          placeGeneral(state, gid, fid, dest);
+          g.loyalty = 70; g.acted = true;
+          bumpFame(state, fid, 3);
+          state.stats.recruited = (state.stats.recruited || 0) + 1;
+          msg = `예우를 갖춰 ${withJosa(t.ko, '을')} 등용했습니다. (충성 70 · 명성 +3) — ${cityName(dest)}에 있습니다.`;
+        } else {
+          bumpFame(state, fid, 1);
+          msg = `${withJosa(t.ko, '이')} 예우를 사양하고 떠났습니다. (금 ${fmtOr(price)}만 썼습니다)`;
+        }
+      }
+    } else {
+      msg = '천거를 사양하고 조용히 물러났습니다.';
+    }
   }
   state.pendingEvent = null;
   log(state, msg);

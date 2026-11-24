@@ -1,6 +1,6 @@
 /* 전술 전투 — 격자 전장 · 진형 · 방향 · 계략 (순수 로직, DOM 비의존) */
 import { GENERAL_BY_ID, FORMATIONS, CITIES, CITY_BY_ID, formationRelation } from './data.js';
-import { mulberry32, randInt, clamp } from './engine.js';
+import { mulberry32, randInt, clamp, withJosa } from './engine.js';
 
 /* ---------- 방향(정면·측면·배후) ---------- */
 export const DIRS = { N: { x: 0, y: -1 }, E: { x: 1, y: 0 }, S: { x: 0, y: 1 }, W: { x: -1, y: 0 } };
@@ -730,6 +730,294 @@ export function runAiPhase(b, seed = 1) {
 /* 일기토 요청 가능 여부 */
 export function duelOptions(b, u) {
   return unitsOf(b, u.side === 'atk' ? 'def' : 'atk').filter((t) => dist(u, t) <= 1);
+}
+
+/* ---------- 적 장수의 일기토 도발 ----------
+ * 적의 차례가 열릴 때, 맞닿아 선 호전적인 적 장수가 먼저 일기토를 청해 온다.
+ * 전투당 한 번만 — 도배를 막고, 수락하면 기존 일기토 화면으로 이어진다. */
+export const PROVOKE_LIMIT = 1;
+export const PROVOKE_MIN_WAR = 74;                              // 이만큼 무력이 세거나
+export const PROVOKE_HOT_SKILLS = ['dolgyeok', 'yongmaeng', 'pokgyeok', 'bigyeok'];   // 호전적인 특기
+export const PROVOKE_MORALE_LOSS_MIN = 8;                       // 거절했을 때 아군 사기 하락
+
+export function isHotBlooded(spec) {
+  if (!spec) return false;
+  return (spec.war || 0) >= PROVOKE_MIN_WAR || PROVOKE_HOT_SKILLS.includes(spec.skill);
+}
+
+/* 도발할 수 있는 적 장수와 그 맞은편 아군 — 서로 붙어 있어야 한다 */
+export function provokeCandidates(b) {
+  if (!b || !b.playerSide) return [];
+  const mine = b.playerSide;
+  const foe = mine === 'atk' ? 'def' : 'atk';
+  const out = [];
+  for (const e of unitsOf(b, foe)) {
+    if (!e.alive || e.morale < 30) continue;
+    const spec = unitSpec(e);
+    if (!isHotBlooded(spec)) continue;
+    const near = unitsOf(b, mine).filter((m) => m.alive && dist(e, m) <= 1);
+    if (!near.length) continue;
+    // 가장 센 아군과 겨루려 든다
+    near.sort((a, c) => (unitSpec(c).war || 0) - (unitSpec(a).war || 0));
+    out.push({ challenger: e, target: near[0] });
+  }
+  return out.sort((a, c) => (unitSpec(c.challenger).war || 0) - (unitSpec(a.challenger).war || 0));
+}
+
+/* 도발이 걸려 오는가 — 걸리면 { id, challenger, target, chance } 를 돌려준다 */
+export function duelProvokeRoll(b, rng = Math.random) {
+  if (!b || b.over || !b.playerSide) return null;
+  if ((b.duelProvokes || 0) >= PROVOKE_LIMIT) return null;
+  const cands = provokeCandidates(b);
+  if (!cands.length) return null;
+  const pick = cands[0];
+  const war = unitSpec(pick.challenger).war || 60;
+  const chance = clamp(0.34 + war / 320 + (b.round >= 3 ? 0.1 : 0) + (pick.challenger.morale >= 70 ? 0.06 : 0), 0.2, 0.8);
+  if (rng() >= chance) return null;
+  b.duelProvokes = (b.duelProvokes || 0) + 1;
+  const ev = {
+    id: 'duelProvoke',
+    challenger: pick.challenger, target: pick.target,
+    chance,
+    title: '일기토 도발',
+    text: `${withJosa(pick.challenger.name, '이')} 창을 치켜들며 ${withJosa(pick.target.name, '에게')} 일기토를 청합니다.`,
+  };
+  b.log.push(`[일기토 도발] ${withJosa(pick.challenger.name, '이')} ${withJosa(pick.target.name, '에게')} 일기토를 청했습니다.`);
+  return ev;
+}
+
+/* 수락 — 일기토 화면으로 넘긴다(전투 결과는 일기토가 끝날 때 붙는다) */
+export function acceptDuelProvoke(b, ev) {
+  if (!b || !ev) return { ok: false, lines: [] };
+  const lines = [`[일기토 승낙] ${withJosa(ev.target.name, '이')} 도발을 받아들여 말을 달렸습니다.`];
+  b.log.push(...lines);
+  return { ok: true, lines };
+}
+
+/* 거절 — 아군 부대 사기가 소폭 떨어지고 적은 기세를 올린다 */
+export function declineDuelProvoke(b, ev) {
+  if (!b || !ev) return { ok: false, lines: [], loss: 0 };
+  const target = ev.target, challenger = ev.challenger;
+  const loss = PROVOKE_MORALE_LOSS_MIN + Math.round((100 - target.morale) / 30);   // 8~11
+  target.morale = clamp(target.morale - loss, 0, 100);
+  challenger.morale = clamp(challenger.morale + 4, 0, 100);
+  const lines = [`[도발 거절] ${withJosa(target.name, '이')} 도발을 물리쳤습니다. 아군 사기 -${loss} · ${challenger.name} 부대 사기 +4.`];
+  if (target.morale <= 0) {
+    target.alive = false;
+    lines.push(`${target.name} 부대가 궤멸했습니다!`);
+  }
+  b.log.push(...lines);
+  return { ok: true, lines, loss };
+}
+
+/* ---------- 전투 중 돌발 이벤트 ----------
+ * 라운드가 열릴 때 전황·지형을 보고 한 번씩 굴린다. 전투당 최대 두 번.
+ *  · 아군 원군 도착  — 수성 중이거나 병력이 밀릴 때 지원 병력·부대가 합류
+ *  · 적 부대 내응·동요 — 사기가 낮은 적 부대가 흔들린다(병력 이탈 / 사기 급락)
+ *  · 야습·화공       — 어두운 밤, 숲에 선 적을 노려 기습한다(선택) */
+export const BATTLE_EVENT_MAX = 2;
+export const BATTLE_EVENT_CHANCE = 0.45;
+export const REINFORCE_CAP_MULT = 1.35;      // 원군으로 늘어날 수 있는 병력 상한(처음 병력 ×1.35)
+
+/* 원군으로 불어날 수 있는 상한 — 처음 병력 기준으로 한 번만 잡는다 */
+function reinforceCapOf(b, side) {
+  b.reinforceCap = b.reinforceCap || { atk: Math.round((b.initial.atk || 0) * REINFORCE_CAP_MULT), def: Math.round((b.initial.def || 0) * REINFORCE_CAP_MULT) };
+  return b.reinforceCap[side] || 0;
+}
+const sideTroopsOf = (b, side) => unitsOf(b, side).reduce((s, u) => s + u.troops, 0);
+
+/* 지금 열릴 수 있는 돌발 이벤트 */
+export function battleEventCandidates(b) {
+  if (!b || b.over || !b.playerSide) return [];
+  const mine = b.playerSide;
+  const foe = mine === 'atk' ? 'def' : 'atk';
+  const myUnits = unitsOf(b, mine), foeUnits = unitsOf(b, foe);
+  if (!myUnits.length || !foeUnits.length) return [];
+  const out = [];
+  const room = reinforceCapOf(b, mine) - sideTroopsOf(b, mine);
+  const planned = ((b.reinforcements && b.reinforcements[mine]) || []).length > 0;
+  if ((planned || room > 400) && (mine === 'def' || sideTroopsOf(b, mine) < sideTroopsOf(b, foe) * 0.95 || planned)) out.push('reinforce');
+  if (foeUnits.some((u) => u.morale <= 58)) out.push('waver');
+  if (b.round >= 3) out.push('raid');
+  return out;
+}
+
+/* 돌발 이벤트를 만든다 — 열 수 없는 상황이면 null */
+export function buildBattleEvent(b, id) {
+  if (!b || !b.playerSide) return null;
+  const mine = b.playerSide;
+  const foe = mine === 'atk' ? 'def' : 'atk';
+  const myUnits = unitsOf(b, mine), foeUnits = unitsOf(b, foe);
+  if (id === 'reinforce') {
+    const planned = ((b.reinforcements && b.reinforcements[mine]) || []).length > 0;
+    const add = Math.max(0, Math.min(Math.round(sideTroopsOf(b, mine) * 0.08), reinforceCapOf(b, mine) - sideTroopsOf(b, mine)));
+    if (!planned && add < 300) return null;
+    return {
+      id: 'reinforce', tone: 'good', title: '아군 원군 도착',
+      text: planned
+        ? '지평선 너머로 아군 깃발이 보입니다. 예약된 원군이 전장 가장자리에 닿았습니다.'
+        : `${mine === 'def' ? '성을 지키던 예비대가' : '후방의 지원대가'} 뒤늦게 전장에 닿았습니다. 아군이 숨을 고릅니다.`,
+      options: [{ id: 'join', ko: '원군을 맞아들인다', hint: planned ? '원군 부대가 합류합니다 · 아군 사기 +4' : `아군 병력 +${(add || 0).toLocaleString()} · 사기 +5` }],
+      data: { add, planned },
+    };
+  }
+  if (id === 'waver') {
+    const low = foeUnits.slice().sort((a, c) => a.morale - c.morale)[0];
+    if (!low) return null;
+    const desert = Math.max(60, Math.round(low.troops * 0.09));
+    return {
+      id: 'waver', tone: 'good', title: '적 부대 동요',
+      text: `${withJosa(low.name, '이')} 이끄는 적 부대가 술렁입니다. 오래 싸운 탓인지 진영 안에서 불만이 새어 나옵니다.`,
+      options: [
+        { id: 'desert', ko: '병력 이탈을 부추긴다', hint: `${low.name} 부대 병력 -${desert.toLocaleString()} · 사기 -8` },
+        { id: 'break', ko: '사기를 꺾는다', hint: `${low.name} 부대 사기 -20` },
+      ],
+      data: { gid: low.gid, desert },
+    };
+  }
+  if (id === 'raid') {
+    const woody = foeUnits.filter((u) => { const t = tileAt(b, u.x, u.y); return !!t && t.t === 'forest'; });
+    const opts = [{ id: 'night', ko: '야습을 감행한다', hint: '성공하면 적 부대에 큰 타격 · 실패하면 아군 손실' }];
+    if (woody.length) opts.push({ id: 'fire', ko: '화공을 놓는다', hint: `숲에 선 적 ${woody.length}부대에 불을 지른다` });
+    opts.push({ id: 'back', ko: '물러난다', hint: '기회를 놓치지만 손실은 없다' });
+    return {
+      id: 'raid', tone: '', title: '밤이 깊었다 — 기습의 기회',
+      text: '어둠이 내려 적의 눈이 어두워졌습니다. 지형을 살려 기습할 수 있습니다.',
+      options: opts, data: { woody: woody.map((u) => u.gid) },
+    };
+  }
+  return null;
+}
+
+/* 라운드가 열릴 때 돌발 이벤트를 굴린다 — 걸리면 이벤트, 아니면 null */
+export function battleEventRoll(b, rng = Math.random) {
+  if (!b || b.over || !b.playerSide) return null;
+  if (b.round < 2) return null;
+  if ((b.eventCount || 0) >= BATTLE_EVENT_MAX) return null;
+  if (b.lastEventRound === b.round) return null;      // 한 라운드에 한 번만 굴린다
+  const pool = battleEventCandidates(b);
+  if (!pool.length) return null;
+  b.lastEventRound = b.round;
+  if (rng() >= BATTLE_EVENT_CHANCE) return null;
+  const id = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
+  const ev = buildBattleEvent(b, id);
+  if (!ev) return null;
+  b.eventCount = (b.eventCount || 0) + 1;
+  return ev;
+}
+
+/* 선택을 적용한다 — 모든 수치는 사기 0~100 · 병력 0 안쪽으로만 움직인다 */
+export function resolveBattleEvent(b, ev, choiceId, rng = Math.random) {
+  const lines = [];
+  if (!b || !ev || b.over) return { ok: false, lines };
+  const mine = b.playerSide;
+  const foe = mine === 'atk' ? 'def' : 'atk';
+  const opts = ev.options || [];
+  const opt = opts.find((o) => o.id === choiceId) || opts[0];
+  if (!opt) return { ok: false, lines };
+  let success = null;
+
+  if (ev.id === 'reinforce') {
+    const plan = b.reinforcements && b.reinforcements[mine];
+    let joined = null;
+    if (plan && plan.length) joined = addReinforcement(b, mine, plan.shift());
+    let add = 0;
+    if (!joined) {
+      const cur = sideTroopsOf(b, mine);
+      const want = Math.max(0, Math.min(ev.data && ev.data.add ? ev.data.add : 0, reinforceCapOf(b, mine) - cur));
+      const alive = unitsOf(b, mine);
+      if (alive.length && want > 0) {
+        const each = Math.floor(want / alive.length);
+        let rest = want - each * alive.length;
+        for (const u of alive) {
+          const give = each + (rest-- > 0 ? 1 : 0);
+          u.troops += give; add += give;
+          u.morale = clamp(u.morale + 5, 0, 100);
+        }
+        b.initial[mine] += add;      // 원군 병력은 손실 계산에서 빼 둔다
+      }
+    }
+    if (joined) {
+      for (const u of unitsOf(b, mine)) u.morale = clamp(u.morale + 4, 0, 100);
+      lines.push(`[원군 도착!] ${withJosa(joined.name, '이')} 이끄는 원군 ${joined.troops.toLocaleString()}명이 합류했습니다. 아군 사기 +4.`);
+    } else if (add > 0) {
+      lines.push(`[원군 도착!] 아군 원군 ${add.toLocaleString()}명이 합류해 사기가 올랐습니다.`);
+    } else {
+      lines.push('원군이 길을 잃어 전장에 닿지 못했습니다.');
+    }
+  } else if (ev.id === 'waver') {
+    const victim = b.units.find((u) => u.side === foe && u.alive && u.gid === ev.data.gid)
+      || unitsOf(b, foe).slice().sort((a, c) => a.morale - c.morale)[0];
+    if (victim && opt.id === 'desert') {
+      const lose = Math.max(50, Math.round(victim.troops * 0.09));
+      victim.troops = Math.max(0, victim.troops - lose);
+      victim.morale = clamp(victim.morale - 8, 0, 100);
+      lines.push(`[내응] ${victim.name} 부대에서 병사 ${lose.toLocaleString()}명이 진영을 떠났습니다. (사기 ${Math.round(victim.morale)})`);
+      success = true;
+    } else if (victim) {
+      victim.morale = clamp(victim.morale - 20, 0, 100);
+      lines.push(`[동요] ${withJosa(victim.name, '이')} 이끄는 부대의 사기가 20 떨어졌습니다. (사기 ${Math.round(victim.morale)})`);
+      success = true;
+    }
+    if (victim && victim.alive && (victim.troops <= 0 || victim.morale <= 0)) {
+      victim.alive = false;
+      victim.troops = Math.max(0, victim.troops);
+      lines.push(`${victim.name} 부대가 궤멸했습니다!`);
+    }
+  } else if (ev.id === 'raid') {
+    const brainy = unitsOf(b, mine).slice().sort((a, c) => (unitSpec(c).int || 0) - (unitSpec(a).int || 0))[0];
+    const intel = brainy ? (unitSpec(brainy).int || 50) : 50;
+    const chance = clamp(0.45 + intel / 320, 0.4, 0.85);
+    const chanceKo = Math.round(chance * 100);
+    if (opt.id === 'back') {
+      lines.push('기습을 접고 진영을 지켰습니다.');
+      success = false;
+    } else if (opt.id === 'fire') {
+      const woody = unitsOf(b, foe).filter((u) => { const t = tileAt(b, u.x, u.y); return !!t && t.t === 'forest'; });
+      if (!woody.length) {
+        lines.push('불을 놓을 숲이 없어 화공을 접었습니다.');
+      } else if (rng() < chance) {
+        let dmgAll = 0;
+        for (const v of woody) {
+          const dmg = Math.max(100, Math.round(v.troops * (0.08 + rng() * 0.04)));
+          v.troops = Math.max(0, v.troops - dmg);
+          v.morale = clamp(v.morale - 14, 0, 100);
+          dmgAll += dmg;
+          if (v.troops <= 0 || v.morale <= 0) { v.alive = false; lines.push(`${v.name} 부대가 궤멸했습니다!`); }
+        }
+        lines.push(`[화공 성공] 숲이 불길에 휩싸여 적 ${woody.length}부대가 ${dmgAll.toLocaleString()} 피해를 입고 사기가 꺾였습니다. (성공률 ${chanceKo}%)`);
+        success = true;
+      } else {
+        const v = unitsOf(b, mine).slice().sort((a, c) => a.troops - c.troops)[0];
+        const dmg = v ? Math.max(80, Math.round(v.troops * 0.04)) : 0;
+        if (v) { v.troops = Math.max(0, v.troops - dmg); v.morale = clamp(v.morale - 6, 0, 100); }
+        lines.push(`[화공 실패] 불이 번지지 않고 역풍에 아군이 ${dmg.toLocaleString()} 피해를 입었습니다. (성공률 ${chanceKo}%)`);
+        if (v && (v.troops <= 0 || v.morale <= 0)) { v.alive = false; lines.push(`${v.name} 부대가 궤멸했습니다!`); }
+        success = false;
+      }
+    } else {
+      if (rng() < chance) {
+        const v = unitsOf(b, foe).slice().sort((a, c) => a.troops - c.troops)[0];
+        if (v) {
+          const dmg = Math.max(120, Math.round(v.troops * (0.12 + rng() * 0.04)));
+          v.troops = Math.max(0, v.troops - dmg);
+          v.morale = clamp(v.morale - 12, 0, 100);
+          lines.push(`[야습 성공] 어둠을 타고 들어가 ${v.name} 부대에 ${dmg.toLocaleString()} 피해를 입혔습니다. (성공률 ${chanceKo}%)`);
+          if (v.troops <= 0 || v.morale <= 0) { v.alive = false; lines.push(`${v.name} 부대가 궤멸했습니다!`); }
+          success = true;
+        }
+      } else {
+        const v = unitsOf(b, mine).slice().sort((a, c) => a.troops - c.troops)[0];
+        const dmg = v ? Math.max(80, Math.round(v.troops * 0.05)) : 0;
+        if (v) { v.troops = Math.max(0, v.troops - dmg); v.morale = clamp(v.morale - 6, 0, 100); }
+        lines.push(`[야습 실패] 적의 순찰에 발각되어 아군이 ${dmg.toLocaleString()} 피해를 입었습니다. (성공률 ${chanceKo}%)`);
+        if (v && (v.troops <= 0 || v.morale <= 0)) { v.alive = false; lines.push(`${v.name} 부대가 궤멸했습니다!`); }
+        success = false;
+      }
+    }
+  }
+  b.log.push(...lines);
+  return { ok: true, id: ev.id, choice: opt.id, lines, success };
 }
 
 export function battleResult(b) {

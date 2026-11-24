@@ -1056,6 +1056,21 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .ev-opt { flex-direction: column; gap: 1px; min-height: 54px; }
 .ev-opt small { font-size: 9.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; }
 .ev-opt.ghost small { color: #8f7d63; }
+.ev-box.good { border-left-color: #7bbf8e; }
+
+/* 일기토 도발 — 맞붙을 두 장수를 나란히 */
+.provoke-faces { display: flex; align-items: stretch; gap: 6px; margin-bottom: 10px; }
+.provoke-faces .pf { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px;
+  background: linear-gradient(180deg, #271e14, #171009); border: 1px solid #5c4227; border-radius: 3px; padding: 7px; box-shadow: var(--bevel-sm); }
+.provoke-faces .pf.b { border-color: #7a3529; background: linear-gradient(180deg, #2c1a15, #180d0a); }
+.provoke-faces .pf img { width: 46px; height: 46px; flex: 0 0 auto; border-radius: 3px; border: 1px solid #6b4b28; display: block; }
+.provoke-faces .pf-main { min-width: 0; }
+.provoke-faces .pf-main b { display: block; font-size: 12.5px; color: #f2e4c6; }
+.provoke-faces .pf-main span { display: block; font-size: 9px; color: #a2917a; margin-top: 2px; line-height: 1.5; }
+.provoke-faces .pf-sep { align-self: center; font-family: var(--font-head); font-size: 12px; color: var(--gold); letter-spacing: 1px; }
+.btn.big.two-line { flex-direction: column; gap: 2px; letter-spacing: 1px; padding: 8px 12px; }
+.btn.big.two-line > span { display: block; font-size: 14px; letter-spacing: 1.4px; }
+.btn.big.two-line > small { display: block; font-size: 9.5px; color: #a2917a; font-weight: 400; letter-spacing: 0; line-height: 1.45; }
 
 /* 등용·명령 시트 상단 경고 — 토스트가 가려져도 이유가 보이게 */
 .warn-box {

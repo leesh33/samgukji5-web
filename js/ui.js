@@ -31,6 +31,8 @@ let battleMode = null;
 let battleBusy = false;
 let lastBattleResult = null;
 let duelCtx = null;
+let pendingProvoke = null;   // 적 장수의 일기토 도발 — 답을 기다리는 중
+let pendingBattleEvent = null;   // 전투 중 돌발 이벤트 — 선택을 기다리는 중
 let tickTimer = null;
 let turnPending = false;
 let currentScenario = null;
@@ -1867,6 +1869,7 @@ function startPlayerBattle() {
 function beginBattle(setup, playerSide) {
   battle = B.createBattle({ ...setup, seed: (battleSeedCounter++), playerSide, generals: E.generalMap(game) });
   battleSel = null; battleMode = null; battleBusy = false;
+  pendingProvoke = null; pendingBattleEvent = null;
   lastBattleResult = null;
   show('scr-battle');
   setTimeout(resizeBattleCanvas, 20);
@@ -2331,7 +2334,10 @@ function renderBattle() {
   $('#bt-guide').innerHTML = battleGuideHTML();
 
   $('#bt-log').innerHTML = battle.log.slice(-40).map((l) => {
-    const cls = /\[원군 도착!\]/.test(l) ? 'rein' : /\[배후 기습!\]|\[측면 공격!\]|\[진형 유리!\]|\[상성 우위\]/.test(l) ? 'hi' : /\[진형 불리\]|\[상성 열세\]|궤멸/.test(l) ? 'bad' : '';
+    const cls = /\[원군 도착!\]|\[야습 성공\]|\[화공 성공\]|\[내응\]|\[동요\]/.test(l) ? 'rein'
+      : /\[야습 실패\]|\[화공 실패\]|\[일기토 도발\]|\[도발 거절\]/.test(l) ? 'bad'
+      : /\[배후 기습!\]|\[측면 공격!\]|\[진형 유리!\]|\[상성 우위\]|\[일기토 승낙\]/.test(l) ? 'hi'
+      : /\[진형 불리\]|\[상성 열세\]|궤멸/.test(l) ? 'bad' : '';
     return `<div class="${cls}">${l}</div>`;
   }).join('');
   $('#bt-log').scrollTop = $('#bt-log').scrollHeight;
@@ -2405,6 +2411,21 @@ function checkBattleOver() {
 function enemyPhase() {
   if (!battle || battle.over) { finishBattle(); return; }
   battleBusy = true;
+  // 적의 차례가 열릴 때 호전적인 적 장수가 일기토를 걸어온다(전투당 한 번)
+  const prov = B.duelProvokeRoll(battle, () => Math.random());
+  if (prov) {
+    battleBusy = false;
+    renderBattle();
+    openProvokeSheet(prov);
+    return;
+  }
+  runEnemySteps();
+}
+
+/* 적 부대를 하나씩 움직인다 — 도발을 받아치고 나면 이어서 부른다 */
+function runEnemySteps() {
+  if (!battle || battle.over) { finishBattle(); return; }
+  battleBusy = true;
   const side = battle.phase;
   const units = B.unitsOf(battle, side);
   let i = 0;
@@ -2416,7 +2437,9 @@ function enemyPhase() {
       renderBattle();
       if (battle.over) { finishBattle(); return; }
       if (battle.phase !== battle.playerSide) { setTimeout(enemyPhase, 300); return; }
-      battleBusy = false; renderBattle(); return;
+      battleBusy = false; renderBattle();
+      maybeBattleEvent();   // 새 라운드가 열렸다 — 돌발 이벤트를 굴린다
+      return;
     }
     const u = units[i++];
     if (u.alive && !u.acted) {
@@ -2467,6 +2490,7 @@ function playerNext() {
   renderBattle();
   if (battle.over) { finishBattle(); return; }
   if (battle.phase !== battle.playerSide) enemyPhase();
+  else maybeBattleEvent();
 }
 
 function retreat() {
@@ -2507,6 +2531,7 @@ function finishBattle() {
 function closeBattle() {
   closeSheet();
   battle = null; battleSel = null; battleMode = null; battleBusy = false;
+  pendingProvoke = null; pendingBattleEvent = null;
   // 잡힌 장수가 있으면 처분 화면을 먼저 연다
   if ((game.pendingPrisoners || []).length) {
     show('scr-game');
@@ -2623,12 +2648,15 @@ function closePrisonerSheet() {
 let prisonerSheetOpen = false;
 
 /* ---------- 일기토 ---------- */
-function openDuel(target) {
-  const mine = battleSel;
+function openDuel(target, mineArg = null, opts = {}) {
+  const mine = mineArg || battleSel;
   if (!mine || !target) return;
   const gA = gd(mine.gid);
   const gB = gd(target.gid);
-  duelCtx = { d: createDuel(gA, gB, Math.floor(Math.random() * 99999), { a: '아군', b: '적군' }), mine, target };
+  duelCtx = {
+    d: createDuel(gA, gB, Math.floor(Math.random() * 99999), { a: '아군', b: '적군' }),
+    mine, target, provoked: !!opts.provoked,
+  };
   $('#duel').classList.remove('hidden');
   sfx.duel();
   renderDuel();
@@ -2696,9 +2724,98 @@ function closeDuel() {
   $('#duel').classList.add('hidden');
   const wasOver = duelCtx && duelCtx.d.over;
   const won = duelCtx && duelCtx.d.winner === duelCtx.d.a;
+  const provoked = !!(duelCtx && duelCtx.provoked);
   duelCtx = null;
   if (battle) { battleSel = null; battleMode = null; renderBattle(); }
-  if (wasOver && battle && battle.over) setTimeout(finishBattle, 300);
+  if (wasOver && battle && battle.over) { setTimeout(finishBattle, 300); return; }
+  // 상대가 걸어온 일기토였다면, 끝난 뒤 적의 차례를 이어 간다
+  if (provoked && battle && !battle.over && battle.phase !== battle.playerSide) setTimeout(runEnemySteps, 280);
+}
+
+/* ---------- 적 장수의 일기토 도발 ---------- */
+function openProvokeSheet(ev) {
+  if (!battle || !ev) return;
+  pendingProvoke = ev;
+  const ct = gd(ev.challenger.gid), tt = gd(ev.target.gid);
+  const warGap = tt.war - ct.war;
+  const odds = warGap >= 15 ? '우리 장수가 무력에서 앞섭니다. 받아칠 만합니다.'
+    : warGap <= -15 ? '무력에서 크게 밀립니다. 거절해도 탓할 일은 아닙니다.'
+    : '무력이 비슷합니다. 물러서면 아군 사기가 꺾입니다.';
+  openSheet('일기토 도발', `
+    <div class="ev-box">
+      <div class="ev-title">적장의 도전</div>
+      <p class="ev-text">${ev.text}</p>
+    </div>
+    <div class="provoke-faces">
+      <div class="pf a">
+        <img src="${portraitURL(ev.target.gid, tt, 46, colorOf(game.playerId))}" alt="" />
+        <div class="pf-main"><b>${tt.ko}</b><span>아군 · 무력 ${tt.war} · 병력 ${fmt(ev.target.troops)}</span></div>
+      </div>
+      <div class="pf-sep">VS</div>
+      <div class="pf b">
+        <img src="${portraitURL(ev.challenger.gid, ct, 46, '#8c2f24')}" alt="" />
+        <div class="pf-main"><b>${ct.ko}</b><span>적군 · 무력 ${ct.war} · 병력 ${fmt(ev.challenger.troops)}</span></div>
+      </div>
+    </div>
+    <p class="note">${odds}</p>
+    <button class="btn big two-line" data-act="provoke-accept" style="margin-bottom:8px"><span>수락 — 일기토</span><small>이기면 적 부대 사기 급락</small></button>
+    <button class="btn big ghost two-line" data-act="provoke-decline"><span>거절 — 아군 사기 소폭 하락</span><small>${ev.target.name} 부대 사기 -8~11 · 적 기세 상승</small></button>
+  `);
+  sfx.duel();
+}
+
+function acceptProvoke() {
+  const ev = pendingProvoke;
+  pendingProvoke = null;
+  closeSheet();
+  if (!battle || !ev) return;
+  B.acceptDuelProvoke(battle, ev);
+  renderBattle();
+  openDuel(ev.challenger, ev.target, { provoked: true });
+}
+
+function declineProvoke() {
+  const ev = pendingProvoke;
+  pendingProvoke = null;
+  closeSheet();
+  if (!battle || !ev) return;
+  const r = B.declineDuelProvoke(battle, ev);
+  sfx.fail();
+  toast(r.lines[0] || '일기토를 거절했습니다.', 2400);
+  renderBattle();
+  checkBattleOver();
+  if (!battle.over && battle.phase !== battle.playerSide) runEnemySteps();
+}
+
+/* ---------- 전투 중 돌발 이벤트 ---------- */
+function maybeBattleEvent() {
+  if (!battle || battle.over || pendingBattleEvent) return;
+  const ev = B.battleEventRoll(battle, () => Math.random());
+  if (!ev) return;
+  pendingBattleEvent = ev;
+  const tone = ev.tone === 'good' ? 'good' : '';
+  openSheet('전장의 변수', `
+    <div class="ev-box ${tone}">
+      <div class="ev-title">${ev.title}</div>
+      <p class="ev-text">${ev.text}</p>
+    </div>
+    ${ev.options.map((o) => `<button class="btn big two-line ${o.id === 'back' || o.id === 'decline' ? 'ghost' : ''}" data-act="battle-event-go" data-id="${o.id}" style="margin-bottom:8px">
+      <span>${o.ko}</span>${o.hint ? `<small>${o.hint}</small>` : ''}</button>`).join('')}
+  `);
+  sfx.drum();
+}
+
+function doBattleEvent(choiceId) {
+  const ev = pendingBattleEvent;
+  pendingBattleEvent = null;
+  closeSheet();
+  if (!battle || !ev) return;
+  const r = B.resolveBattleEvent(battle, ev, choiceId, () => Math.random());
+  if (!r.ok) { renderBattle(); return; }
+  if (r.success === false) sfx.fail(); else sfx.ok();
+  toast(r.lines[0] || ev.title, 2400);
+  renderBattle();
+  checkBattleOver();
 }
 
 /* ---------- 턴 종료 ---------- */
@@ -3155,10 +3272,11 @@ function openEventSheet() {
   if (!ev) return;
   const gold = E.factionGold(game, game.playerId);
   const opts = (ev.options || []).map((o) => {
-    const off = (ev.id === 'plague' && o.id === 'treat' && gold < 300) || (ev.id === 'drought' && o.id === 'irrigate' && gold < 250);
-    const soft = o.id === 'endure' || o.id === 'refuse' || o.id === 'ignore';
+    const needGold = o.gold != null ? o.gold : (ev.id === 'plague' && o.id === 'treat' ? 300 : ev.id === 'drought' && o.id === 'irrigate' ? 250 : null);
+    const off = needGold != null && gold < needGold;
+    const soft = o.id === 'endure' || o.id === 'refuse' || o.id === 'ignore' || o.id === 'decline' || o.id === 'pass' || o.id === 'back';
     return `<button class="btn big ev-opt ${soft ? 'ghost' : ''}" data-act="event-go" data-id="${o.id}" ${off ? 'disabled' : ''} style="margin-bottom:8px">
-      <span>${o.ko}</span>${o.hint ? `<small>${off ? '금이 부족합니다' : o.hint}</small>` : ''}</button>`;
+      <span>${o.ko}</span>${o.hint ? `<small>${off ? `금이 부족합니다(금 ${needGold} 필요)` : o.hint}</small>` : ''}</button>`;
   }).join('');
   openSheet(`${ev.year}년 ${ev.month}월 — 달의 소식`, `<div class="ev-box">
       <div class="ev-title">${ev.title}</div>
@@ -3793,7 +3911,12 @@ function onClick(e) {
       break;
     }
     case 'march-go': startPlayerBattle(); break;
-    case 'sheet-close': if (prisonerSheetOpen) closePrisonerSheet(); else closeSheet(); break;
+    case 'sheet-close':
+      // 일기토 도발은 답을 받아야 적의 차례가 이어진다 — 배경·✕로 닫히지 않게 한다
+      if (pendingProvoke) { toast('일기토 도발에 답해 주세요.', 1600); break; }
+      pendingBattleEvent = null;   // 돌발 이벤트를 그냥 닫으면 다음 기회를 막지 않는다
+      if (prisonerSheetOpen) closePrisonerSheet(); else closeSheet();
+      break;
     case 'menu': openMenu(); break;
     case 'open-load': openLoad(); break;
     case 'open-rank': openRank(); break;
@@ -3858,6 +3981,9 @@ function onClick(e) {
     }
     case 'duel-act': duelAct(el.dataset.a); break;
     case 'duel-close': closeDuel(); break;
+    case 'provoke-accept': acceptProvoke(); break;
+    case 'provoke-decline': declineProvoke(); break;
+    case 'battle-event-go': doBattleEvent(el.dataset.id); break;
     case 'bt-wait': if (battleSel) { B.endUnit(battleSel); battleMode = null; renderBattle(); } break;
     case 'bt-next': playerNext(); break;
     case 'bt-all': allOut(); break;
