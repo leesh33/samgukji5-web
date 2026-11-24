@@ -1607,10 +1607,11 @@ function coverDeficitFromRealm(state, fid, cityId, key, need) {
 /* 병사 급료 — 병력이 늘수록 달마다 금이 든다. 성의 세입에서 먼저 빼고, 모자라면 병사가 떠난다.
    금이 쌓이기만 하던 후반 경제에 '군대를 키우면 돈이 든다'는 축을 세운다.
    주둔 상한이 성 규모×인구 30%로 커졌으므로 한 명당 부담은 그에 맞춰 낮췄다
-   (대형 성을 꽉 채운 10만이면 금 ~833/월 · 식량 ~1,430/월로, 꽉 닦은 대형 성의 월 세입과 맞먹는다). */
-export const SALARY_PER_TROOP = 1 / 90;  // 병력 120명당 금 1
+   (대형 성을 꽉 채운 10만이면 금 ~1,111/월 · 식량 ~2,222/월 — 꽉 닦은 대형 성의 월 세입
+   금 ~1,020 · 식량 ~1,580과 맞먹어, 10만은 이웃 성·교역의 도움까지 받아야 하는 상한이다). */
+export const SALARY_PER_TROOP = 1 / 90;   // 병력 90명당 금 1
 export const SALARY_PER_GENERAL = 5;      // 주둔 장수 1명당 금 5
-export const FOOD_PER_TROOP = 1 / 45;     // 병력 70명당 식량 1
+export const FOOD_PER_TROOP = 1 / 45;    // 병력 45명당 식량 1
 /* 한 달 군량 소모 */
 export function foodUpkeepOf(troops) { return Math.ceil(Math.max(0, Number(troops) || 0) * FOOD_PER_TROOP); }
 /* 석 달치 군량보다 곳간이 얇으면 '식량이 급하다' — AI의 개발 판단·고문에 쓴다 */
