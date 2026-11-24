@@ -546,6 +546,8 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .stat b { font-size: 12.5px; color: #eddec0; font-weight: 600; font-variant-numeric: tabular-nums; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6); white-space: nowrap; }
 .stat b.dim { color: #c4b393; font-size: 11.5px; }
 .stat .stat-cap { font-style: normal; font-size: 8.5px; color: #7d6f57; font-variant-numeric: tabular-nums; margin-left: 1px; }
+.stat.stat-wide { grid-column: span 2; }
+.cs-brief .cs-cap { font-style: normal; color: #7d6f57; margin-left: 1px; }
 .stat .stat-net { font-style: normal; font-size: 8px; font-weight: 600; font-variant-numeric: tabular-nums; margin-left: 2px; letter-spacing: 0; }
 .stat .stat-net.up { color: #9fd39f; }
 .stat .stat-net.down { color: #dda08e; }

@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as E from '../js/engine.js';
 import * as B from '../js/battle.js';
-import { SCENARIOS, GENERALS, sizeTroopCap, sizeCap } from '../js/data.js';
+import { SCENARIOS, GENERALS, sizeCap, sizeTroopCap, sizePopCap, TROOP_POP_RATIO } from '../js/data.js';
 
 const newGame = (sid = 's194', fid = 'jojo', seed = 77) => E.createGame(sid, fid, seed);
 
@@ -14,8 +14,8 @@ test('경제: 월 수지 — 세입에서 병사 급료와 군량을 빼고 남�
   const c = E.factionCities(s, 'jojo')[0];
   const bal = E.cityMonthlyBalance(s, c.id);
   assert.ok(bal.goldIn > 0 && bal.foodIn > 0);
-  assert.equal(bal.salary, Math.round(c.troops / 35) + E.generalsInCity(s, c.id).length * E.SALARY_PER_GENERAL);
-  assert.equal(bal.foodOut, Math.ceil(c.troops / 15));
+  assert.equal(bal.salary, Math.round(c.troops * E.SALARY_PER_TROOP) + E.generalsInCity(s, c.id).length * E.SALARY_PER_GENERAL);
+  assert.equal(bal.foodOut, E.foodUpkeepOf(c.troops));
   assert.equal(bal.goldNet, bal.goldIn - bal.salary);
   assert.equal(bal.foodNet, bal.foodIn - bal.foodOut);
 });
@@ -37,7 +37,7 @@ test('경제: 턴이 바뀌면 급료·군량이 실제로 빠진다', () => {
 test('경제: 급료를 마련하지 못하면 병사가 떠나고 치안이 흔들린다', () => {
   const s = newGame('s184', 'zhanglu', 5); // 장로 — 성 하나
   const c = E.factionCities(s, 'zhanglu')[0];
-  c.troops = sizeTroopCap(c.size);   // 주둔 상한까지 병력을 채워 급료를 무겁게 만든다
+  c.troops = E.cityTroopsCap(s, c.id);   // 주둔 상한(규모 맥스·인구 30%)까지 채워 급료를 무겁게 만든다
   c.gold = 0;
   c.food = 999999;
   const troops0 = c.troops;
@@ -56,9 +56,11 @@ test('경제: 모자란 급료는 같은 세력의 다른 성 창고에서 메�
   const cities = E.factionCities(s, 'jojo');
   assert.ok(cities.length >= 2);
   const poor = cities[0], rich = cities[1];
-  poor.troops = sizeTroopCap(poor.size);
+  poor.troops = E.cityTroopsCap(s, poor.id);
   poor.gold = 0;
   poor.food = 999999;
+  poor.comm = 5; poor.order = 10;   // 세입이 급료에 못 미치는 성
+  assert.ok(E.cityMonthlyBalance(s, poor.id).goldNet < 0, '급료가 세입보다 크다');
   rich.gold = 50000;
   rich.food = 999999;
   const troops0 = poor.troops;
@@ -88,9 +90,38 @@ test('경제: 12년을 돌려도 금·식량이 무한 증식하지 않는다', 
   const salary = cities.reduce((n, c) => n + E.citySalaryOf(s, c.id), 0);
   // 급료가 세입의 30% 이상을 먹어야 한다 — 소모 축이 사라지면 이 테스트가 먼저 깨진다
   assert.ok(salary > income * 0.3, `급료 ${salary} / 세입 ${income}`);
-  // 급료·군량 축이 생기기 전 12년에는 300만 금을 넘겼다 — 지금은 그 절반 아래로 잡힌다
-  assert.ok(gold < 1500000, `금 ${startGold} → ${gold}`);
-  assert.ok(food < 1300000, `식량 ${startFood} → ${food}`);
+  // 군량도 같은 축이다 — 병력이 늘어난 만큼 실제로 먹고 있어야 한다
+  const foodIn = cities.reduce((n, c) => n + E.cityMonthlyBalance(s, c.id).foodIn, 0);
+  const foodOut = cities.reduce((n, c) => n + E.cityMonthlyBalance(s, c.id).foodOut, 0);
+  assert.ok(foodOut > foodIn * 0.45, `군량 ${foodOut} / 생산 ${foodIn}`);
+  // 주둔 상한이 2배로 늘어 병력도 2배(약 86만)로 늘었다 — 그만큼 쌓이는 양도 함께 커진다.
+  // 무한 증식은 아니라는 선(옛 150만·130만 → 새 기준 220만)만 남긴다.
+  assert.ok(gold < 2200000, `금 ${startGold} → ${gold}`);
+  assert.ok(food < 2400000, `식량 ${startFood} → ${food}`);
+  // 병력은 상한(규모 맥스·인구 30%) 안에 있어야 한다
+  for (const c of cities) assert.ok(c.troops <= E.cityTroopsCap(s, c.id), `${c.id} 병력 ${c.troops} > 상한`);
+});
+
+test('경제: 대형 성을 상한(10만)까지 채운 급료·군량은 그 성 세입과 맞먹는다 — 꽉 닦은 성은 감당하고, 초기는 이웃·교역이 필요하다', () => {
+  const s = newGame('s194', 'jojo', 41);
+  const c = s.cities.luoyang;             // 대형
+  c.owner = 'jojo';
+  c.agri = 160; c.comm = 160; c.water = 160; c.order = 100;   // 꽉 닦은 대형
+  c.pop = 400000;                          // 인구 30% = 120,000 → 규모 맥스 100,000이 걸린다
+  assert.equal(E.cityTroopsCap(s, c.id), 100000, '대형 맥스 10만');
+  c.troops = 100000;
+  const full = E.cityMonthlyBalance(s, c.id);
+  assert.ok(full.salary < full.goldIn * 1.15, `10만 급료 ${full.salary} / 세입 ${full.goldIn}`);
+  assert.ok(full.foodOut < full.foodIn * 1.5, `10만 군량 ${full.foodOut} / 생산 ${full.foodIn}`);
+
+  // 개발이 덜 된 초기 대형 성은 30% 상한이 먼저 걸린다
+  const s2 = newGame('s194', 'jojo', 42);
+  const early = s2.cities.luoyang;
+  assert.ok(E.cityTroopsCap(s2, early.id) < 100000, '초기에는 인구가 먼저 걸린다');
+  assert.equal(E.cityTroopsCap(s2, early.id), Math.floor(early.pop * TROOP_POP_RATIO));
+  // 중형·소형도 규모 맥스가 인구 수용력 안에 있다
+  assert.ok(sizePopCap(1) * TROOP_POP_RATIO >= sizeTroopCap(1));
+  assert.ok(sizePopCap(0) * TROOP_POP_RATIO >= sizeTroopCap(0));
 });
 
 /* ---------- 2. 군주 승계 ---------- */
@@ -208,7 +239,7 @@ test('AI: 금·식량이 넉넉하면 성 상한의 70%까지 병력을 채운�
   const s = newGame('s194', 'shixie', 17);  // 교주 사섭 — 이웃이 적어 싸움이 적다
   const f = s.factions.shixie;
   f.isPlayer = false;
-  for (const c of E.factionCities(s, 'shixie')) { c.gold = 40000; c.food = 40000; c.troops = Math.round(sizeTroopCap(c.size) * 0.3); }
+  for (const c of E.factionCities(s, 'shixie')) { c.gold = 40000; c.food = 40000; c.troops = Math.round(E.cityTroopsCap(s, c.id) * 0.3); }
   const city = E.factionCities(s, 'shixie')[0];
   const before = city.troops;
   for (let m = 0; m < 3; m++) {
@@ -218,7 +249,7 @@ test('AI: 금·식량이 넉넉하면 성 상한의 70%까지 병력을 채운�
     if (s.pendingEvent) E.resolveEvent(s, s.pendingEvent.options[0].id);
   }
   assert.ok(city.troops > before, `징병으로 병력이 늘어야 한다 ${before} → ${city.troops}`);
-  assert.ok(city.troops <= sizeTroopCap(city.size), '상한을 넘지 않는다');
+  assert.ok(city.troops <= E.cityTroopsCap(s, city.id), '상한을 넘지 않는다');
 });
 
 test('AI: 한 달에 한 성은 한 번만 공격받는다', () => {
@@ -330,7 +361,8 @@ test('시뮬레이션: 7개 시나리오 24개월 자동 진행에 수치·소�
           if (c.gold < 0) problems.push(`${sc.id} ${c.id}.gold=${c.gold}`);
           if (c.food < 0) problems.push(`${sc.id} ${c.id}.food=${c.food}`);
           if (!c.owner) problems.push(`${sc.id} ${c.id} 주인 없음`);
-          if (c.troops > sizeTroopCap(c.size)) problems.push(`${sc.id} ${c.id}.troops=${c.troops}`);
+          if (c.troops > E.cityTroopsCap(s, c.id)) problems.push(`${sc.id} ${c.id}.troops=${c.troops} > cap ${E.cityTroopsCap(s, c.id)}`);
+          if (!(c.pop > 0)) problems.push(`${sc.id} ${c.id}.pop=${c.pop}`);
         }
         for (const g of Object.values(s.generals)) {
           if (!g.faction || g.dead || g.captive) continue;

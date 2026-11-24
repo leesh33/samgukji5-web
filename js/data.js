@@ -71,13 +71,18 @@ const CITY_ROWS = [
  * 다시 0부터 채우는 일 없이 "꽉 채우면 업"이 이어진다.
  * 치안만은 성 규모와 무관하게 언제나 100이 상한이다(민심은 성이 커진다고 더 다스려지지 않는다).
  * 규모가 클수록 징병이 많이 모이고(draft), 금·식량 세입(income)과
- * 성의 주둔 병력 상한(troopCap)도 조금씩 오른다. */
+ * 성의 주둔 병력 상한(troopCap)·인구 수용력(popCap)도 오른다.
+ *
+ * 주둔 병력 상한은 두 겹이다 — 규모가 정한 맥스(troopCap)와 성 인구의 30% 중 작은 쪽.
+ * 규모를 올려도 성에 사람이 받쳐 주지 않으면 30%가 먼저 걸린다. */
 export const CITY_SIZES = [
-  { id: 0, ko: '소형', cap: 100, draft: 1.0, income: 1.0, troopCap: 14000 },
-  { id: 1, ko: '중형', cap: 130, draft: 1.25, income: 1.08, troopCap: 18000 },
-  { id: 2, ko: '대형', cap: 160, draft: 1.5, income: 1.16, troopCap: 24000 },
-  { id: 3, ko: '특대형', cap: 200, draft: 1.8, income: 1.25, troopCap: 30000 },
+  { id: 0, ko: '소형', cap: 100, draft: 1.0, income: 1.0, troopCap: 30000, popCap: 110000 },
+  { id: 1, ko: '중형', cap: 130, draft: 1.25, income: 1.08, troopCap: 50000, popCap: 190000 },
+  { id: 2, ko: '대형', cap: 160, draft: 1.5, income: 1.16, troopCap: 100000, popCap: 380000 },
+  { id: 3, ko: '특대형', cap: 200, draft: 1.8, income: 1.25, troopCap: 200000, popCap: 720000 },
 ];
+/* 주둔 병력은 성 인구의 30%를 넘지 않는다 */
+export const TROOP_POP_RATIO = 0.3;   // 주둔 병력 = min(규모 맥스, 인구 × 0.3)
 export const CITY_SIZE_MAX = CITY_SIZES.length - 1;
 export const citySize = (n) => CITY_SIZES[Math.max(0, Math.min(CITY_SIZE_MAX, Math.trunc(Number(n) || 0)))];
 export const citySizeKo = (n) => citySize(n).ko;
@@ -89,6 +94,26 @@ export const statCap = (n, key) => (key === 'order' ? ORDER_CAP : sizeCap(n));
 export const sizeDraftMul = (n) => citySize(n).draft;
 export const sizeIncomeMul = (n) => citySize(n).income;
 export const sizeTroopCap = (n) => citySize(n).troopCap;
+export const sizePopCap = (n) => citySize(n).popCap;
+/* 인구가 정한 병력 상한 — 성 인구의 30%(내림) */
+export const popTroopCap = (pop) => Math.floor(Math.max(0, Number(pop) || 0) * TROOP_POP_RATIO);
+/* 규모 맥스와 인구 30% 중 작은 쪽 — 성의 실제 주둔 상한 */
+export const cityTroopCapOf = (size, pop) => Math.min(sizeTroopCap(size), popTroopCap(pop));
+
+/* 초기 인구 — 규모별 인구 수용력의 35~97% 사이.
+ * 내정(농업·상업·수리)이 닦인 성일수록 사람이 많다. 초기 성이 0에 수렴하지 않게
+ * 하한(0.35)을 두고, 개발 여지(위 65%)를 남겨 턴이 흐르며 인구가 자랄 자리를 만든다. */
+export function seedCityPop(size, agri, comm, water) {
+  const cap = sizeCap(size);
+  const dev = Math.max(0, Math.min(1, (agri + comm + water) / Math.max(1, 3 * cap)));
+  return Math.round(sizePopCap(size) * (0.35 + 0.62 * dev));
+}
+/* 인구 수용력 — 내정을 올리면 늘어난다(규모 인구 맥스의 35~100%) */
+export function cityPopCeilOf(size, agri, comm, water) {
+  const cap = sizeCap(size);
+  const dev = Math.max(0, Math.min(1, (agri + comm + water) / Math.max(1, 3 * cap)));
+  return Math.round(sizePopCap(size) * (0.35 + 0.65 * dev));
+}
 
 /* 42성 초기 규모 — 역사적·전략적 위상에 맞춰
  * 대형(2) 5성: 낙양·장안·업·성도·건업 / 중형(1) 14성 / 소형(0) 23성 */
@@ -105,6 +130,8 @@ export const CITIES = CITY_ROWS.map((r) => ({
   troops: r[9], gold: r[10], food: r[11], major: !!r[12], roads: r[13],
   size: CITY_SIZE_SEED[r[0]] ?? 0,
 }));
+/* 초기 인구 — 성 규모와 내정 수치로 정한다 */
+for (const c of CITIES) c.pop = seedCityPop(c.size, c.agri, c.comm, c.water);
 
 export const CITY_BY_ID = Object.fromEntries(CITIES.map((c) => [c.id, c]));
 

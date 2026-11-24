@@ -159,7 +159,7 @@ with sync_playwright() as p:
         text: size ? size.textContent.trim() : null,
         cls: size ? size.className : null,
         order: r(name).left < r(size).left && r(size).left < r(owner).left,
-        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).map(e => e.textContent.trim()),
+        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).slice(0, 4).map(e => e.textContent.trim()),
         title: (size || {}).title || '',
       };
     }""")
@@ -205,7 +205,8 @@ with sync_playwright() as p:
         size: c.size, agri: c.agri, comm: c.comm, order: c.order, water: c.water,
         cap: E.cityStatCap(g, c.id),
         badge: (p.querySelector('.cs-size') || {}).textContent,
-        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).map(e => e.textContent.trim()),
+        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).slice(0, 4).map(e => e.textContent.trim()),
+        troopCapText: Array.from(p.querySelectorAll('.stat')).map(e => e.textContent.trim()).find(t => t.startsWith('병력')) || '',
         title: (p.querySelector('.cs-size') || {}).title || '',
         toast: (document.querySelector('#toast') || {}).textContent || '',
         logs: g.log.slice(-3).map(l => l.text),
@@ -219,6 +220,7 @@ with sync_playwright() as p:
     step("승격 뒤 농업·상업·수리 상한만 130으로 넓어지고 치안은 /100",
          promoted["cap"] == 130 and promoted["caps"] == ["/130", "/130", "/100", "/130"] and promoted["order"] == 100,
          f"{promoted['cap']} {promoted['caps']}")
+    step("성 시트 병력 칸은 「병력 N /최대」로 인구 30% 상한을 보여 준다", "/" in promoted["troopCapText"] and promoted["troopCapText"].split("/")[1].strip() != "", promoted["troopCapText"])
     step("성 시트 배지가 중형으로 바뀜", promoted["badge"] == "중형", promoted["badge"])
     step("군보에 규모 승격 기록", any("규모 승격" in l for l in promoted["logs"]), promoted["logs"])
     step("승격 토스트 안내", "승격" in promoted["toast"], promoted["toast"][:80])

@@ -9,7 +9,7 @@ const newGame = (seed = 11) => E.createGame('s194', 'jojo', seed);
 const playerLord = (s) => s.factions[s.playerId].lord;
 
 /* ---------- 기본값과 직위 사다리 ---------- */
-test('새 게임: 모든 장수는 일반·공적 0, 군주는 군주 직위로 10,000명', () => {
+test('새 게임: 모든 장수는 일반·공적 0, 군주는 군주 직위로 25,000명', () => {
   const s = newGame(3);
   for (const g of Object.values(s.generals)) {
     assert.equal(g.merit, 0, `${g.id} 공적`);
@@ -17,12 +17,12 @@ test('새 게임: 모든 장수는 일반·공적 0, 군주는 군주 직위로 
   }
   const r = E.rankInfoOf(s, playerLord(s));
   assert.equal(r.ko, '군주');
-  assert.equal(r.cap, 10000);
+  assert.equal(r.cap, 25000);
   assert.equal(r.isLord, true);
   assert.equal(r.canPromote, false, '군주는 임명 대상이 아니다');
   assert.deepEqual(E.RANKS.map((x) => x.ko), ['일반', '비장군', '편장군', '아장군', '진북장군', '정북장군', '대장군']);
   assert.deepEqual(E.RANKS.map((x) => x.merit), [0, 80, 200, 400, 700, 1100, 1600]);
-  assert.deepEqual(E.RANKS.map((x) => x.cap), [3000, 4000, 5000, 6500, 8000, 9000, 10000]);
+  assert.deepEqual(E.RANKS.map((x) => x.cap), [7500, 10000, 12500, 16000, 20000, 22500, 25000]);
   assert.equal(E.RANKS[1].bonus, 0.03, '단계마다 3% 보정');
   assert.equal(E.RANKS[6].bonus, 0.18);
 });
@@ -137,13 +137,13 @@ test('공적 80에서 비장군 — 상한 4,000 · 충성 +5 · 행동력은 �
   assert.ok(res.ok, res.msg);
   assert.equal(res.from, '일반');
   assert.equal(res.to, '비장군');
-  assert.equal(res.cap, 4000);
+  assert.equal(res.cap, 10000);
   assert.equal(s.generals[gid].rank, 1);
   assert.equal(s.generals[gid].loyalty, 75, '충성 +5');
   assert.equal(s.actionPoints, ap0, '임명은 행동력을 쓰지 않는다');
-  assert.equal(E.maxTroopsOf(s, gid), 4000);
+  assert.equal(E.maxTroopsOf(s, gid), 10000);
   assert.equal(E.battleBonusOf(s, gid), 0.03);
-  assert.match(res.msg, /4,000/);
+  assert.match(res.msg, /10,000/);
   assert.match(res.msg, /충성 \+5/);
 });
 
@@ -158,7 +158,7 @@ test('직위 사다리를 하나씩 오르고 대장군 뒤에는 임명할 수 
     seen.push(r.to);
   }
   assert.deepEqual(seen, ['비장군', '편장군', '아장군', '진북장군', '정북장군', '대장군']);
-  assert.equal(E.maxTroopsOf(s, gid), 10000);
+  assert.equal(E.maxTroopsOf(s, gid), 25000);
   assert.equal(s.generals[gid].loyalty, 100, '충성은 100에서 멈춘다');
   const over = E.promoteGeneral(s, gid);
   assert.equal(over.ok, false);
@@ -187,16 +187,16 @@ test('출진 병력은 장수 지휘 상한까지만 — 넘는 병력은 성에
   for (const g of Object.values(s.generals)) { g.rank = 0; g.merit = 0; }
   const gens = E.generalsInCity(s, 'chenliu').slice(0, 2).map((g) => g.id);
   const setup = E.battleSetup(s, 'chenliu', 'puyang', { atkGenerals: gens, atkTroops: 30000 });
-  assert.equal(setup.atkTroops, 6000, '일반 2명 × 3,000');
+  assert.equal(setup.atkTroops, 15000, '일반 2명 × 7,500');
   const battle = B.createBattle({ ...setup, seed: 1, generals: E.generalMap(s) });
-  for (const u of B.unitsOf(battle, 'atk')) assert.ok(u.troops <= 3000, `${u.name} ${u.troops}`);
+  for (const u of B.unitsOf(battle, 'atk')) assert.ok(u.troops <= 7500, `${u.name} ${u.troops}`);
 
-  // 한 명을 비장군으로 올리면 상한이 7,000으로 늘어난다
+  // 한 명을 비장군으로 올리면 상한이 17,500으로 늘어난다
   s.cities.chenliu.troops = 30000;
   s.generals[gens[0]].rank = 1;
   const setup2 = E.battleSetup(s, 'chenliu', 'puyang', { atkGenerals: gens, atkTroops: 30000 });
-  assert.equal(setup2.atkTroops, 7000);
-  assert.equal(setup2.troopCaps[gens[0]], 4000);
+  assert.equal(setup2.atkTroops, 17500);
+  assert.equal(setup2.troopCaps[gens[0]], 10000);
   assert.equal(setup2.rankBonus[gens[0]], 0.03);
 });
 
@@ -245,10 +245,10 @@ test('세이브 v10: 공적·직위가 저장되고 다시 열린다', () => {
   s.generals.xiahou_dun.merit = 140;
   s.generals.xiahou_dun.rank = 1;
   const back = E.deserialize(E.serialize(s));
-  assert.equal(back.version, 12);
+  assert.equal(back.version, E.SAVE_VERSION);
   assert.equal(back.generals.xiahou_dun.merit, 140);
   assert.equal(back.generals.xiahou_dun.rank, 1);
-  assert.equal(E.maxTroopsOf(back, 'xiahou_dun'), 4000);
+  assert.equal(E.maxTroopsOf(back, 'xiahou_dun'), 10000);
 });
 
 test('옛 저장(v9)에는 공적·직위가 없어 0으로 채워 열린다', () => {
@@ -259,12 +259,12 @@ test('옛 저장(v9)에는 공적·직위가 없어 0으로 채워 열린다', (
   raw.version = 9;
   for (const g of Object.values(raw.generals)) { delete g.merit; delete g.rank; }
   const back = E.deserialize(JSON.stringify(raw));
-  assert.equal(back.version, 12);
+  assert.equal(back.version, E.SAVE_VERSION);
   for (const g of Object.values(back.generals)) {
     assert.equal(g.merit, 0, `${g.id} 공적`);
     assert.equal(g.rank, 0, `${g.id} 직위`);
   }
-  assert.equal(E.maxTroopsOf(back, 'yue_jin'), 3000);
+  assert.equal(E.maxTroopsOf(back, 'yue_jin'), 7500);
   // 이상한 값도 안전하게 보정
   const raw2 = JSON.parse(E.serialize(s));
   raw2.version = 9;

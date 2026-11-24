@@ -1,8 +1,8 @@
 /* 삼국 한 턴 — 게임 엔진 (DOM 비의존, node 테스트 가능) */
-import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_OWNERS, TREASURE_STAT_KO, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, citySize, citySizeKo, sizeCap, statCap, ORDER_CAP, sizeDraftMul, sizeIncomeMul, sizeTroopCap } from './data.js';
+import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_OWNERS, TREASURE_STAT_KO, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, citySize, citySizeKo, sizeCap, statCap, ORDER_CAP, sizeDraftMul, sizeIncomeMul, sizeTroopCap, sizePopCap, popTroopCap, cityTroopCapOf, cityPopCeilOf, seedCityPop, TROOP_POP_RATIO } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -113,6 +113,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
       troops: c.troops, train: 55,
       gold: c.gold, food: c.food,
       size: c.size ?? 0,
+      pop: c.pop ?? seedCityPop(c.size ?? 0, c.agri, c.comm, c.water),
       def: clamp(Math.round(c.order * 0.6 + Math.min(40, c.troops / 300)), 25, 95),
     };
   }
@@ -455,16 +456,81 @@ export function cityStatCap(state, cityId, key) {
   return key ? statCap(size, key) : sizeCap(size);
 }
 export function citySizeKoOf(state, cityId) { return citySizeKo(citySizeOf(state, cityId)); }
-export function cityTroopsCap(state, cityId) { return sizeTroopCap(citySizeOf(state, cityId)); }
-/* 주둔 병력 상한 — 성 규모가 정한 만큼만 성에 둘 수 있다(함락·명의·이벤트로 늘어난 병력도 맞춘다) */
+/* 성의 인구 — 저장에 든 값. 없으면(옛 저장) 내정으로 다시 계산한다 */
+export function cityPopOf(state, cityId) {
+  const c = state && state.cities ? state.cities[cityId] : null;
+  if (!c) return 0;
+  const n = Math.round(Number(c.pop));
+  if (Number.isFinite(n) && n > 0) return n;
+  c.pop = seedCityPop(cSize(c), c.agri, c.comm, c.water);
+  return c.pop;
+}
+/* 인구 수용력 — 내정이 닦일수록 늘어난다 */
+export function cityPopCeil(state, cityId) {
+  const c = state && state.cities ? state.cities[cityId] : null;
+  if (!c) return 0;
+  return cityPopCeilOf(cSize(c), c.agri, c.comm, c.water);
+}
+/* 성이 받아들일 수 있는 병력 — 규모 상한(sizeTroopCap)과 성 인구의 30% 중 작은 쪽 */
+export function cityTroopsCap(state, cityId) {
+  const c = state && state.cities ? state.cities[cityId] : null;
+  return c ? cityTroopCapOf(cSize(c), cityPopOf(state, cityId)) : 0;
+}
+/* 주둔 상한에 걸렸을 때 보여 줄 이유 — 병력 / 최대치(인구 30%)를 함께 알려 준다 */
+export function troopCapWhy(state, cityId) {
+  const c = state.cities[cityId];
+  const cap = cityTroopsCap(state, cityId);
+  const pop = cityPopOf(state, cityId);
+  const sizeMax = sizeTroopCap(cSize(c));
+  const byPop = popTroopCap(pop) < sizeMax;
+  return byPop
+    ? `주둔 병력이 상한(${cap.toLocaleString()})입니다 — 성 인구 ${pop.toLocaleString()}의 30%까지입니다. 농업·상업·수리·치안을 올려 인구를 늘리면 더 모을 수 있습니다.`
+    : `주둔 병력이 상한(${cap.toLocaleString()})입니다 — ${citySize(cSize(c)).ko} 성의 맥스입니다. 성을 키워 규모를 올리면 더 모을 수 있습니다.`;
+}
+/* 주둔 병력 상한 — 성 규모 맥스와 인구 30% 중 작은 만큼만 성에 둘 수 있다(함락·명의·이벤트로 늘어난 병력도 맞춘다) */
 export function clampCityTroops(c) {
   if (!c) return 0;
-  const cap = sizeTroopCap(cSize(c));
+  const pop = Math.round(Number(c.pop));
+  const base = Number.isFinite(pop) && pop > 0 ? pop : 0;
+  const cap = cityTroopCapOf(cSize(c), base);
   if (c.troops > cap) c.troops = cap;
   if (c.troops < 0) c.troops = 0;
   return c.troops;
 }
 const cSize = (c) => (Number.isInteger(c.size) ? c.size : 0);
+/* ---------- 인구 ----------
+ * 인구는 성의 주둔 병력 상한(30%)을 끌어올리는 바탕이다.
+ * 달마다 치안과 수리가 좋을수록 사람이 모여 수용력(내정으로 정해진다)을 향해 는다.
+ * 수용력이 내려가면 그만큼 천천히 준다. */
+export const POP_GROWTH_BASE = 0.005;   // 월 성장률(치안·수리 최상일 때 0.5%)
+/* 이 달에 인구가 늘/줄 비율 */
+export function popGrowthRate(c) {
+  if (!c) return 0;
+  const orderF = 0.35 + 0.65 * (clamp(Number(c.order) || 0, 0, ORDER_CAP) / ORDER_CAP);
+  const waterF = 0.75 + 0.5 * (clamp(Number(c.water) || 0, 0, 200) / 200);
+  return POP_GROWTH_BASE * orderF * waterF;
+}
+/* 한 달 인구 변화 — 수용력을 넘지 않게 멈추고, 넘어 있으면 그만큼 줄인다 */
+export function growCityPop(c) {
+  if (!c) return 0;
+  const pop = Math.max(0, Math.round(Number(c.pop) || 0));
+  const ceil = cityPopCeilOf(cSize(c), c.agri, c.comm, c.water);
+  const rate = popGrowthRate(c);
+  let next;
+  if (pop < ceil) next = Math.min(ceil, pop + Math.max(1, Math.round(pop * rate)));
+  else if (pop > ceil) next = Math.max(ceil, pop - Math.max(1, Math.round(pop * rate * 0.5)));
+  else next = pop;
+  c.pop = next;
+  return next - pop;
+}
+/* 인구가 줄어드는 일 — 함락·역병·기근. 줄어든 만큼 병력 상한도 내려간다 */
+export function loseCityPop(c, ratio) {
+  if (!c || !(ratio > 0)) return 0;
+  const pop = Math.max(0, Math.round(Number(c.pop) || 0));
+  const next = Math.max(0, Math.round(pop * (1 - Math.min(0.9, ratio))));
+  c.pop = next;
+  return pop - next;
+}
 export function sizeDraftOf(state, cityId) { return sizeDraftMul(citySizeOf(state, cityId)); }
 export function sizeIncomeOf(state, cityId) { return sizeIncomeMul(citySizeOf(state, cityId)); }
 /* 다음 규모까지 남은 내정 합계 — 0이면 승격 조건을 채웠다(특대형은 null) */
@@ -496,7 +562,7 @@ export function checkCitySizeUp(state, cityId) {
     cityId: c.id, cityKo: ko, from, to, fromKo: a.ko, toKo: b.ko,
     capFrom: a.cap, capTo: b.cap, draftFrom: a.draft, draftTo: b.draft, troopCapTo: b.troopCap,
   };
-  log(state, `[규모 승격] ${withJosa(ko, '이')} ${a.ko}에서 ${withJosa(b.ko, '로')} 승격했습니다. (농업·상업·수리 상한 ${a.cap} → ${b.cap} · 치안 상한 ${ORDER_CAP} · 징병 ×${a.draft} → ×${b.draft} · 주둔 상한 ${b.troopCap.toLocaleString()})`);
+  log(state, `[규모 승격] ${withJosa(ko, '이')} ${a.ko}에서 ${withJosa(b.ko, '로')} 승격했습니다. (농업·상업·수리 상한 ${a.cap} → ${b.cap} · 치안 상한 ${ORDER_CAP} · 징병 ×${a.draft} → ×${b.draft} · 주둔 상한 ${b.troopCap.toLocaleString()}(인구 30%까지))`);
   return info;
 }
 /* 모든 성의 승격 여부를 한 번에 살핀다 — AI·위임·이벤트처럼 다른 경로로 수치가 오른 경우까지 */
@@ -841,7 +907,7 @@ export function advisorAdvice(state) {
   const gold = factionGold(state, me);
   const food = factionFood(state, me);
   const troops = cs.reduce((s, c) => s + c.troops, 0);
-  const needFood = cs.some((c) => c.food < c.troops / 8);
+  const needFood = cs.some((c) => foodShortage(state, c.id, 4));
   const weak = cs.slice().sort((x, y) => cityPower(state, x.id, true) - cityPower(state, y.id, true))[0];
   const foes = E_adjacentFoeCount(state);
   if (needFood) return `어느 성인가 곳간이 비고 있습니다. 교역으로 식량을 사 두거나 구휼·개발로 달래야 합니다.`;
@@ -869,16 +935,16 @@ function E_adjacentFoeCount(state) {
    군주가 직위를 내리면 최대 지휘 병력과 전투 보정이 오르고, 임명받은 장수는 충성이 오른다.
    군주는 따로 임명받지 않고 '군주' 직위로 10,000명을 지휘한다. */
 export const RANKS = [
-  { ko: '일반', merit: 0, cap: 3000, bonus: 0 },
-  { ko: '비장군', merit: 80, cap: 4000, bonus: 0.03 },
-  { ko: '편장군', merit: 200, cap: 5000, bonus: 0.06 },
-  { ko: '아장군', merit: 400, cap: 6500, bonus: 0.09 },
-  { ko: '진북장군', merit: 700, cap: 8000, bonus: 0.12 },
-  { ko: '정북장군', merit: 1100, cap: 9000, bonus: 0.15 },
-  { ko: '대장군', merit: 1600, cap: 10000, bonus: 0.18 },
+  { ko: '일반', merit: 0, cap: 7500, bonus: 0 },
+  { ko: '비장군', merit: 80, cap: 10000, bonus: 0.03 },
+  { ko: '편장군', merit: 200, cap: 12500, bonus: 0.06 },
+  { ko: '아장군', merit: 400, cap: 16000, bonus: 0.09 },
+  { ko: '진북장군', merit: 700, cap: 20000, bonus: 0.12 },
+  { ko: '정북장군', merit: 1100, cap: 22500, bonus: 0.15 },
+  { ko: '대장군', merit: 1600, cap: 25000, bonus: 0.18 },
 ];
 export const RANK_MAX = RANKS.length - 1;
-export const LORD_RANK = { ko: '군주', cap: 10000, bonus: 0.18 };
+export const LORD_RANK = { ko: '군주', cap: 25000, bonus: 0.18 };
 export const PROMOTE_LOYALTY = 5;
 /* 행동별 공적 — [최소, 최대] */
 export const MERIT_GAIN = {
@@ -1187,7 +1253,7 @@ export function runDelegations(state, rng = rngOf(state)) {
     } else {
       const wantDraft = c.troops < 8000 && c.gold >= 250 && c.food >= 400;
       if (wantDraft) {
-        const add = Math.min(Math.round((600 + Math.floor(t.lead * 3)) * sizeDraftMul(c.size)), Math.max(0, sizeTroopCap(c.size) - c.troops));
+        const add = Math.min(Math.round((600 + Math.floor(t.lead * 3)) * sizeDraftMul(c.size)), Math.max(0, cityTroopsCap(state, c.id) - c.troops));
         c.gold -= 250; c.food -= 400; c.troops += add;
         c.order = clamp(c.order - 2, 0, ORDER_CAP);
         notes.push(`${cityName(c.id)} 징병 +${fmtOr(add)}`);
@@ -1539,9 +1605,20 @@ function coverDeficitFromRealm(state, fid, cityId, key, need) {
 
 /* ---------- 월 수입·급료 ---------- */
 /* 병사 급료 — 병력이 늘수록 달마다 금이 든다. 성의 세입에서 먼저 빼고, 모자라면 병사가 떠난다.
-   금이 쌓이기만 하던 후반 경제에 '군대를 키우면 돈이 든다'는 축을 세운다. */
-export const SALARY_PER_TROOP = 1 / 35;   // 병력 35명당 금 1
+   금이 쌓이기만 하던 후반 경제에 '군대를 키우면 돈이 든다'는 축을 세운다.
+   주둔 상한이 성 규모×인구 30%로 커졌으므로 한 명당 부담은 그에 맞춰 낮췄다
+   (대형 성을 꽉 채운 10만이면 금 ~833/월 · 식량 ~1,430/월로, 꽉 닦은 대형 성의 월 세입과 맞먹는다). */
+export const SALARY_PER_TROOP = 1 / 90;  // 병력 120명당 금 1
 export const SALARY_PER_GENERAL = 5;      // 주둔 장수 1명당 금 5
+export const FOOD_PER_TROOP = 1 / 45;     // 병력 70명당 식량 1
+/* 한 달 군량 소모 */
+export function foodUpkeepOf(troops) { return Math.ceil(Math.max(0, Number(troops) || 0) * FOOD_PER_TROOP); }
+/* 석 달치 군량보다 곳간이 얇으면 '식량이 급하다' — AI의 개발 판단·고문에 쓴다 */
+export function foodShortage(state, cityId, months = 3) {
+  const c = state && state.cities ? state.cities[cityId] : null;
+  if (!c) return false;
+  return c.food < foodUpkeepOf(c.troops) * months;
+}
 export function citySalaryOf(state, cityId) {
   const c = state.cities[cityId];
   if (!c) return 0;
@@ -1557,7 +1634,7 @@ export function cityMonthlyBalance(state, cityId) {
   const goldIn = Math.round((c.comm * 5 + c.order * 0.8) * tax * mul);
   const foodIn = Math.round((c.agri * 7 + c.water * 1.5) * mul);
   const salary = citySalaryOf(state, cityId);
-  const foodOut = Math.ceil(c.troops / 15);
+  const foodOut = foodUpkeepOf(c.troops);
   return { goldIn, salary, goldNet: goldIn - salary, foodIn, foodOut, foodNet: foodIn - foodOut };
 }
 
@@ -2103,7 +2180,7 @@ export function resolveEvent(state, choiceId = null) {
     if (treat) spendFactionGold(state, fid, 300);
     for (const c of cs) {
       if (treat) { c.order = clamp(c.order - 3, 0, ORDER_CAP); c.food = Math.round(c.food * 0.95); }
-      else { c.order = clamp(c.order - 8, 0, ORDER_CAP); c.troops = Math.max(300, Math.round(c.troops * 0.95)); c.food = Math.round(c.food * 0.88); }
+      else { c.order = clamp(c.order - 8, 0, ORDER_CAP); c.troops = Math.max(300, Math.round(c.troops * 0.95)); c.food = Math.round(c.food * 0.88); loseCityPop(c, 0.03); }
     }
     msg = treat ? '의원을 불러 역병을 수습했습니다. (금 300)' : '역병이 돌아 병력과 식량을 잃었습니다.';
   } else if (ev.id === 'drought') {
@@ -2158,7 +2235,7 @@ export function reinforcementCandidates(state, baseCityIds, fid, exclude = []) {
       const g = gens[0];
       const t = generalOf(state, g.id);
       // 직위가 낮은 장수는 많이 데려갈 수 없다 — 병력 상한까지만
-      const troops = Math.min(Math.round(c.troops * REINFORCE_RATIO), 4200, c.troops - 800, maxTroopsOf(state, g.id));
+      const troops = Math.min(Math.round(c.troops * REINFORCE_RATIO), 8400, c.troops - 800, maxTroopsOf(state, g.id));
       if (troops < 500) continue;
       seen.add(n);
       out.push({
@@ -2324,7 +2401,7 @@ export function canCommand(state, type, cityId, officerId) {
   if (type === 'draft') {
     if (c.gold < 250) return { ok: false, why: '금이 부족합니다(250 필요).' };
     if (c.food < 400) return { ok: false, why: '식량이 부족합니다(400 필요).' };
-    if (c.troops >= sizeTroopCap(c.size)) return { ok: false, why: `주둔 병력이 상한(${sizeTroopCap(c.size).toLocaleString()})입니다. 성을 키워 규모를 올리면 더 모을 수 있습니다.` };
+    if (c.troops >= cityTroopsCap(state, cityId)) return { ok: false, why: troopCapWhy(state, cityId) };
   }
   if (type === 'reward' && c.gold < 120) return { ok: false, why: '금이 부족합니다(120 필요).' };
   if (type === 'hire' && freeGeneralsInCity(state, cityId).length === 0) return { ok: false, why: '이 성에 재야 장수가 없습니다.' };
@@ -2399,8 +2476,8 @@ export function runCommand(state, type, opts) {
     case 'draft': {
       // 규모가 클수록 징병이 많이 모인다(소형 ×1.0 · 중형 ×1.25 · 대형 ×1.5 · 특대형 ×1.8), 주둔 상한을 넘지 않게
       const want = Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size));
-      const add = Math.min(want, Math.max(0, sizeTroopCap(c.size) - c.troops));
-      if (add <= 0) return { ok: false, msg: `주둔 병력이 상한(${sizeTroopCap(c.size).toLocaleString()})입니다.` };
+      const add = Math.min(want, Math.max(0, cityTroopsCap(state, c.id) - c.troops));
+      if (add <= 0) return { ok: false, msg: troopCapWhy(state, c.id) };
       c.gold -= 250; c.food -= 400;
       c.troops += add; c.order = clamp(c.order - 3, 0, orderCap); c.train = clamp(c.train - 6, 10, 100);
       msg = `${withJosa(t.ko, '이')} 병사 ${add.toLocaleString()}명을 모았습니다. (병력 ${c.troops.toLocaleString()}${sizeDraftMul(c.size) > 1 ? ` · ${citySize(c.size).ko} 보정` : ''})`;
@@ -3164,11 +3241,11 @@ function aiEconomy(state, fid, rng) {
     gens.sort((a, b) => generalOf(state, b.id).pol - generalOf(state, a.id).pol);
     const g = gens[0];
     const t = generalOf(state, g.id);
-    const needFood = c.food < c.troops / 12;
+    const needFood = foodShortage(state, c.id);
     const stat = needFood ? 'agri' : (c.agri < c.comm ? 'agri' : 'comm');
     const cap = sizeCap(c.size);
-    const troopCap = sizeTroopCap(c.size);
-    const target = Math.round(troopCap * 0.7);   // 성 상한의 70%까지는 병력을 채운다(금이 되는 만큼)
+    const troopCap = cityTroopsCap(state, c.id);
+    const target = Math.round(troopCap * 0.7);   // 성 상한(인구 30%)의 70%까지는 병력을 채운다(금이 되는 만큼)
     const realmGold = factionGold(state, fid);
     const realmFood = factionFood(state, fid);
     // 병력은 나라 전체의 살림으로 본다 — 다른 성 창고에서 꺼내 올 수 있으므로
@@ -3252,6 +3329,8 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
     clampCityTroops(toC);
     toC.train = Math.max(30, Math.round(fromC.train * 0.8));
     toC.order = clamp(toC.order - 15, 10, ORDER_CAP);
+    loseCityPop(toC, 0.08);
+    clampCityTroops(toC);
     fromC.troops = Math.max(500, Math.round(fromC.troops * 0.45));
     moveGeneralsOnCapture(state, to, defFid, atkFid, rng);
     log(state, `${state.factions[atkFid] ? state.factions[atkFid].name : '?'}군이 ${withJosa(cityName(to), '을')} 함락했습니다.`);
@@ -3490,6 +3569,11 @@ export function endTurnPhase2(state) {
   runDelegations(state, rngOf(state));
   // 다른 경로(AI·위임·이벤트)로 내정이 다 채워진 성도 규모가 오른다
   checkAllCitySizeUps(state);
+  // 인구 — 치안·수리가 좋을수록 수용력(내정)을 향해 는다. 인구가 늘면 주둔 상한(30%)도 따라 오른다
+  for (const c of Object.values(state.cities)) {
+    if (!c.owner) continue;
+    growCityPop(c);
+  }
   // 월 수입·소비 — 성 규모가 크면 세입도 조금 두둑하다. 병력만큼 급료도 나간다
   for (const c of Object.values(state.cities)) {
     if (!c.owner) continue;
@@ -3625,6 +3709,9 @@ export function applyBattleResult(state, result, rng = null) {
     clampCityTroops(to);
     to.order = clamp(to.order - 12, 10, ORDER_CAP);
     to.def = clamp(to.def - 8, 20, 99);
+    // 함락된 성은 사람이 빠져나간다 — 주민 8%가 흩어지고 그만큼 병력 상한도 내려간다
+    loseCityPop(to, 0.08);
+    clampCityTroops(to);
     // 편성 출진이면 성 총병력은 이미 나설 때 빠졌다 — 생존 병력은 함락한 성에 들어간다
     if (!march) from.troops = Math.max(300, from.troops - (result.atkLoss || 0));
     // 포로를 먼저 붙잡아 두고, 남은 장수를 피난시킨다
@@ -3721,6 +3808,11 @@ function ensureCitySize(s) {
     for (const k of ['agri', 'comm', 'order', 'water']) {
       c[k] = clamp(Math.round(Number(c[k]) || 0), 0, statCap(c.size, k));
     }
+    // 인구가 없는 옛 저장(v12 이전)은 내정·규모로 다시 세운다
+    const pop = Math.round(Number(c.pop));
+    if (!Number.isFinite(pop) || pop <= 0) c.pop = seedCityPop(c.size, c.agri, c.comm, c.water);
+    // 주둔 상한(규모 맥스·인구 30%)을 넘는 병력은 정리한다
+    clampCityTroops(c);
   }
 }
 
@@ -3742,8 +3834,8 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전, 9 = 공적·장군 직위 이전, 10 = 성 규모 이전, 11 = 부대 편성 이전. 열어서 새 양식으로 옮긴다.
-  if (!s || ![3, 4, 5, 6, 7, 8, 9, 10, 11, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전, 9 = 공적·장군 직위 이전, 10 = 성 규모 이전, 11 = 부대 편성 이전, 12 = 성 인구 이전. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];

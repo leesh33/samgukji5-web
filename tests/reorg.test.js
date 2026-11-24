@@ -24,7 +24,7 @@ test('새 게임: 모든 장수의 편성 병력은 0, 병종은 원래 병과',
   assert.equal(row.arm, '기병');
   assert.equal(row.baseArm, '기병');
   assert.equal(row.changed, false);
-  assert.equal(row.cap, 3000);
+  assert.equal(row.cap, 7500);
 });
 
 /* ---------- 병사 재편 ---------- */
@@ -34,12 +34,13 @@ test('병사 재편: 장수마다 나눠 맡기면 배분 합계와 예비병이
   c.troops = 11000;                       // 하후돈 8,000 · 조인 3,000 예시
   const res = E.applyReorg(s, 'chenliu', { xiahou_dun: 8000, cao_ren: 3000 });
   assert.equal(res.ok, true, res.msg);
-  assert.equal(E.assignedOf(s, 'xiahou_dun'), 3000, '일반 직위 지휘 상한 3,000까지만');
+  assert.equal(E.assignedOf(s, 'xiahou_dun'), 7500, '일반 직위 지휘 상한 7,500까지만');
   assert.equal(E.assignedOf(s, 'cao_ren'), 3000);
   const b = E.armyBreakdown(s, 'chenliu');
   assert.equal(b.total, 11000, '성 총병력은 그대로');
-  assert.equal(b.assigned, 6000);
-  assert.equal(b.reserve, 5000);
+  assert.equal(b.assigned, 10500);
+  assert.equal(b.reserve, 500);
+  assert.equal(b.reserve, b.total - b.assigned);
   assert.equal(sumAssigned(s, 'chenliu'), b.assigned);
 });
 
@@ -87,21 +88,21 @@ test('균등 편성: 성 총병력을 장수들에게 고르게 나누고 예비
 
 test('균등 편성: 상한이 모자라면 상한까지 채우고 남는 병력은 예비병으로 둔다', () => {
   const s = newGame(10);
-  s.cities.chenliu.troops = 60000;        // 9명 × 3,000 = 27,000까지만 맡길 수 있다
+  s.cities.chenliu.troops = 90000;        // 9명 × 일반 7,500 = 67,500까지만 맡길 수 있다
   const plan = E.reorgPlan(s, 'chenliu', 'even');
   const vals = Object.values(plan);
-  assert.equal(vals.reduce((a, b) => a + b, 0), 27000);
-  for (const v of vals) assert.equal(v, 3000);
+  assert.equal(vals.reduce((a, b) => a + b, 0), 67500);
+  for (const v of vals) assert.equal(v, 7500);
 });
 
 test('상한 채우기: 장수마다 지휘 상한까지 채운다', () => {
   const s = newGame(11);
-  s.cities.chenliu.troops = 5000;
-  s.generals.xiahou_dun.rank = 1;         // 비장군 4,000
+  s.cities.chenliu.troops = 12000;
+  s.generals.xiahou_dun.rank = 1;         // 비장군 10,000
   const plan = E.reorgPlan(s, 'chenliu', 'max');
-  assert.equal(plan.xiahou_dun, 4000);
+  assert.equal(plan.xiahou_dun, 10000);
   const rest = Object.values(plan).reduce((a, b) => a + b, 0);
-  assert.equal(rest, 5000, '병력이 모자라면 총병력까지만');
+  assert.equal(rest, 12000, '병력이 모자라면 총병력까지만');
 });
 
 test('모두 해제: 편성을 모두 비운다', () => {
@@ -200,13 +201,13 @@ test('출진: 편성 병력이 있으면 그 병력으로 나서고 성 총병�
 test('출진: 편성이 하나도 없으면 기존 자동 배분을 그대로 쓴다', () => {
   const s = newGame(18);
   const c = s.cities.chenliu;
-  c.troops = 9000;
+  c.troops = 20000;
   const before = c.troops;
   const setup = E.battleSetup(s, 'chenliu', 'puyang', {
     atkGenerals: ['xiahou_dun', 'cao_ren'], useAssignments: true,
   });
   assert.equal(setup.march, null);
-  assert.equal(setup.atkTroops, 6000, '지휘 상한 2 × 3,000');
+  assert.equal(setup.atkTroops, 15000, '지휘 상한 2 × 7,500');
   assert.equal(c.troops, before, '자동 배분은 전투 결과에서 깎인다');
 });
 
@@ -262,8 +263,8 @@ test('출진: 편성이 없는 장수에게는 남는 병력이 자동으로 붙
   const plan = E.marchPlan(s, 'chenliu', ['xiahou_dun', 'cao_ren']);
   assert.equal(plan.hasAssigned, true);
   assert.equal(plan.byGeneral.xiahou_dun, 3000);
-  assert.equal(plan.byGeneral.cao_ren, 3000, '남는 6,000에서 1명 몫');
-  assert.equal(plan.total, 6000);
+  assert.equal(plan.byGeneral.cao_ren, 6000, '남는 6,000 전부');
+  assert.equal(plan.total, 9000);
 });
 
 test('출진: 한 부대가 못 되는 편성 병력은 예비병에서 채워 400명으로 세운다', () => {
@@ -338,7 +339,7 @@ test('편성은 저장·복원해도 그대로 남는다', () => {
   E.applyReorg(s, 'chenliu', { xiahou_dun: 3000, cao_ren: 1500 });
   E.changeArm(s, 'chenliu', 'cao_ren', '궁병');
   const back = E.deserialize(E.serialize(s));
-  assert.equal(back.version, 12);
+  assert.equal(back.version, E.SAVE_VERSION);
   assert.equal(E.assignedOf(back, 'xiahou_dun'), 3000);
   assert.equal(E.assignedOf(back, 'cao_ren'), 1500);
   assert.equal(E.armOf(back, 'cao_ren'), '궁병');
@@ -352,7 +353,7 @@ test('옛 저장(v11, 부대 편성 이전)은 편성 0 · 원래 병과로 열�
   raw.version = 11;
   for (const g of Object.values(raw.generals)) { delete g.assignedTroops; delete g.arm; }
   const back = E.deserialize(JSON.stringify(raw));
-  assert.equal(back.version, 12);
+  assert.equal(back.version, E.SAVE_VERSION);
   for (const g of Object.values(back.generals)) {
     assert.equal(g.assignedTroops, 0);
     assert.equal(g.arm, null);

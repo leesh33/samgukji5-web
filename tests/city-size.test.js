@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CITIES, CITY_BY_ID, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, ORDER_CAP, sizeCap, statCap, sizeDraftMul, sizeIncomeMul, sizeTroopCap } from '../js/data.js';
+import { CITIES, CITY_BY_ID, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, ORDER_CAP, TROOP_POP_RATIO, sizeCap, statCap, sizeDraftMul, sizeIncomeMul, sizeTroopCap, sizePopCap, popTroopCap, cityTroopCapOf, seedCityPop, cityPopCeilOf } from '../js/data.js';
 import * as E from '../js/engine.js';
 
 const newGame = (seed = 11) => E.createGame('s194', 'jojo', seed);
@@ -33,12 +33,18 @@ test('규모별 상한·징병·세입·주둔 상한 수치', () => {
   assert.deepEqual(CITY_SIZES.map((s) => s.cap), [100, 130, 160, 200]);
   assert.deepEqual(CITY_SIZES.map((s) => s.draft), [1.0, 1.25, 1.5, 1.8]);
   assert.deepEqual(CITY_SIZES.map((s) => s.income), [1.0, 1.08, 1.16, 1.25]);
-  assert.deepEqual(CITY_SIZES.map((s) => s.troopCap), [14000, 18000, 24000, 30000]);
+  // 주둔 병력 맥스 — 대형 10만을 기준으로 소형 3만 · 중형 5만 · 특대형 20만
+  assert.deepEqual(CITY_SIZES.map((s) => s.troopCap), [30000, 50000, 100000, 200000]);
+  // 인구 수용력 — 규모 맥스의 3.3~3.6배라 개발을 끝낸 성은 규모 맥스에 닿는다
+  assert.deepEqual(CITY_SIZES.map((s) => s.popCap), [110000, 190000, 380000, 720000]);
+  assert.equal(TROOP_POP_RATIO, 0.3, '주둔 병력은 인구의 30%');
   for (const [i, s] of CITY_SIZES.entries()) {
     assert.equal(sizeCap(i), s.cap);
     assert.equal(sizeDraftMul(i), s.draft);
     assert.equal(sizeIncomeMul(i), s.income);
     assert.equal(sizeTroopCap(i), s.troopCap);
+    assert.equal(sizePopCap(i), s.popCap);
+    assert.ok(sizePopCap(i) * TROOP_POP_RATIO >= s.troopCap, `${s.ko} 인구가 꽉 차면 규모 맥스에 닿는다`);
   }
   // 범위를 벗어난 값도 안전하게 다뤄진다
   assert.equal(sizeCap(-3), 100);
@@ -240,14 +246,17 @@ test('규모가 크면 같은 장수로 징병해도 병사가 훨씬 많이 모
 test('징병은 성의 주둔 병력 상한을 넘지 않는다', () => {
   const s = newGame(32);
   const c = s.cities.xuchang;
-  c.size = 0; // 상한 14,000
-  c.troops = 13900;
+  c.size = 0;                     // 규모 맥스 30,000
+  c.pop = 100000;                 // 인구 30% = 30,000 → 두 상한이 같다
+  const cap = E.cityTroopsCap(s, 'xuchang');
+  assert.equal(cap, 30000);
+  c.troops = cap - 100;
   c.gold = 5000; c.food = 9000;
   s.actionPoints = 4;
   const g = anOfficer(s, 'xuchang');
   const r = E.runCommand(s, 'draft', { cityId: 'xuchang', officerId: g.id });
   assert.ok(r.ok, r.msg);
-  assert.equal(c.troops, 14000, '상한에서 멈춘다');
+  assert.equal(c.troops, cap, '상한에서 멈춘다');
   const g2 = E.generalsInCity(s, 'xuchang').find((x) => !x.acted);
   if (g2) {
     s.actionPoints = 4;
@@ -257,12 +266,56 @@ test('징병은 성의 주둔 병력 상한을 넘지 않는다', () => {
   }
 });
 
+test('규모 맥스보다 인구 30%가 먼저 걸리면 그쪽에서 멈추고 인구를 늘리라고 알린다', () => {
+  const s = newGame(321);
+  const c = s.cities.xuchang;
+  c.size = 3;                     // 특대형 맥스 200,000
+  c.pop = 100000;                 // 인구 30% = 30,000
+  c.troops = 29900;
+  c.gold = 5000; c.food = 9000;
+  s.actionPoints = 4;
+  const g = anOfficer(s, 'xuchang');
+  const r = E.runCommand(s, 'draft', { cityId: 'xuchang', officerId: g.id });
+  assert.ok(r.ok, r.msg);
+  assert.equal(c.troops, 30000, '인구 30%에서 멈춘다');
+  const g2 = E.generalsInCity(s, 'xuchang').find((x) => !x.acted);
+  s.actionPoints = 4;
+  const r2 = E.runCommand(s, 'draft', { cityId: 'xuchang', officerId: g2.id });
+  assert.equal(r2.ok, false);
+  assert.match(r2.msg, /인구 100,000의 30%/);
+  assert.match(r2.msg, /인구를 늘리면/);
+});
+
+test('인구 30%가 규모 맥스보다 크면 규모 맥스에서 멈춘다', () => {
+  const s = newGame(322);
+  const c = s.cities.luoyang;
+  c.size = 2;                     // 대형 맥스 100,000
+  c.pop = 2000000;                // 30% = 600,000 → 규모가 먼저
+  assert.equal(E.cityTroopsCap(s, 'luoyang'), 100000);
+  assert.equal(cityTroopCapOf(3, 666667), 200000, '특대형 20만도 인구 66.7만이면 꽉 찬다');
+  assert.equal(cityTroopCapOf(0, 50000), 15000, '소형이라도 인구가 적으면 30%가 먼저');
+});
+
+test('인구가 늘면 주둔 상한이 따라 오른다', () => {
+  const s = newGame(323);
+  const c = s.cities.luoyang;
+  c.pop = 100000;
+  assert.equal(E.cityTroopsCap(s, 'luoyang'), 30000);
+  c.pop = 200000;
+  assert.equal(E.cityTroopsCap(s, 'luoyang'), 60000);
+  // 성장으로도 오른다 — 12개월이면 인구가 늘고 상한도 넓어진다
+  const before = E.cityTroopsCap(s, 'luoyang');
+  for (let i = 0; i < 12; i++) E.endTurnPhase2(s);
+  assert.ok(E.cityPopOf(s, 'luoyang') > 200000, `인구가 늘었다 (${E.cityPopOf(s, 'luoyang')})`);
+  assert.ok(E.cityTroopsCap(s, 'luoyang') > before, '상한이 넓어졌다');
+});
+
 test('규모가 크면 같은 수치라도 금·식량 세입이 많다', () => {
   assert.equal(E.sizeIncomeOf(newGame(33), 'xiaopei'), 1.0);
   const s = newGame(33);
   assert.equal(E.sizeIncomeOf(s, 'luoyang'), 1.16);
   assert.equal(E.sizeDraftOf(s, 'luoyang'), 1.5);
-  assert.equal(E.cityTroopsCap(s, 'luoyang'), 24000);
+  assert.equal(E.cityTroopsCap(s, 'luoyang'), Math.min(100000, popTroopCap(s.cities.luoyang.pop)));
   // 같은 성·같은 수치로 규모만 바꿔 월 수입을 비교한다
   const income = (size) => {
     const st = newGame(34);
@@ -286,7 +339,7 @@ test('v10 저장(규모 이전)은 도시별 기본 규모를 채워 열린다',
   for (const c of Object.values(raw.cities)) delete c.size;
   const back = E.deserialize(JSON.stringify(raw));
   assert.equal(back.version, E.SAVE_VERSION);
-  assert.equal(back.version, 12);
+  assert.equal(back.version, E.SAVE_VERSION);
   assert.equal(back.cities.xuchang.size, 1);
   assert.equal(back.cities.luoyang.size, 2);
   assert.equal(back.cities.xiaopei.size, 0);

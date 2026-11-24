@@ -1066,6 +1066,8 @@ function renderCityPanel(dir = 0) {
   const deleg = mine ? E.delegationOf(game, selectedCity) : 'none';
   const size = Number.isInteger(c.size) ? c.size : 0;
   const sizeKo = E.citySizeKoOf(game, selectedCity);
+  const pop = E.cityPopOf(game, selectedCity);
+  const troopCap = E.cityTroopsCap(game, selectedCity);
   const cap = E.cityStatCap(game, selectedCity);
   const orderCap = E.cityStatCap(game, selectedCity, 'order');
   const remain = mine ? E.citySizeUpRemain(game, selectedCity) : null;
@@ -1093,7 +1095,7 @@ function renderCityPanel(dir = 0) {
       </div>
       <div class="cs-brief">
         <div class="cs-brief-main">
-          <span>병 <b>${fmt(c.troops)}</b></span><span>금 <b>${fmt(c.gold)}</b></span><span>량 <b>${fmt(c.food)}</b></span><span>방 <b>${c.def}</b></span>
+          <span>병 <b>${fmt(c.troops)}</b><em class="cs-cap">/${fmt(troopCap)}</em></span><span>금 <b>${fmt(c.gold)}</b></span><span>량 <b>${fmt(c.food)}</b></span><span>방 <b>${c.def}</b></span>
         </div>
       </div>
     </div>
@@ -1103,10 +1105,11 @@ function renderCityPanel(dir = 0) {
         <div class="stat"><i>상업</i><b>${c.comm}</b><em class="stat-cap">/${cap}</em></div>
         <div class="stat"><i>치안</i><b>${c.order}</b><em class="stat-cap">/${orderCap}</em></div>
         <div class="stat"><i>수리</i><b>${c.water}</b><em class="stat-cap">/${cap}</em></div>
-        <div class="stat"><i>병력</i><b>${fmt(c.troops)}</b></div>
+        <div class="stat stat-wide" title="병력 ${fmt(c.troops)} / 최대 ${fmt(troopCap)} — 성 인구 ${fmt(pop)}의 30%와 ${sizeKo} 맥스(${fmt(CITY_SIZES[size].troopCap)}) 중 작은 쪽까지 모을 수 있습니다."><i>병력</i><b>${fmt(c.troops)}</b><em class="stat-cap">/${fmt(troopCap)}</em></div>
+        <div class="stat" title="성 인구 — 인구의 30%가 주둔 병력 상한입니다. 농업·상업·수리·치안을 올리면 수용력(${fmt(E.cityPopCeil(game, selectedCity))})까지 늘어납니다."><i>인구</i><b>${fmt(pop)}</b></div>
         <div class="stat"><i>훈련</i><b>${c.train}</b></div>
-        <div class="stat" title="${mine ? `월 세입 금 ${fmt(balanceOf(selectedCity).goldIn)} − 병사 급료 ${fmt(balanceOf(selectedCity).salary)}` : ''}"><i>금${mine ? balanceTag(balanceOf(selectedCity).goldNet) : ''}</i><b>${fmt(c.gold)}</b></div>
-        <div class="stat" title="${mine ? `월 생산 식량 ${fmt(balanceOf(selectedCity).foodIn)} − 군량 ${fmt(balanceOf(selectedCity).foodOut)}` : ''}"><i>식량${mine ? balanceTag(balanceOf(selectedCity).foodNet) : ''}</i><b>${fmt(c.food)}</b></div>
+        <div class="stat stat-wide" title="${mine ? `월 세입 금 ${fmt(balanceOf(selectedCity).goldIn)} − 병사 급료 ${fmt(balanceOf(selectedCity).salary)}` : ''}"><i>금${mine ? balanceTag(balanceOf(selectedCity).goldNet) : ''}</i><b>${fmt(c.gold)}</b></div>
+        <div class="stat stat-wide" title="${mine ? `월 생산 식량 ${fmt(balanceOf(selectedCity).foodIn)} − 군량 ${fmt(balanceOf(selectedCity).foodOut)}` : ''}"><i>식량${mine ? balanceTag(balanceOf(selectedCity).foodNet) : ''}</i><b>${fmt(c.food)}</b></div>
       </div>
       ${gens.length ? `<div class="cp-gens">${genHTML}</div>` : '<div class="cp-gens"><span class="none">주둔 장수 없음</span></div>'}
       ${delegHTML}
@@ -1227,7 +1230,7 @@ function openCommandSheet(type, cityId) {
       })()
     : '';
   const rows = gens.map((g) => officerRowHTML(g, 'do-command')).join('');
-  const extra = sizeNote + (type === 'draft' ? '<p class="note">징병: 금 250 · 식량 400 · 행동력 2. 징병한 장수의 통솔이 많을수록 병력이 많이 모이고, 성 규모가 클수록 더 많이 모입니다(소형 ×1.0 · 중형 ×1.25 · 대형 ×1.5 · 특대형 ×1.8).</p>'
+  const extra = sizeNote + (type === 'draft' ? `<p class="note">징병: 금 250 · 식량 400 · 행동력 2. 징병한 장수의 통솔이 많을수록 병력이 많이 모이고, 성 규모가 클수록 더 많이 모입니다(소형 ×1.0 · 중형 ×1.25 · 대형 ×1.5 · 특대형 ×1.8). 주둔 상한은 <b>${fmt(E.cityTroopsCap(game, cityId))}</b> — 성 인구 ${fmt(E.cityPopOf(game, cityId))}의 30%와 ${E.citySizeKoOf(game, cityId)} 맥스(${fmt(CITY_SIZES[E.citySizeOf(game, cityId)].troopCap)}) 중 작은 쪽입니다.</p>`
     : type === 'search' ? '<p class="note">탐색: 숨은 인재·금·식량을 찾습니다. 지력이 높을수록 유리합니다.</p>'
     : `<p class="note">${E.COMMANDS[type] ? E.COMMANDS[type].desc : ''} 행동력 1을 사용합니다.</p>`);
   openSheet(`${CITY_BY_ID[cityId].ko} — ${label}`, extra + rows);
@@ -3520,7 +3523,7 @@ function openHelp() {
     <p class="note" style="line-height:1.9">
     <b style="color:#e6d9b3">1. 목표</b> — 전국 42개 성을 모두 차지하면 천하통일입니다.<br>
     <b style="color:#e6d9b3">2. 달마다</b> — 행동력만큼 명령을 내립니다. 장수는 한 달에 한 번만 움직입니다.<br>
-    <b style="color:#e6d9b3">3. 내정</b> — 개발(농업)·상업·치안·수리로 성을 키우고, 징병·훈련으로 군세를 만듭니다. 성에는 규모(소형·중형·대형·특대형)가 있어 농업·상업·수리를 그 성의 상한(소형 100 → 중형 130 → 대형 160 → 특대형 200)까지, 치안을 100까지 채우면 저절로 다음 규모로 승격합니다. 규모가 클수록 징병이 많이 모이고(×1.0·1.25·1.5·1.8) 세입과 주둔 병력 상한도 올라갑니다.<br>
+    <b style="color:#e6d9b3">3. 내정</b> — 개발(농업)·상업·치안·수리로 성을 키우고, 징병·훈련으로 군세를 만듭니다. 성에는 규모(소형·중형·대형·특대형)가 있어 농업·상업·수리를 그 성의 상한(소형 100 → 중형 130 → 대형 160 → 특대형 200)까지, 치안을 100까지 채우면 저절로 다음 규모로 승격합니다. 규모가 클수록 징병이 많이 모이고(×1.0·1.25·1.5·1.8) 세입과 주둔 병력 상한도 올라갑니다. 성에는 <b>인구</b>가 있어 <b>인구의 30%</b>와 규모 맥스(소형 3만 · 중형 5만 · 대형 10만 · 특대형 20만) 중 작은 쪽까지만 병력을 둘 수 있습니다 — 성 시트의 병력 칸이 <b>병력 / 최대치</b>입니다. 인구는 농업·상업·수리·치안을 올리면 수용력까지 자라므로, 군세를 키우려면 성을 닦아야 합니다.<br>
     <b style="color:#e6d9b3">4. 인사</b> — 탐색으로 인재를 찾고 등용합니다. 장수마다 친밀도가 있어 낯설면 등용이 어렵습니다. 친교(금 200·행동력 1)로 친밀도를 쌓고, 포상(금 120)으로 충성과 친밀도를 함께 올립니다.<br>
     <b style="color:#e6d9b3">5. 이동</b> — 아군 성끼리 장수를 옮깁니다. 행동력 1을 쓰고, 옮긴 장수는 그 달 행동을 마칩니다.<br>
     <b style="color:#e6d9b3">6. 대화</b> — 성의 장수와 이야기를 나누면 충성도와 친밀도가 오릅니다(행동력 1, 장수마다 한 달 1회, 금은 들지 않음).<br>
@@ -3540,7 +3543,7 @@ function openHelp() {
     <b style="color:#e6d9b3">20. 담당</b> — 성마다 직할·내정 위임·군사 위임을 정합니다. 위임한 성은 턴이 바뀔 때 행동력 없이 스스로 개발·징병·훈련을 합니다.<br>
     <b style="color:#e6d9b3">21. 전술 계략</b> — 화계·혼란·고무·치료에 수계(물가)·낙석(산기슭)이 더해집니다. 계략마다 지력·매력으로 정해지는 성공률이 표시됩니다.<br>
     <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.<br>
-    <b style="color:#e6d9b3">23. 공적·장군 임명</b> — 개발·상업·징병·훈련·등용·친교·계략·전투 승리로 장수마다 공적이 쌓입니다. 인사 → 장군 임명에서 일반→비장군→편장군→아장군→진북장군→정북장군→대장군으로 올리면 최대 지휘 병력(3,000→10,000)과 전투 보정(+3%씩)이 오르고 충성 +5. 행동력은 들지 않습니다.<br>
+    <b style="color:#e6d9b3">23. 공적·장군 임명</b> — 개발·상업·징병·훈련·등용·친교·계략·전투 승리로 장수마다 공적이 쌓입니다. 인사 → 장군 임명에서 일반→비장군→편장군→아장군→진북장군→정북장군→대장군으로 올리면 최대 지휘 병력(7,500→25,000)과 전투 보정(+3%씩)이 오르고 충성 +5. 행동력은 들지 않습니다.<br>
     <b style="color:#e6d9b3">24. 행동 연출</b> — 징병·훈련·개발·등용 같은 주요 명령을 실행하면 장수 초상화와 2초 도트 연출이 재생되고 저절로 닫힙니다.<br>
     <b style="color:#e6d9b3">25. 부대 편성</b> — 군사 → 부대 편성에서 성 총병력을 장수마다 나누어 맡기고(예: 하후돈 3,000 · 조인 2,000 · 나머지 예비병), 병종을 보병·기병·궁병으로 바꿉니다(금 100, 행동력 0). 병종은 서로 물고 물립니다 — <b>기병 &gt; 궁병 &gt; 보병 &gt; 기병</b>(수군은 중립). 상성에서 이기면 피해 +20%, 지면 -15%이며, 기병은 기동 +1, 궁병은 사거리 2(원거리 사격은 반격 없음), 보병은 받는 피해 -15%, 수군은 물길에서 공격·방어 +15%입니다. 균등 편성·상한 채우기·모두 해제로 한 번에 나누고, 저장한 편성 그대로 출진합니다. 성에 남긴 병력은 예비병이 되어 다음 출진·수비에 쓰입니다.
     </p>`);

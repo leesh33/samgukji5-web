@@ -108,14 +108,50 @@ def swipe_panel(page, cdp, dx, dy=0, y_off=50):
 
 
 
+def empty_map_point(page):
+    """지도 빈 곳 — 성·떠 있는 버튼(턴 종료·확대)에 닿지 않는 자리를 계산한다."""
+    return page.evaluate("""async () => {
+      const d = await import('./js/data.js');
+      const cv = document.querySelector('#map');
+      const cssW = cv.clientWidth, cssH = cv.clientHeight;
+      const TOP_INSET = 26, B = {x0: 23, x1: 91, y0: 2, y1: 68};
+      const fit = Math.min(cssW / (B.x1 - B.x0), (cssH - TOP_INSET) / (B.y1 - B.y0));
+      const scaleY = fit * Math.min(1.5, Math.max(1, (cssH - TOP_INSET) / (B.y1 - B.y0) / fit));
+      const camX = 57, camY = 35;
+      const nodes = Object.values(d.CITY_BY_ID).map((c) => ({
+        x: (c.x - camX) * fit + cssW / 2,
+        y: (c.y - camY) * scaleY + TOP_INSET + (cssH - TOP_INSET) / 2,
+      }));
+      // 지도 위에 떠 있는 버튼(턴 종료·확대·지도 열기)은 피한다 — 누르면 턴이 넘어간다
+      const btns = Array.from(document.querySelectorAll('button')).map((b) => b.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0 && r.top < cv.getBoundingClientRect().bottom);
+      const cvBox = cv.getBoundingClientRect();
+      const free = (x, y) => {
+        const el = document.elementFromPoint(cvBox.x + x, cvBox.y + y);
+        if (!el || (el.id !== 'map' && el !== cv)) return false;
+        const ax = cvBox.x + x, ay = cvBox.y + y;
+        return !btns.some((r) => ax > r.left - 18 && ax < r.right + 18 && ay > r.top - 18 && ay < r.bottom + 18);
+      };
+      let best = null;
+      for (let y = TOP_INSET + 16; y < cssH * 0.5; y += 10) {
+        for (let x = 16; x < cssW - 16; x += 10) {
+          if (!free(x, y)) continue;
+          const dmin = Math.min(...nodes.map((n) => Math.hypot(n.x - x, n.y - y)));
+          if (!best || dmin > best.d) best = { x, y, d: dmin };
+        }
+      }
+      if (!best) best = { x: cssW / 2, y: TOP_INSET + 30, d: -1 };
+      return { x: best.x, y: best.y, d: Math.round(best.d) };
+    }""")
+
+
 def close_panel(page):
     """✕가 없어졌으니 지도 빈 곳을 탭해 패널을 닫는다."""
     mb = page.locator("#map").bounding_box()
-    for fx, fy in ((0.06, 0.10), (0.94, 0.10), (0.06, 0.92), (0.94, 0.92), (0.5, 0.10)):
-        page.touchscreen.tap(mb["x"] + mb["width"] * fx, mb["y"] + mb["height"] * fy)
-        page.wait_for_timeout(340)
-        if not panel_state(page)["visible"]:
-            return True
+    pt = empty_map_point(page)
+    page.touchscreen.tap(mb["x"] + pt["x"], mb["y"] + pt["y"])
+    page.wait_for_timeout(380)
+    print(f"     (빈 지도 탭 {pt['x']:.0f},{pt['y']:.0f} — 가장 가까운 성 {pt['d']}px)", flush=True)
     return not panel_state(page)["visible"]
 
 
