@@ -405,7 +405,7 @@ with sync_playwright() as p:
             page.wait_for_timeout(1000)
             step("v8 옛 저장 이어하기", page.locator("#scr-game").is_visible(), page.locator("#hud-date").inner_text())
             ver = page.evaluate("() => { const s=JSON.parse(localStorage.getItem('samguk5.auto')||'{}'); return [s.version, !!s.treasures, typeof s.ricePrice]; }")
-            step("저장 양식 12로 올리고 기본값 채움", ver[0] == 12 and ver[1] is True, ver)
+            step("저장 양식을 최신(13)으로 올리고 기본값 채움", ver[0] == 13 and ver[1] is True, ver)
         else:
             step("v8 옛 저장 이어하기", False, "슬롯3 없음")
     else:
