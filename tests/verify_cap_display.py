@@ -103,7 +103,7 @@ with sync_playwright() as p:
       return {
         badge: badge ? badge.textContent.trim() : null,
         title: badge ? badge.title : '',
-        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).map(e => e.textContent.trim()),
+        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).slice(0, 4).map(e => e.textContent.trim()),
         statText: Array.from(p.querySelectorAll('.cs-stats .stat')).map(e => e.textContent.replace(/\\s+/g, ' ').trim()),
       };
     }""")
@@ -139,7 +139,7 @@ with sync_playwright() as p:
       const p = document.querySelector('#citypanel');
       return {
         order: c.order,
-        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).map(e => e.textContent.trim()),
+        caps: Array.from(p.querySelectorAll('.stat .stat-cap')).slice(0, 4).map(e => e.textContent.trim()),
         logs: g.log.slice(-2).map(l => l.text),
       };
     }""")

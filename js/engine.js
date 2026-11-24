@@ -502,7 +502,7 @@ const cSize = (c) => (Number.isInteger(c.size) ? c.size : 0);
  * 인구는 성의 주둔 병력 상한(30%)을 끌어올리는 바탕이다.
  * 달마다 치안과 수리가 좋을수록 사람이 모여 수용력(내정으로 정해진다)을 향해 는다.
  * 수용력이 내려가면 그만큼 천천히 준다. */
-export const POP_GROWTH_BASE = 0.005;   // 월 성장률(치안·수리 최상일 때 0.5%)
+export const POP_GROWTH_BASE = 0.008;   // 월 성장률(치안·수리 최상일 때 0.8%)
 /* 이 달에 인구가 늘/줄 비율 */
 export function popGrowthRate(c) {
   if (!c) return 0;
