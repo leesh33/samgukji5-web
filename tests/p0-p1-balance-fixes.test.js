@@ -195,6 +195,10 @@ test('P1-4: 퇴각은 한 번 더 눌러야 실행된다', () => {
   assert.match(index, /data-act="bt-retreat"/);
 });
 
+test('P1-4: 결과 창의 승전 공적 안내는 이긴 전투에만 나온다', () => {
+  assert.match(ui, /\$\{win && applied\.merit \?/, '패전·퇴각에는 공적 안내가 없다');
+});
+
 /* ---------- P1-5 · 첫 달 즉사 완화 ---------- */
 test('P1-5: 첫 달에는 AI가 플레이어의 성을 치지 않는다', () => {
   for (const [sc, fid] of [['s208', 'liubei'], ['s194', 'lubu'], ['s194', 'liubei'], ['s200', 'gongsundu']]) {

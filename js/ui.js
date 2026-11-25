@@ -2557,7 +2557,7 @@ function finishBattle() {
     </div>
     <p class="note">${summary} · ${res.rounds}라운드${prisoners ? '<br>사로잡은 장수: <b style="color:#f5d97a">' + prisoners + '</b> — 처분을 기다립니다' : ''}</p>
     ${win && res.winner === 'attacker' ? `<p class="note">${E.withJosa(CITY_BY_ID[battle.toCityId].ko, '이')} 우리 것이 되었습니다.</p>` : ''}
-    ${applied.merit ? `<p class="note" style="color:#c0d8a8">승전 공적 — 나선 장수들이 합쳐 <b>+${fmt(applied.merit)}</b>을 쌓았습니다. 인사 → 장군 임명에서 확인하세요.</p>` : ''}
+    ${win && applied.merit ? `<p class="note" style="color:#c0d8a8">승전 공적 — 나선 장수들이 합쳐 <b>+${fmt(applied.merit)}</b>을 쌓았습니다. 인사 → 장군 임명에서 확인하세요.</p>` : ''}
     <button class="btn big" data-act="bt-close" style="margin-top:12px">${prisoners ? '포로 처분으로 ▶' : '계속'}</button>
   `);
 }
