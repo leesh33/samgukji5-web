@@ -10,13 +10,17 @@ import { openLegal } from './legal.js';
 import { createMapView } from './mapview.js';
 import { sfx } from './audio.js';
 import * as Cloud from './sync.js';
+import * as Legion from './legion.js';
+import * as LGC from './legion-core.js';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const fmt = (n) => Math.round(n).toLocaleString('ko-KR');
 const FALLBACK_SPEC = { ko: '무명', lead: 50, war: 50, int: 50, pol: 50, cha: 50, arms: '보병', skill: 'tongsol', formations: ['eorin'] };
+/* 유저 군단 전장에 세운 상대 장수(내 세이브 밖의 장수) — id 가 겹치지 않게 접두사를 붙여 둔다 */
+let legionGeneralMap = null;
 /* 신군주가 만든 장수까지 포함해 장수 데이터를 찾는다 */
-const gd = (id) => E.generalOf(game, id) || GENERAL_BY_ID[id] || FALLBACK_SPEC;
+const gd = (id) => (legionGeneralMap && legionGeneralMap[id]) || E.generalOf(game, id) || GENERAL_BY_ID[id] || FALLBACK_SPEC;
 
 const KEYS = { auto: 'samguk5.auto', slot: (i) => `samguk5.slot${i}`, muted: 'samguk5.muted' };
 
@@ -604,6 +608,11 @@ function startCustomGame() {
 
 function onCustomInput(e) {
   const t = e.target;
+  // 영웅전 — 군단 이름은 화면을 다시 그리지 않고 그대로 받아 둔다
+  if (t && t.id === 'lg-nick') {
+    if (legionDraft) legionDraft.nickname = String(t.value || '').slice(0, 12);
+    return;
+  }
   // 부대 편성 슬라이더 — 손가락을 놓지 않고도 숫자가 따라온다
   if (t && t.dataset && t.dataset.act === 'reorg-slide' && reorgDraft) {
     const n = reorgSet(t.dataset.gid, t.value);
@@ -2518,9 +2527,14 @@ function retreat() {
     retreatConfirm = true;
     sfx.select();
     renderBattle();
-    toast(battle.playerSide === 'def'
+    const legionMsg = legionBattleCtx
+      ? (legionBattleCtx.kind === 'invasion'
+        ? '한 번 더 누르면 성문을 열고 물러섭니다 — 적이 금·군량을 털어 갑니다(성을 빼앗기지는 않습니다).'
+        : '한 번 더 누르면 원정을 접고 돌아갑니다 — 모의전이라 병력은 타지 않습니다.')
+      : null;
+    toast(legionMsg || (battle.playerSide === 'def'
       ? '한 번 더 누르면 퇴각합니다 — 수비측이 퇴각하면 성을 내주게 됩니다.'
-      : '한 번 더 누르면 퇴각합니다 — 공략을 접고 돌아갑니다.', 2600);
+      : '한 번 더 누르면 퇴각합니다 — 공략을 접고 돌아갑니다.'), 2600);
     clearTimeout(retreatConfirmT);
     retreatConfirmT = setTimeout(() => { retreatConfirm = false; if (battle && !battle.over) renderBattle(); }, 6000);
     return;
@@ -2538,6 +2552,8 @@ function finishBattle() {
   if (lastBattleResult) return;
   const res = B.battleResult(battle);
   lastBattleResult = res;
+  // 원정·습격은 본편 성을 바꾸지 않는다 — 보상·손실만 반영하는 별도 마무리
+  if (legionBattleCtx) { finishLegionBattle(res); return; }
   const win = (res.winner === 'attacker' && battle.playerSide === 'atk') || (res.winner === 'defender' && battle.playerSide === 'def');
   const iAmAttacker = battle.playerSide === 'atk';
   const summary = iAmAttacker
@@ -2569,8 +2585,11 @@ function closeBattle() {
   retreatConfirm = false;
   clearTimeout(retreatConfirmT);
   pendingProvoke = null; pendingBattleEvent = null;
-  // 잡힌 장수가 있으면 처분 화면을 먼저 연다
-  if ((game.pendingPrisoners || []).length) {
+  const wasLegion = !!legionBattleCtx;
+  legionBattleCtx = null;
+  legionGeneralMap = null;
+  // 잡힌 장수가 있으면 처분 화면을 먼저 연다(원정·습격은 포로를 잡지 않는다)
+  if (!wasLegion && (game.pendingPrisoners || []).length) {
     show('scr-game');
     openPrisonerSheet();
     return;
@@ -2593,6 +2612,7 @@ function continueAfterBattle() {
       E.endTurnPhase2(game);
       sfx.turn();
       toast(`${game.year}년 ${game.month}월 — 새 달이 밝았습니다.`, 1600);
+      setTimeout(maybeLegionInvasion, 1800);
     }
   }
   renderGame();
@@ -2874,6 +2894,7 @@ function endTurn() {
   renderGame();
   autoSave();
   toast(`${game.year}년 ${game.month}월 — 새 달이 밝았습니다.`, 1500);
+  setTimeout(maybeLegionInvasion, 1800);
 }
 
 /* ---------- 외교 ---------- */
@@ -3254,7 +3275,13 @@ function renderInfoSheet() {
       <p class="adv-line">${esc(E.advisorAdvice(game))}</p>
     </div>`;
   const tabHTML = `<div class="info-tabs">${tabs.map(([k, ko]) => `<button class="pick-chip ${infoTab === k ? 'on' : ''}" data-act="info-tab" data-tab="${k}">${ko}</button>`).join('')}</div>`;
-  openSheet('정보', head + tabHTML + infoTabHTML());
+  const L = E.ensureLegion(game);
+  const legionBox = `<button class="lg-entry" data-act="legion">
+      <b>⚔ 영웅전</b>
+      <span>${L.registered ? `${esc(L.registered.nickname)} · 전적 ${LGC.recordLabel(L.records.wins, L.records.losses)} · 원정 도전장` : '내 군단을 등록하고 다른 군주와 겨룬다'}</span>
+      ${L.pendingInvasion ? '<i class="lg-entry-alert">국경에 적이 있습니다</i>' : ''}
+    </button>`;
+  openSheet('정보', legionBox + head + tabHTML + infoTabHTML());
 }
 
 function infoTabHTML() {
@@ -3301,6 +3328,402 @@ function infoTabHTML() {
       <span class="ir-nums">성 <b>${f.cities}</b> · 병 ${fmt(f.troops)} · 금 ${fmt(f.gold)} · 량 ${fmt(f.food)} · 명성 ${f.fame}</span>
     </div>`).join('');
   return `<p class="note">전력(성·병력) 순입니다. 우리와의 관계는 동맹 · 정전 · 우호 · 중립 · 적대입니다.</p>${rows}`;
+}
+
+/* ---------- 영웅전 (비동기 유저 군단 · 원정 도전장 · 습격) ---------- */
+/* 다른 사람이 키운 군단과 겨루는 비동기 멀티플레이.
+   - 내 군단 등록: 성 하나의 최정예 장수 5명 + 병력 스냅샷 (성 병력은 그대로)
+   - 원정 도전장: 전력이 비슷한 군단 3~5개에 도전 — 모의전이라 병력이 타지 않는다
+   - 습격: 12개월 뒤부터 달마다 확률로 상대 군단이 국경을 넘는다 — 막아내면 보상
+   서버가 없으면 프리셋 군단(연습 상대)으로 그대로 논다. */
+let legionView = 'mine';
+let legionCache = { list: null, offline: false, error: '', at: 0, loading: false };
+let legionDraft = null;          // 등록 화면의 선택 (cityId·nickname)
+let legionBattleCtx = null;      // 원정·습격 전투 한 판의 문맥
+let legionInvasionBusy = false;
+
+function legionOfGame() { return E.ensureLegion(game); }
+
+/* 지금 전장에 세울 내 군단 — 등록본이 있으면 그것, 없으면 가장 강한 성에서 즉석으로 */
+function myLegionForBattle(cityId) {
+  const L = legionOfGame();
+  const cid = cityId || (L.registered && game.cities[L.registered.cityId] && game.cities[L.registered.cityId].owner === game.playerId ? L.registered.cityId : E.bestLegionCity(game));
+  if (!cid) return null;
+  return E.legionSnapshot(game, cid) || null;
+}
+
+function legionGeneralChipsHTML(gens, color = '') {
+  return `<div class="lg-gens">${(gens || []).map((g) => `<span class="lg-gen"${color ? ` style="border-color:${color}"` : ''}>${esc(g.ko)} <i>${fmt(g.troops || 0)}</i></span>`).join('')}</div>`;
+}
+
+function legionMyCardHTML(compact = false) {
+  const L = legionOfGame();
+  const reg = L.registered;
+  const rec = LGC.recordLabel(L.records.wins, L.records.losses);
+  if (!reg) {
+    const preview = myLegionForBattle();
+    return `<div class="lg-empty">
+      <b>아직 군단을 등록하지 않았습니다</b>
+      <p>성 하나의 최정예 장수 ${LGC.LEGION.MAX_GENERALS}명과 병력을 그대로 떠서 군단으로 세웁니다.<br>등록해도 그 성의 장수·병력은 줄지 않습니다.</p>
+      ${preview ? `<p class="note">지금 등록하면 — <b>${esc(preview.cityName)}</b> · 전력 ${fmt(preview.power)} · 병 ${fmt(preview.troopsTotal)}</p>` : '<p class="note">장수가 있는 성이 하나도 없습니다.</p>'}
+      <button class="btn big" data-act="legion-register" style="margin-top:10px">내 군단 등록</button>
+    </div>`;
+  }
+  const chip = L.records.defenseWins + L.records.defenseLosses > 0
+    ? ` · 수비 ${L.records.defenseWins}승 ${L.records.defenseLosses}패` : '';
+  return `<div class="lg-card mine">
+      <div class="lg-nick">${esc(reg.nickname)}<em>${reg.server ? '등록됨' : '오프라인'}</em></div>
+      <div class="lg-meta">${esc(reg.factionName || '내 세력')} · ${esc(reg.cityName || '')} · 전력 <b>${fmt(reg.power)}</b> · 병 ${fmt(reg.troopsTotal)}</div>
+      ${legionGeneralChipsHTML(reg.generals)}
+      <div class="lg-record">내 전적 <b>${rec}</b>${chip}</div>
+    </div>
+    ${compact ? '' : `<div class="lg-btns">
+      <button class="btn" data-act="legion-register">군단 갱신</button>
+      <button class="btn" data-act="legion-view" data-view="expedition">원정 도전장</button>
+    </div>`}`;
+}
+
+function openLegionSheet(view = null) {
+  if (view) legionView = view;
+  renderLegionSheet();
+  sfx.click();
+  if (legionView === 'expedition') loadLegionList();
+}
+
+function renderLegionSheet() {
+  const L = legionOfGame();
+  const pending = L.pendingInvasion;
+  const tabs = `<div class="info-tabs lg-tabs">
+      <button class="pick-chip ${legionView === 'mine' ? 'on' : ''}" data-act="legion-view" data-view="mine">내 군단</button>
+      <button class="pick-chip ${legionView === 'expedition' ? 'on' : ''}" data-act="legion-view" data-view="expedition">원정 도전장</button>
+    </div>`;
+  const invasion = pending ? `<button class="lg-alert" data-act="legion-invasion-open">
+      <b>${esc(pending.foe.nickname)} 님의 군단이 국경에 있습니다</b>
+      <span>눌러서 대응하세요 — 전장으로 나가거나 성문을 닫습니다.</span>
+    </button>` : '';
+  const body = legionView === 'expedition' ? legionListHTML() : legionMyCardHTML();
+  openSheet('영웅전', `${invasion}${tabs}${body}${legionView === 'mine' ? '<p class="note lg-foot">원정은 모의전 — 본편 성의 병력과 장수는 그대로입니다. 습격에서 지면 금·군량을 털리지만 성을 빼앗기지는 않습니다.</p>' : ''}`);
+}
+
+function legionListHTML() {
+  const L = legionOfGame();
+  if (!legionCache.list && !legionCache.loading) loadLegionList();
+  if (legionCache.loading && !legionCache.list) {
+    return '<p class="note lg-loading">원정 도전장을 펼치는 중…</p>';
+  }
+  const list = legionCache.list || [];
+  const mine = L.registered || myLegionForBattle();
+  const head = mine
+    ? `<p class="note">내 전력 <b>${fmt(mine.power)}</b> 근처의 군단을 모았습니다.${legionCache.offline ? ' <i class="lg-off">서버에 닿지 못해 연습 상대와 겨룹니다</i>' : ''}</p>`
+    : `<p class="note">먼저 내 군단을 등록하면 전력이 비슷한 상대를 모아 드립니다.</p>`;
+  if (!list.length) {
+    return `${head}<p class="note">겨룰 군단이 아직 없습니다. 조금 뒤에 다시 열어 보세요.</p>
+      <button class="btn ghost lg-wide" data-act="legion-reload" style="margin-top:8px">다시 찾기</button>`;
+  }
+  const cards = list.map((o) => {
+    const rel = mine ? Math.round((o.power / Math.max(1, mine.power)) * 100) : 100;
+    const tone = rel > 125 ? 'hard' : rel < 80 ? 'easy' : 'fair';
+    return `<button class="lg-card foe ${tone}" data-act="legion-foe" data-id="${esc(o.id)}">
+      <div class="lg-nick">${esc(o.nickname)}${o.isPreset ? '<em>연습</em>' : ''}<i class="lg-pw">전력 ${fmt(o.power)}</i></div>
+      <div class="lg-meta">${esc(o.factionName || '')}${o.cityName ? ' · ' + esc(o.cityName) : ''} · ${LGC.recordLabel(o.wins, o.losses)} · 병 ${fmt(o.troopsTotal)}</div>
+      ${legionGeneralChipsHTML(o.generals.slice(0, 4))}
+    </button>`;
+  }).join('');
+  return `${head}${cards}<button class="btn ghost lg-wide lg-reload" data-act="legion-reload">다른 상대 찾기</button>`;
+}
+
+function loadLegionList(force = false) {
+  if (legionCache.loading) return;
+  if (!force && legionCache.list && Date.now() - legionCache.at < 60000) return;
+  const mine = legionOfGame().registered || myLegionForBattle();
+  legionCache.loading = true;
+  if (legionView === 'expedition' && !$('#sheet').classList.contains('hidden')) renderLegionSheet();
+  Legion.fetchOpponents(mine, LGC.LEGION.LIST_MAX).then((res) => {
+    legionCache = { list: res.list || [], offline: !!res.offline, error: res.error || '', at: Date.now(), loading: false };
+    // 서버에 내 군단이 남아 있으면 그 전적을 그대로 보여 준다
+    if (res.mine) {
+      const L = legionOfGame();
+      if (L.registered) { L.registered.id = res.mine.id || L.registered.id; L.registered.wins = res.mine.wins; L.registered.losses = res.mine.losses; }
+      L.records.wins = res.mine.wins;
+      L.records.losses = res.mine.losses;
+    }
+    if (!$('#sheet').classList.contains('hidden') && legionView === 'expedition') renderLegionSheet();
+  }).catch(() => {
+    legionCache.loading = false;
+    if (!$('#sheet').classList.contains('hidden') && legionView === 'expedition') renderLegionSheet();
+  });
+}
+
+/* — 내 군단 등록 — */
+function openLegionRegister() {
+  const L = legionOfGame();
+  const best = (L.registered && game.cities[L.registered.cityId] && game.cities[L.registered.cityId].owner === game.playerId)
+    ? L.registered.cityId : E.bestLegionCity(game);
+  if (!best) { toast('군단을 세울 성이 없습니다.'); sfx.fail(); return; }
+  legionDraft = { cityId: best, nickname: (L.registered && L.registered.nickname) || Legion.savedNickname() || '' };
+  renderLegionRegister();
+  sfx.click();
+}
+
+function renderLegionRegister() {
+  const d = legionDraft;
+  const cities = E.factionCities(game, game.playerId).filter((c) => E.generalsInCity(game, c.id).length);
+  const snap = E.legionSnapshot(game, d.cityId);
+  const nick = d.nickname || (snap ? snap.nickname : '');
+  const cityRows = cities.map((c) => {
+    const on = c.id === d.cityId;
+    return `<button class="pick-chip ${on ? 'on' : ''}" data-act="legion-city" data-city="${c.id}">${CITY_BY_ID[c.id].ko} <b>${fmt(c.troops)}</b></button>`;
+  }).join('');
+  const gens = snap ? snap.generals.map((g) => `<div class="lg-genrow">
+      <img src="${portraitURL(g.id, gd(g.id), 34, colorOf(game.playerId))}" alt="" />
+      <span class="lg-gn">${esc(g.ko)}<em>${g.arm} · ${esc((FORMATIONS[g.formation] || {}).ko || '')}</em></span>
+      <span class="lg-gs">통 ${g.lead} · 무 ${g.war} · 지 ${g.int}</span>
+      <b class="lg-gt">${fmt(g.troops)}</b>
+    </div>`).join('') : '';
+  openSheet('내 군단 등록', `
+    <p class="note">군단을 세울 성을 고르세요. 그 성의 최정예 장수 ${LGC.LEGION.MAX_GENERALS}명과 병력이 그대로 군단이 됩니다.<br>등록해도 성의 장수·병력은 줄지 않고, 원정은 모의전입니다.</p>
+    <div class="chip-row lg-cityrow">${cityRows}</div>
+    <label class="lg-nickrow">군단 이름<input id="lg-nick" class="cst-input" maxlength="12" value="${esc(nick)}" placeholder="예: 조조의 군단" autocomplete="off" /></label>
+    ${snap ? `<div class="lg-snaphead">${esc(snap.cityName)} 군단 · 전력 <b>${fmt(snap.power)}</b> · 병 ${fmt(snap.troopsTotal)}</div>${gens}` : '<p class="note">이 성에는 장수가 없습니다.</p>'}
+    <button class="btn big" data-act="legion-save" style="margin-top:12px" ${snap ? '' : 'disabled'}>${legionOfGame().registered ? '군단 갱신' : '군단 등록'}</button>
+  `);
+}
+
+function doLegionSave() {
+  const d = legionDraft;
+  if (!d) return;
+  const input = $('#lg-nick');
+  const typed = input ? String(input.value || '').trim() : '';
+  const snap = E.legionSnapshot(game, d.cityId, { nickname: typed || undefined });
+  if (!snap) { toast('이 성에는 장수가 없습니다.'); sfx.fail(); return; }
+  const payload = { ...snap, nickname: typed || snap.nickname };
+  const check = LGC.sanitizeLegion(payload);
+  if (!check.ok) { toast(check.error); sfx.fail(); return; }
+  const btn = $('[data-act="legion-save"]');
+  if (btn) btn.disabled = true;
+  Legion.registerLegion(check.legion).then((res) => {
+    const stored = E.setRegisteredLegion(game, res.legion || check.legion, { server: res.ok, id: res.row ? res.row.id : '' });
+    if (res.row) {
+      stored.wins = res.row.wins; stored.losses = res.row.losses;
+      legionOfGame().records.wins = res.row.wins;
+      legionOfGame().records.losses = res.row.losses;
+    }
+    Legion.saveNickname(stored.nickname);
+    legionCache = { list: null, offline: false, error: '', at: 0, loading: false };
+    autoSave();
+    sfx.ok();
+    toast(res.ok ? `${stored.nickname} — 군단을 등록했습니다.` : `${stored.nickname} — 서버에 닿지 못해 이 기기에만 저장했습니다.`, 2600);
+    legionView = 'mine';
+    renderLegionSheet();
+  });
+}
+
+/* — 도전장 → 상대 확인 → 전장 — */
+function legionFoeById(id) {
+  const fromList = (legionCache.list || []).find((o) => o.id === id);
+  if (fromList) return fromList;
+  const p = legionOfGame().pendingInvasion;
+  if (p && p.foe && p.foe.id === id) return p.foe;
+  return null;
+}
+
+function openLegionFoe(id) {
+  const foe = legionFoeById(id);
+  if (!foe) { toast('상대를 찾을 수 없습니다.'); sfx.fail(); return; }
+  const mine = legionOfGame().registered || myLegionForBattle();
+  if (!mine) { toast('먼저 내 군단을 등록해 주세요.'); sfx.fail(); return; }
+  const myP = Math.max(1, mine.power);
+  const ratio = Math.round((foe.power / myP) * 100);
+  const tone = ratio > 125 ? '상대가 더 강합니다' : ratio < 80 ? '우리가 앞섭니다' : '비슷한 전력입니다';
+  const reward = LGC.expeditionReward(foe.power, () => 0.5);
+  openSheet(`${foe.nickname} 님의 군단`, `
+    <div class="lg-vs">
+      <div class="lg-vs-side"><b>${esc(mine.nickname)}</b><span>전력 ${fmt(mine.power)}</span><span>병 ${fmt(mine.troopsTotal)}</span></div>
+      <div class="lg-vs-mid">VS</div>
+      <div class="lg-vs-side foe"><b>${esc(foe.nickname)}</b><span>전력 ${fmt(foe.power)}</span><span>병 ${fmt(foe.troopsTotal)}</span></div>
+    </div>
+    <p class="note">${tone} (${ratio}%) · 상대 전적 <b>${LGC.recordLabel(foe.wins, foe.losses)}</b></p>
+    ${legionGeneralChipsHTML(foe.generals)}
+    <p class="note">이기면 금 <b>${fmt(reward.gold)}</b> · 군량 <b>${fmt(reward.food)}</b> · 명성 +2~4를 얻고 전적이 남습니다.<br>원정은 모의전 — 지더라도 성의 병력과 장수는 그대로입니다.</p>
+    <button class="btn big" data-act="legion-go" data-id="${esc(foe.id)}">전장으로 (수동 지휘)</button>
+    <button class="btn ghost lg-wide" data-act="legion-view" data-view="expedition" style="margin-top:8px">다른 상대 보기</button>
+  `);
+  sfx.click();
+}
+
+function startLegionBattle(kind, foe) {
+  if (!game || battle) return;
+  const L = legionOfGame();
+  const reg = L.registered;
+  const cid = kind === 'invasion'
+    ? (reg && game.cities[reg.cityId] && game.cities[reg.cityId].owner === game.playerId ? reg.cityId : E.bestLegionCity(game))
+    : (reg && game.cities[reg.cityId] && game.cities[reg.cityId].owner === game.playerId ? reg.cityId : E.bestLegionCity(game));
+  const mine = myLegionForBattle(cid);
+  if (!mine) { toast('전장에 세울 군단이 없습니다.'); sfx.fail(); return; }
+  if (!foe || !foe.generals || !foe.generals.length) { toast('상대 군단 정보가 없습니다.'); sfx.fail(); return; }
+  const caps = {};
+  for (const g of mine.generals) caps[g.id] = E.maxTroopsOf(game, g.id);
+  const city = game.cities[cid] || {};
+  const setup = LGC.legionBattleSetup({
+    kind, mine, enemy: foe, caps,
+    cityTroops: Math.round(city.troops || 0), cityDef: city.def,
+  });
+  const enemy = LGC.enemySpecsOf(foe);
+  legionGeneralMap = enemy.map;
+  legionBattleCtx = {
+    kind, foe, cityId: cid,
+    key: Legion.newBattleKey(kind),
+    generals: { ...E.generalMap(game), ...enemy.map },
+  };
+  closeSheet();
+  // 습격은 내가 수비측 — 지휘는 그대로 수동
+  beginLegionBattle(setup, kind === 'invasion' ? 'def' : 'atk');
+}
+
+function beginLegionBattle(setup, playerSide) {
+  const ctx = legionBattleCtx;
+  battle = B.createBattle({ ...setup, seed: (battleSeedCounter++), playerSide, generals: ctx.generals });
+  battleSel = null; battleMode = null; battleBusy = false;
+  pendingProvoke = null; pendingBattleEvent = null;
+  lastBattleResult = null;
+  retreatConfirm = false;
+  clearTimeout(retreatConfirmT);
+  show('scr-battle');
+  setTimeout(resizeBattleCanvas, 20);
+  renderBattle();
+  sfx.battle();
+  toast(ctx.kind === 'invasion'
+    ? `${ctx.foe.nickname} 님의 군단이 성에 닿았습니다 — 막아내세요!`
+    : `${ctx.foe.nickname} 님의 군단과 겨룹니다 — 지휘로 이기세요!`, 2600);
+  if (battle.phase !== battle.playerSide) enemyPhase();
+}
+
+/* 원정·습격 전투가 끝났을 때 — 본편 세이브에는 보상·손실만 반영한다 */
+function finishLegionBattle(res) {
+  const ctx = legionBattleCtx;
+  const L = legionOfGame();
+  const mySide = battle.playerSide;
+  const win = (res.winner === 'attacker' && mySide === 'atk') || (res.winner === 'defender' && mySide === 'def');
+  const iAmAtk = mySide === 'atk';
+  const summary = iAmAtk ? `아군 손실 ${fmt(res.atkLoss)} · 적 손실 ${fmt(res.defLoss)}` : `아군 손실 ${fmt(res.defLoss)} · 적 손실 ${fmt(res.atkLoss)}`;
+  const lines = [];
+  if (win) {
+    const reward = ctx.kind === 'invasion' ? LGC.defenseReward(ctx.foe.power, Math.random) : LGC.expeditionReward(ctx.foe.power, Math.random);
+    const got = E.legionReward(game, ctx.cityId, reward);
+    L.records.wins++;
+    if (ctx.kind === 'invasion') L.records.defenseWins++;
+    lines.push(`금 <b>${fmt(got.gold)}</b> · 군량 <b>${fmt(got.food)}</b> · 명성 +${got.fame} · 나선 장수 공적 +${fmt(got.merit)}`);
+    sfx.win();
+  } else {
+    L.records.losses++;
+    if (ctx.kind === 'invasion') {
+      const lost = E.legionRaidLoss(game, ctx.cityId, LGC.invasionLoss(ctx.foe.power, Math.random));
+      L.records.defenseLosses++;
+      lines.push(`${CITY_BY_ID[ctx.cityId] ? CITY_BY_ID[ctx.cityId].ko : '성'}에서 금 <b>${fmt(lost.gold)}</b> · 군량 <b>${fmt(lost.food)}</b> · 병사 <b>${fmt(lost.troops)}</b>을 잃었습니다. 성을 빼앗기지는 않았습니다.`);
+    } else {
+      lines.push('원정은 모의전입니다 — 성의 병력과 장수는 그대로 돌아옵니다.');
+    }
+    sfx.lose();
+  }
+  L.lastResult = { kind: ctx.kind, win, foe: ctx.foe.nickname, at: game.turn };
+  L.pendingInvasion = null;
+  autoSave();
+  // 서버 전적 — 같은 열쇠로는 한 번만 센다
+  Legion.reportBattle({
+    key: ctx.key, kind: ctx.kind, enemyId: ctx.foe.id, winner: res.winner,
+    atkTroops: battle.initial.atk, defTroops: battle.initial.def,
+    atkLoss: res.atkLoss, defLoss: res.defLoss, rounds: res.rounds,
+  }).then((r) => {
+    if (r.ok && r.applied && r.mine) {
+      L.records.wins = r.mine.wins; L.records.losses = r.mine.losses;
+      if (L.registered) { L.registered.wins = r.mine.wins; L.registered.losses = r.mine.losses; }
+      autoSave();
+    }
+  }).catch(() => {});
+  renderGame();
+  const title = ctx.kind === 'invasion' ? (win ? '습격을 막아냈다' : '습격을 받았다') : (win ? '원정 승전' : '원정 패전');
+  openSheet(title, `
+    <div style="text-align:center;padding:6px 0 2px">
+      <div style="font-size:28px;letter-spacing:4px;color:${win ? '#f5d97a' : '#e08a7a'}">${win ? '승리' : '패배'}</div>
+      <p style="margin:6px 0;color:#cbbf9d">${ctx.kind === 'invasion' ? '유저 군단 습격' : '원정 도전장'} · ${esc(ctx.foe.nickname)} 님의 군단</p>
+    </div>
+    <p class="note">${summary} · ${res.rounds}라운드</p>
+    ${lines.map((l) => `<p class="note lg-result-line">${l}</p>`).join('')}
+    <button class="btn big" data-act="bt-close" style="margin-top:12px">계속</button>
+  `);
+}
+
+/* — 습격 — */
+function openInvasionSheet(foe, offline) {
+  const L = legionOfGame();
+  if (!L.pendingInvasion) L.pendingInvasion = { atTurn: game.turn, offline: !!offline, foe };
+  const cid = (L.registered && game.cities[L.registered.cityId] && game.cities[L.registered.cityId].owner === game.playerId)
+    ? L.registered.cityId : E.bestLegionCity(game);
+  const city = game.cities[cid] || {};
+  const mine = myLegionForBattle(cid);
+  openSheet('국경에 적이 나타났습니다', `
+    <div class="lg-invasion">
+      <div class="lg-inv-title">${esc(foe.nickname)} 님의 군단이 국경을 넘었습니다!</div>
+      <div class="lg-meta">전력 ${fmt(foe.power)} · 병 ${fmt(foe.troopsTotal)} · ${LGC.recordLabel(foe.wins, foe.losses)}${foe.isPreset ? ' · 연습 상대' : ''}</div>
+      ${legionGeneralChipsHTML(foe.generals)}
+    </div>
+    <p class="note">${CITY_BY_ID[cid] ? esc(CITY_BY_ID[cid].ko) : '성'}을 지킵니다 — 수비 병력 <b>${fmt(city.troops || 0)}</b> · 성 방어 <b>${fmt(city.def || 0)}</b>${mine ? ` · 지휘 ${esc(mine.nickname)}` : ''}.<br>막아내면 보상과 전적이 남고, 지면 금·군량을 털립니다(성을 빼앗기지는 않습니다).</p>
+    <button class="btn big" data-act="legion-defense" data-id="${esc(foe.id)}">전장으로 나가 막는다</button>
+    <button class="btn ghost lg-wide" data-act="legion-hold" style="margin-top:8px">성문을 닫는다 (금·군량 소폭 손실)</button>
+  `);
+  sfx.select();
+}
+
+function doSiegeHold() {
+  const L = legionOfGame();
+  const p = L.pendingInvasion;
+  if (!p) { closeSheet(); return; }
+  const cid = (L.registered && game.cities[L.registered.cityId] && game.cities[L.registered.cityId].owner === game.playerId)
+    ? L.registered.cityId : E.bestLegionCity(game);
+  const lost = E.legionRaidLoss(game, cid, LGC.siegeHold(p.foe.power, Math.random));
+  L.pendingInvasion = null;
+  L.lastResult = { kind: 'hold', win: false, foe: p.foe.nickname, at: game.turn };
+  autoSave(); renderGame();
+  sfx.fail();
+  openSheet('성을 닫았다', `<p class="note">${esc(p.foe.nickname)} 님의 군단이 성문 앞에서 사흘을 머물다 군량만 털어 갔습니다.</p>
+    <p class="note">금 <b>${fmt(lost.gold)}</b> · 군량 <b>${fmt(lost.food)}</b> · 명성 ${lost.fame} — 성과 장수는 그대로입니다.</p>
+    <button class="btn big" data-act="sheet-close" style="margin-top:10px">계속</button>`);
+}
+
+/* 턴이 바뀐 직후 — 유저 군단이 국경을 넘을 달인가 */
+function showPendingInvasion() {
+  if (!game || battle || game.gameOver) return;
+  if (!$('#sheet').classList.contains('hidden')) return;
+  if ($('#scr-game').classList.contains('hidden')) return;
+  const p = legionOfGame().pendingInvasion;
+  if (p && p.foe) openInvasionSheet(p.foe, p.offline);
+}
+
+
+function maybeLegionInvasion() {
+  if (!game || game.gameOver || battle) return;
+  if (legionInvasionBusy) return;
+  const L = legionOfGame();
+  if (L.pendingInvasion) return;
+  const mine = myLegionForBattle();
+  if (!mine) return;
+  const roll = LGC.invasionRoll({ turn: game.turn, month: game.month, power: mine.power, lastTurn: L.lastInvasionTurn });
+  if (!roll.invade) return;
+  legionInvasionBusy = true;
+  Legion.fetchOpponents(mine, 3).then((res) => {
+    legionInvasionBusy = false;
+    if (!game || game.gameOver || battle || !res.list.length) return;
+    const foe = res.list[Math.floor(Math.random() * res.list.length)];
+    L.lastInvasionTurn = game.turn;
+    L.pendingInvasion = { atTurn: game.turn, offline: !!res.offline, foe };
+    autoSave();
+    if ($('#sheet').classList.contains('hidden') && !$('#scr-game').classList.contains('hidden')) {
+      openInvasionSheet(foe, res.offline);
+    } else {
+      // 다른 창을 보고 있어도 놓치지 않는다 — 군의·정보 › 영웅전에 붉은 안내가 남는다
+      toast(`${foe.nickname} 님의 군단이 국경에 나타났습니다 — 정보 › 영웅전에서 대응하세요.`, 3600);
+    }
+  }).catch(() => { legionInvasionBusy = false; });
 }
 
 /* ---------- 월간 이벤트 ---------- */
@@ -3595,6 +4018,7 @@ function openMenu() {  openSheet('군의', `
     <button class="btn big" data-act="save-slot" data-slot="3" style="margin-bottom:8px">슬롯 3에 저장</button>
     <button class="btn big ghost" data-act="open-load" style="margin-bottom:8px">불러오기</button>
     <button class="btn big ghost" data-act="open-reports" style="margin-bottom:8px">군보</button>
+    <button class="btn big ghost" data-act="legion" style="margin-bottom:8px">⚔ 영웅전 · 원정</button>
     <button class="btn big ghost" data-act="diplomacy" style="margin-bottom:8px">외교 · 관직</button>
     ${game && game.pendingEvent ? '<button class="btn big ghost" data-act="open-event" style="margin-bottom:8px">달의 소식</button>' : ''}
     ${game && game.pendingTournament ? '<button class="btn big ghost" data-act="open-tournament" style="margin-bottom:8px">이달의 대회</button>' : ''}
@@ -3858,6 +4282,31 @@ function onClick(e) {
     case 'info': openInfoSheet(); break;
     case 'info-tab': infoTab = el.dataset.tab; renderInfoSheet(); sfx.click(); break;
     case 'info-scope': infoScope = el.dataset.scope; renderInfoSheet(); sfx.click(); break;
+    /* 영웅전 — 비동기 유저 군단 */
+    case 'legion': cityCmdGroup = null; syncCmdPopover(); openLegionSheet('mine'); break;
+    case 'legion-view': legionView = el.dataset.view || 'mine'; renderLegionSheet(); sfx.click(); if (legionView === 'expedition') loadLegionList(); break;
+    case 'legion-register': openLegionRegister(); break;
+    case 'legion-city': if (legionDraft) { legionDraft.cityId = el.dataset.city; const inp = $('#lg-nick'); if (inp) legionDraft.nickname = inp.value; renderLegionRegister(); sfx.click(); } break;
+    case 'legion-save': doLegionSave(); break;
+    case 'legion-reload': legionCache.list = null; legionCache.at = 0; loadLegionList(true); sfx.click(); break;
+    case 'legion-foe': openLegionFoe(el.dataset.id); break;
+    case 'legion-go': {
+      const foe = legionFoeById(el.dataset.id);
+      if (foe) startLegionBattle('expedition', foe);
+      break;
+    }
+    case 'legion-defense': {
+      const p = legionOfGame().pendingInvasion;
+      const foe = p && p.foe ? p.foe : legionFoeById(el.dataset.id);
+      if (foe) startLegionBattle('invasion', foe);
+      break;
+    }
+    case 'legion-hold': doSiegeHold(); break;
+    case 'legion-invasion-open': {
+      const p = legionOfGame().pendingInvasion;
+      if (p && p.foe) openInvasionSheet(p.foe, p.offline);
+      break;
+    }
     case 'info-city': {
       const cid = el.dataset.city;
       closeSheet();
@@ -3962,6 +4411,8 @@ function onClick(e) {
       } else if (closedTitle.includes('대회') && game && game.pendingTournament) {
         toast('이달의 대회는 ☰ 군의 → 이달의 대회에서 다시 열 수 있습니다.', 2400);
       }
+      // 미적 둔 습격 안내가 있으면 전투·시트를 닫은 김에 띄운다(습격 창을 스스로 닫았을 때는 띄우지 않는다)
+      if (closedTitle !== '국경에 적이 나타났습니다') setTimeout(showPendingInvasion, 400);
       break;
     case 'menu': openMenu(); break;
     case 'open-load': openLoad(); break;

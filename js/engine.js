@@ -3999,6 +3999,170 @@ export function applyBattleResult(state, result, rng = null) {
   return out;
 }
 
+/* ---------- 비동기 유저 군단 (원정 도전장 · 본편 습격) ----------
+   · state.legion 은 저장에 함께 실린다(세이브 버전은 그대로 — 없으면 열 때 기본값을 채운다).
+   · 군단 등록은 '성 하나의 최정예' 스냅샷이다. 등록해도 성 병력·장수는 그대로다.
+   · 원정은 모의전, 습격은 약탈전 — 어느 쪽도 성을 빼앗거나 병력을 영구히 태우지 않는다. */
+export const LEGION_MAX = 5;
+export const LEGION_RAID_MIN_TURN = 12;
+
+export function ensureLegion(state) {
+  if (!state) return { registered: null, records: { wins: 0, losses: 0, defenseWins: 0, defenseLosses: 0 }, lastInvasionTurn: 0, pendingInvasion: null, lastResult: null };
+  const L = state.legion || (state.legion = {});
+  if (!('registered' in L)) L.registered = null;
+  L.records = { wins: 0, losses: 0, defenseWins: 0, defenseLosses: 0, ...(L.records || {}) };
+  L.lastInvasionTurn = Math.max(0, Math.round(Number(L.lastInvasionTurn) || 0));
+  L.pendingInvasion = L.pendingInvasion || null;
+  L.lastResult = L.lastResult || null;
+  return L;
+}
+
+/* 성 하나를 군단으로 뜬다 — 능력치 상위 5명, 병력은 부대 편성(assignedTroops)이 있으면 그대로 */
+export function legionSnapshot(state, cityId, opts = {}) {
+  const c = state.cities[cityId];
+  if (!c || c.owner !== state.playerId) return null;
+  const roster = generalsInCity(state, cityId)
+    .map((g) => {
+      const t = effectiveGeneral(state, g.id) || generalOf(state, g.id) || g;
+      return { id: g.id, ko: t.ko || g.id, lead: t.lead || 0, war: t.war || 0, int: t.int || 0, score: (t.lead || 0) + (t.war || 0) + (t.int || 0) };
+    })
+    .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1))
+    .slice(0, LEGION_MAX);
+  if (!roster.length) return null;
+
+  const capOf = (gid) => maxTroopsOf(state, gid);
+  const capSum = roster.reduce((s, g) => s + capOf(g.id), 0);
+  const total = Math.max(0, Math.min(Math.round(c.troops), capSum));
+  const assigned = roster.map((g) => Math.max(0, Math.round((state.generals[g.id] || {}).assignedTroops || 0)));
+  const hasAssigned = assigned.some((v) => v > 0);
+  const troops = roster.map(() => 0);
+  let left = total;
+  if (hasAssigned) {
+    roster.forEach((g, i) => { const take = Math.min(left, assigned[i]); troops[i] = take; left -= take; });
+    roster.forEach((g, i) => {
+      if (left <= 0) return;
+      const room = Math.max(0, capOf(g.id) - troops[i]);
+      const add = Math.min(room, left);
+      troops[i] += add; left -= add;
+    });
+  } else {
+    const base = Math.floor(total / roster.length);
+    roster.forEach((g, i) => { troops[i] = i === 0 ? total - base * (roster.length - 1) : base; });
+  }
+
+  const generals = roster.map((g, i) => ({
+    id: g.id,
+    ko: g.ko,
+    lead: g.lead,
+    war: g.war,
+    int: g.int,
+    troops: troops[i],
+    arm: ARMS.includes((state.generals[g.id] || {}).arm) ? state.generals[g.id].arm : '보병',
+    formation: formationsOf(state, g.id)[0] || 'eorin',
+  }));
+  const lord = lordOf(state, state.playerId);
+  const f = state.factions[state.playerId] || {};
+  const troopsTotal = generals.reduce((s, g) => s + g.troops, 0);
+  return {
+    nickname: String(opts.nickname || (lord && generalOf(state, lord.id) ? generalOf(state, lord.id).ko : '') || f.name || '내 군단').slice(0, 12),
+    lordName: String((lord && generalOf(state, lord.id) ? generalOf(state, lord.id).ko : '') || '').slice(0, 12),
+    factionName: String(f.name || '').slice(0, 12),
+    cityId,
+    cityName: cityName(cityId),
+    formation: generals[0].formation,
+    generals,
+    troopsTotal,
+    power: legionPowerOf(generals, troopsTotal),
+  };
+}
+
+/* 전력 — js/legion-core.js powerOf 와 같은 식(서버 RPC 도 같은 식을 쓴다) */
+export function legionPowerOf(generals, troopsTotal) {
+  const list = Array.isArray(generals) ? generals : [];
+  const clampStat = (v) => Math.max(1, Math.min(100, Math.round(Number(v) || 1)));
+  let sum = 0;
+  let troops = 0;
+  for (const g of list) {
+    sum += clampStat(g.lead) * 12 + clampStat(g.war) * 15 + clampStat(g.int) * 8;
+    troops += Math.max(0, Math.min(30000, Math.round(Number(g.troops) || 0)));
+  }
+  // 총병력도 상한(60,000)에서 멈춘다 — 앱과 서버가 같은 값을 내야 한다
+  const total = Number.isFinite(Number(troopsTotal)) ? Math.max(0, Math.round(Number(troopsTotal))) : troops;
+  return Math.floor(sum / 10) + Math.floor(Math.min(total, 60000) / 12);
+}
+
+/* 지금 가장 강한 성 — '내 군단 등록'의 기본 선택 */
+export function bestLegionCity(state) {
+  let best = null;
+  for (const c of factionCities(state, state.playerId)) {
+    const roster = generalsInCity(state, c.id);
+    if (!roster.length) continue;
+    const score = Math.round(c.troops) + roster
+      .map((g) => { const t = effectiveGeneral(state, g.id) || {}; return (t.lead || 0) + (t.war || 0) + (t.int || 0); })
+      .sort((a, b) => b - a).slice(0, LEGION_MAX).reduce((s, v) => s + v * 30, 0);
+    if (!best || score > best.score) best = { cityId: c.id, score };
+  }
+  return best ? best.cityId : null;
+}
+
+/* 원정·습격 보상 — 성 곳간 상한까지만 쌓이고, 나선 장수들이 공적을 쌓는다 */
+export function legionReward(state, cityId, reward) {
+  const r = reward || {};
+  const c = state.cities[cityId] || factionCities(state, state.playerId)[0];
+  if (!c) return { cityId: null, gold: 0, food: 0, fame: 0, merit: 0 };
+  const cap = cityStoreCap(state, c.id);
+  const g0 = c.gold; const f0 = c.food;
+  c.gold = Math.min(cap.gold, Math.max(0, Math.round(c.gold + (Number(r.gold) || 0))));
+  c.food = Math.min(cap.food, Math.max(0, Math.round(c.food + (Number(r.food) || 0))));
+  const fame = Math.round(Number(r.fame) || 0);
+  if (fame) bumpFame(state, state.playerId, fame);
+  let merit = 0;
+  for (const g of generalsInCity(state, c.id).slice(0, LEGION_MAX)) merit += addMerit(state, g.id, Math.round(Number(r.merit) || 0));
+  return { cityId: c.id, gold: c.gold - g0, food: c.food - f0, fame, merit };
+}
+
+/* 습격을 막지 못했을 때 — 금·군량을 털리고 병사가 조금 흩어진다(성은 그대로) */
+export function legionRaidLoss(state, cityId, loss) {
+  const l = loss || {};
+  const c = state.cities[cityId] || factionCities(state, state.playerId)[0];
+  if (!c) return { cityId: null, gold: 0, food: 0, troops: 0, fame: 0 };
+  const gold = Math.min(Math.round(c.gold), Math.round(c.gold * Math.max(0, Math.min(1, Number(l.goldPct) || 0))));
+  const food = Math.min(Math.round(c.food), Math.round(c.food * Math.max(0, Math.min(1, Number(l.foodPct) || 0))));
+  const troops = Math.max(0, Math.min(Math.max(0, Math.round(c.troops) - 300), Math.round(c.troops * Math.max(0, Math.min(1, Number(l.troopPct) || 0)))));
+  c.gold = Math.max(0, Math.round(c.gold) - gold);
+  c.food = Math.max(0, Math.round(c.food) - food);
+  c.troops = Math.max(0, Math.round(c.troops) - troops);
+  clampCityTroops(c);
+  c.order = clamp(c.order - 4, 10, ORDER_CAP);
+  const fame = Math.round(Number(l.fame) || 0);
+  if (fame) bumpFame(state, state.playerId, fame);
+  reconcileAllAssignments(state);
+  return { cityId: c.id, gold, food, troops, fame };
+}
+
+/* 등록 결과를 세이브에 남긴다 — 오프라인이어도 화면·전투에 그대로 쓴다 */
+export function setRegisteredLegion(state, legion, extra = {}) {
+  const L = ensureLegion(state);
+  const v = legion || {};
+  L.registered = {
+    id: (extra.id || v.id || '') + '',
+    nickname: String(v.nickname || '').slice(0, 12),
+    lordName: String(v.lordName || '').slice(0, 12),
+    factionName: String(v.factionName || '').slice(0, 12),
+    cityId: String(v.cityId || ''),
+    cityName: String(v.cityName || ''),
+    formation: String(v.formation || 'eorin'),
+    generals: Array.isArray(v.generals) ? v.generals : [],
+    troopsTotal: Math.max(0, Math.round(Number(v.troopsTotal) || 0)),
+    power: Math.max(0, Math.round(Number(v.power) || 0)),
+    wins: Math.max(0, Math.round(Number(v.wins) || 0)),
+    losses: Math.max(0, Math.round(Number(v.losses) || 0)),
+    server: !!extra.server,
+    at: Math.max(0, Math.round(state.turn)),
+  };
+  return L.registered;
+}
+
 /* ---------- 저장/불러오기 ---------- */
 /* 옛 저장(v3~v9)에 없던 새 장수를 재야로 채워 넣는다 — 이어하기에서도 보강분을 만날 수 있다 */
 function ensureStaticGenerals(s) {
@@ -4101,6 +4265,7 @@ export function deserialize(json) {
   ensureFormationLearning(s);
   ensureCitySize(s);
   ensureArmies(s);
+  ensureLegion(s);
   s.delegationLog = Array.isArray(s.delegationLog) ? s.delegationLog : [];
   ricePriceOf(s);
   autoAdvisor(s);
