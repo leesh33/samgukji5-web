@@ -80,9 +80,12 @@ test('진형 11종(핵심 9종 + 안행·수진): 공격/방어/기동/사거리
   assert.ok(Math.max(...def) !== Math.min(...def), '방어 계수 차이');
 });
 
-test('시나리오 7종 · 성 중복 배정 없음 · 장수 중복 없음', () => {
-  assert.equal(SCENARIOS.length, 7);
-  assert.deepEqual(SCENARIOS.map((s) => s.year), [184, 189, 194, 200, 208, 219, 225]);
+test('시나리오 12종 · 성 중복 배정 없음 · 장수 중복 없음', () => {
+  assert.equal(SCENARIOS.length, 12);
+  assert.deepEqual(SCENARIOS.map((s) => s.year), [184, 189, 191, 194, 200, 207, 208, 211, 219, 225, 227, 251]);
+  assert.deepEqual(SCENARIOS.map((s) => s.id), ['s184', 's189', 's191', 's194', 's200', 's207', 's208', 's211', 's219', 's225', 's227', 's251']);
+  // 251 영웅집결만 등장연도를 무시하는 가상 시나리오다
+  for (const s of SCENARIOS) assert.equal(!!s.ignoreAppearYear, s.id === 's251', `${s.id} ignoreAppearYear`);
   assert.equal(new Set(SCENARIOS.map((s) => s.id)).size, SCENARIOS.length);
   const allCityIds = CITIES.map((c) => c.id);
   for (const sc of SCENARIOS) {
@@ -127,5 +130,21 @@ test('시나리오 7종 · 성 중복 배정 없음 · 장수 중복 없음', ()
       assert.ok(ids.includes('jojo') && ids.includes('liubei') && ids.includes('sunquan'), `${sc.id} 위·촉·오`);
     }
     if (sc.id === 's225') assert.ok(sc.factions.some((f) => f.id === 'nanman'), '225 남만');
+    if (sc.id === 's191') assert.ok(sc.factions.some((f) => f.id === 'sunjian') && sc.factions.some((f) => f.id === 'dongzhuo'), '191 손견·동탁');
+    if (sc.id === 's207') assert.ok(sc.factions.some((f) => f.id === 'liubei' && f.cities.includes('xinye')), '207 유비 신야');
+    if (sc.id === 's211') assert.ok(sc.factions.some((f) => f.id === 'mateng' && f.cities.includes('changan')), '211 마등 장안');
+    if (sc.id === 's227') {
+      const ids = sc.factions.map((f) => f.id);
+      assert.ok(ids.includes('jojo') && ids.includes('liubei') && ids.includes('sunquan'), '227 위·촉·오');
+      assert.equal(sc.factions.find((f) => f.id === 'liubei').lord, 'liu_shan', '227 촉 군주 유선');
+      assert.ok(sc.factions.find((f) => f.id === 'liubei').generals.includes('zhuge_liang'), '227 제갈량');
+    }
+    if (sc.id === 's251') {
+      // 전 시대 군주가 한 판에 — 여포·동탁·원소·조조·유비·손책·사마의
+      const lords = sc.factions.map((f) => f.lord);
+      for (const l of ['lu_bu', 'dong_zhuo', 'yuan_shao', 'cao_cao', 'liu_bei', 'sun_ce', 'sima_yi']) {
+        assert.ok(lords.includes(l), `251 군주 ${l}`);
+      }
+    }
   }
 });

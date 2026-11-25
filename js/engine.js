@@ -33,6 +33,32 @@ export function allGeneralsOf(state) {
   return [...GENERALS, ...Object.values((state && state.customGenerals) || {})];
 }
 
+/* ---------- 역사 등장연도 ---------- */
+export const DEFAULT_APPEAR_YEAR = 184;
+
+/* 아직 세상에 나오지 않은 장수인가 — 재야 풀에서만 걸러내고, 이미 세력에 속한 장수는 그대로 둔다.
+   영웅집결(ignoreAppearYear) 시나리오는 전 시대 장수를 처음부터 연다. */
+export function hasAppeared(state, gid) {
+  if (state && state.ignoreAppearYear) return true;
+  const d = GENERAL_BY_ID[gid];
+  const y = (d && d.appearYear) || DEFAULT_APPEAR_YEAR;
+  const now = state && Number.isFinite(state.year) ? state.year : y;
+  return now >= y;
+}
+
+/* 이번 해에 새로 출사하는 재야 장수 — 월간 소식용 */
+export function newAppearancesThisYear(state) {
+  if (!state || state.ignoreAppearYear) return [];
+  const out = [];
+  for (const g of Object.values(state.generals || {})) {
+    if (g.dead || g.captive || g.faction) continue;
+    const d = GENERAL_BY_ID[g.id];
+    if (!d || d.appearYear !== state.year) continue;
+    out.push(d);
+  }
+  return out.sort((a, b) => (b.lead + b.war + b.int + b.pol + b.cha) - (a.lead + a.war + a.int + a.pol + a.cha));
+}
+
 /* ---------- 난수 ---------- */
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -85,6 +111,8 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
     formationMastery: {},
     pendingEvent: null,
     pendingTournament: null,
+    // 251 영웅집결 같은 가상 시나리오 — 등장연도를 따지지 않는다
+    ignoreAppearYear: !!sc.ignoreAppearYear,
     lastTournament: null,
     lastPromotions: [],
     gameOver: null,
@@ -433,7 +461,7 @@ export function generalsInCity(state, cityId) {
   return Object.values(state.generals).filter((g) => g.city === cityId && g.faction && !g.captive && !g.dead);
 }
 export function freeGeneralsInCity(state, cityId) {
-  return Object.values(state.generals).filter((g) => g.city === cityId && !g.faction && !g.captive && !g.dead);
+  return Object.values(state.generals).filter((g) => g.city === cityId && !g.faction && !g.captive && !g.dead && hasAppeared(state, g.id));
 }
 export function factionGenerals(state, fid) {
   return Object.values(state.generals).filter((g) => g.faction === fid && !g.captive && !g.dead);
@@ -1157,7 +1185,7 @@ export function runSpecial(state, kind, cityId) {
     const tr = findTreasure(state, cityId, 0.14, rngOf(state));
     if (tr) { out.found = tr.treasure; msg += ` 그리고 ${withJosa(tr.treasure.ko, '을')} 찾았습니다!`; }
     else if (rng() < 0.16) {
-      const free = Object.values(state.generals).find((g) => !g.faction && !g.dead && !g.captive && g.city && g.city !== cityId);
+      const free = Object.values(state.generals).find((g) => !g.faction && !g.dead && !g.captive && g.city && g.city !== cityId && hasAppeared(state, g.id));
       if (free) { out.rumor = generalOf(state, free.id); msg += ` 떠돌던 ${withJosa(out.rumor.ko, '의')} 소문을 들었습니다. (${cityName(free.city)})`; }
     }
     out.msg = msg;
@@ -1317,6 +1345,8 @@ export function infoGenerals(state, scope = 'mine') {
   for (const g of Object.values(state.generals)) {
     if (g.dead) continue;
     if (scope === 'mine' && g.faction !== state.playerId) continue;
+    // 아직 세상에 나오지 않은 재야 장수는 장수 목록에도 올리지 않는다(등용되어 있으면 그대로)
+    if (!g.faction && !hasAppeared(state, g.id)) continue;
     const t = effectiveGeneral(state, g.id);
     if (!t) continue;
     rows.push({
@@ -2085,14 +2115,14 @@ const SEASON_KO = { spring: '봄', summer: '여름', autumn: '가을', winter: '
 
 export function wandererCandidate(state) {
   const mine = factionCities(state, state.playerId).map((c) => c.id);
-  return Object.values(state.generals).find((g) => !g.faction && !g.captive && !g.dead && g.city && !mine.includes(g.city)) || null;
+  return Object.values(state.generals).find((g) => !g.faction && !g.captive && !g.dead && g.city && !mine.includes(g.city) && hasAppeared(state, g.id)) || null;
 }
 
 /* 재야 명장 천거 — 아직 세력이 없는 장수 중 가장 이름난 이 */
 export function sageCandidate(state) {
   const sum = (g) => (g.lead || 0) + (g.war || 0) + (g.int || 0) + (g.pol || 0) + (g.cha || 0);
   return Object.values(state.generals)
-    .filter((g) => !g.faction && !g.captive && !g.dead)
+    .filter((g) => !g.faction && !g.captive && !g.dead && hasAppeared(state, g.id))
     .sort((a, b) => sum(b) - sum(a))[0] || null;
 }
 
@@ -2259,6 +2289,16 @@ export function rollMonthlyEvent(state, rng = Math.random) {
   return ev;
 }
 
+/* 이벤트 보상으로 곳간 상한을 넘은 성을 상한 안으로 다듬는다 — 월 수입 때와 같은 규칙 */
+export function clampCityStores(state) {
+  for (const c of Object.values((state && state.cities) || {})) {
+    if (!c || !c.owner) continue;
+    const cap = cityStoreCap(state, c.id);
+    if (c.gold > cap.gold) c.gold = cap.gold;
+    if (c.food > cap.food) c.food = cap.food;
+  }
+}
+
 export function resolveEvent(state, choiceId = null) {
   const ev = state.pendingEvent;
   if (!ev) return { ok: false, msg: '진행 중인 이벤트가 없습니다.' };
@@ -2396,6 +2436,7 @@ export function resolveEvent(state, choiceId = null) {
     }
   }
   state.pendingEvent = null;
+  clampCityStores(state);
   log(state, msg);
   syncOffices(state);
   bumpRng(state, 6);
@@ -3786,6 +3827,18 @@ export function checkFactionDeath(state, fid, victorFid = null) {
   }
 }
 
+/* 새 해에 출사하는 재야 장수를 월간 소식에 한 줄로 울린다 — 이름난 장수만(능력치 총합 300 이상), 3명까지 */
+const APPEARANCE_NEWS_MIN_TOTAL = 300;
+export function announceNewAppearances(state) {
+  if (!state || state.ignoreAppearYear) return 0;
+  const all = newAppearancesThisYear(state).filter((d) => (d.lead + d.war + d.int + d.pol + d.cha) >= APPEARANCE_NEWS_MIN_TOTAL);
+  if (!all.length) return 0;
+  const list = all.slice(0, 3);
+  const names = list.map((d) => d.ko).join('·');
+  log(state, `${names}${all.length > list.length ? ` 등 ${all.length}명` : ''} 등 재야 인재가 세상에 나섰습니다. (${state.year}년)`);
+  return list.length;
+}
+
 export function endTurnPhase2(state) {
   // 위임한 성이 스스로 일한다(행동력을 쓰지 않는다)
   runDelegations(state, rngOf(state));
@@ -3853,11 +3906,15 @@ export function endTurnPhase2(state) {
       }
     }
     if (rng() < 0.03) {
-      const bonus = Math.round(c.food * 0.15) + 100;
+      // 풍작도 곳간 상한을 넘지 않는다(넘치는 몫은 곳간에 들이지 못한다)
+      const cap = cityStoreCap(state, c.id).food;
+      const bonus = Math.min(Math.round(c.food * 0.15) + 100, Math.max(0, cap - c.food));
       c.food += bonus;
-      if (c.owner === state.playerId) log(state, `${cityName(c.id)}에 풍작이 들어 식량 ${bonus}을 얻었습니다.`);
+      if (c.owner === state.playerId && bonus > 0) log(state, `${cityName(c.id)}에 풍작이 들어 식량 ${bonus}을 얻었습니다.`);
     }
   }
+  // 재해·풍작 뒤에도 곳간 상한을 넘지 않게 다듬는다
+  clampCityStores(state);
   // 충성도 이탈 — 군주는 끝까지 남는다
   for (const g of Object.values(state.generals)) {
     if (!g.faction || g.captive || g.dead) continue;
@@ -3872,7 +3929,10 @@ export function endTurnPhase2(state) {
   // 턴 증가
   state.turn++;
   state.month++;
+  const prevYear = state.year;
   if (state.month > 12) { state.month = 1; state.year++; }
+  // 새 해 — 그 해에 출사하는 재야 명장을 한 줄로 알린다
+  if (state.year > prevYear) announceNewAppearances(state);
   for (const g of Object.values(state.generals)) { g.acted = false; g.movedThisTurn = false; }
   state.talked = {};
   // 외교 기한 · 정탐 기한 · 관직
@@ -4255,6 +4315,8 @@ export function deserialize(json) {
   s.offices = s.offices || {};
   s.pendingEvent = s.pendingEvent || null;
   s.pendingTournament = s.pendingTournament || null;
+  // 옛 저장(v13 이전)에는 없던 가상 시나리오 플래그 — 없으면 등장연도를 따른다
+  s.ignoreAppearYear = !!s.ignoreAppearYear;
   s.lastTournament = s.lastTournament || null;
   s.lastPromotions = [];
   s.stats = { battles: 0, wins: 0, duelWins: 0, duels: 0, captured: 0, recruited: 0, executed: 0, released: 0, trades: 0, treasureFound: 0, ...(s.stats || {}) };

@@ -1,4 +1,4 @@
-"""도트삼국 — 신군주 생성·시나리오 7종 검증 (390×844 · iPhone UA)
+"""도트삼국 — 신군주 생성·시나리오 12종 검증 (390×844 · iPhone UA)
 사용: python3 tests/verify_custom.py [URL] [TAG]
 """
 import json
@@ -118,7 +118,7 @@ with sync_playwright() as p:
     page.click('[data-act="new"]')
     page.wait_for_timeout(400)
     scs = page.locator('.sc-card[data-id]').count()
-    step("시나리오 7종", scs == 7, scs)
+    step("시나리오 12종", scs == 12, scs)
     custom_entry = page.locator('.sc-card[data-act="open-custom"]').count()
     step("시나리오 화면에 신군주 진입 버튼", custom_entry == 1, custom_entry)
     o = overflow(page)

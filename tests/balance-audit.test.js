@@ -212,8 +212,8 @@ test('배치: 유랑 무장은 적성에 떨어지지 않고 아군 성에 합�
   // 군주를 적성에 세워 두면 예전에는 그 성으로 무장이 떨어졌다
   const enemyCity = E.neighborFoes(s, mine.id)[0];
   s.generals[s.factions.liubei.lord].city = enemyCity;
-  // 적성에 재야 장수를 만들어 둔다
-  const free = Object.values(s.generals).find((g) => !g.faction && !g.dead);
+  // 적성에 재야 장수를 만들어 둔다(아직 등장연도가 되지 않은 장수는 재야 후보가 아니다)
+  const free = Object.values(s.generals).find((g) => !g.faction && !g.dead && E.hasAppeared(s, g.id));
   free.city = enemyCity;
   const ev = E.buildEvent(s, 'wanderer', () => 0.5);
   assert.ok(ev, '유랑 무장 이벤트');

@@ -75,7 +75,7 @@ test('보강 장수: 위·촉·오·군벌·재야 명장이 빠짐없이 들어
   assert.notEqual(GENERAL_BY_ID.liu_yan.id, GENERAL_BY_ID.liu_yan_shu.id);
 });
 
-test('새 게임: 시나리오마다 전체 372명이 살아 있고 재야는 고향 성에 흩어진다', () => {
+test('새 게임: 시나리오마다 전체 장수가 살아 있고 재야는 고향 성에 흩어진다', () => {
   for (const sc of SCENARIOS) {
     const s = E.createGame(sc.id, sc.factions[0].id, 11);
     const alive = Object.values(s.generals).filter((g) => !g.dead);

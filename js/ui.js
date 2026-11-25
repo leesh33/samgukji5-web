@@ -388,7 +388,7 @@ function renderScenarios() {
     return `<button class="sc-card" data-act="pick-scenario" data-id="${s.id}">
       <div class="sc-year">${s.year}년</div>
       <div class="sc-name">${s.name}</div>
-      <div class="sc-meta"><span>세력 <b>${facs}</b></span><span>성 <b>${s.factions.reduce((n, f) => n + f.cities.length, 0)}</b></span><span>등장 장수 <b>${gens.size}</b></span></div>
+      <div class="sc-meta"><span>세력 <b>${facs}</b></span><span>성 <b>${s.factions.reduce((n, f) => n + f.cities.length, 0)}</b></span><span>등장 장수 <b>${gens.size}</b></span>${s.ignoreAppearYear ? '<span>가상 · 전 시대</span>' : ''}</div>
     </button>`;
   }).join('');
 }
