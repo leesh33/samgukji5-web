@@ -2365,7 +2365,7 @@ function renderBattle() {
   `;
   $('#bt-next').textContent = battle.phase === my ? '진행 ▶' : '적 행동…';
   $('#bt-next').disabled = battleBusy || battle.phase !== my || !!battle.over;
-  const rb = $('#bt-retreat');
+  const rb = $('[data-act="bt-retreat"]');
   if (rb) {
     rb.textContent = retreatConfirm ? '정말 퇴각?' : '퇴각';
     rb.classList.toggle('danger', retreatConfirm);

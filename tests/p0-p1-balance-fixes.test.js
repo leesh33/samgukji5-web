@@ -189,7 +189,8 @@ test('P1-4: 퇴각은 한 번 더 눌러야 실행된다', () => {
   assert.match(fn[1], /retreatConfirm = true/);
   assert.match(fn[1], /한 번 더 누르면 퇴각합니다/, '안내 문구');
   assert.match(fn[1], /battle\.over = battle\.playerSide === 'atk' \? 'def' : 'atk'/, '두 번째 탭에 퇴각');
-  // 버튼 라벨도 확인 상태를 보여 준다
+  // 버튼 라벨도 확인 상태를 보여 준다 — 버튼에는 id가 없고 data-act로 찾는다
+  assert.match(ui, /const rb = \$\('\[data-act="bt-retreat"\]'\)/, '퇴각 버튼 선택');
   assert.match(ui, /rb\.textContent = retreatConfirm \? '정말 퇴각\?' : '퇴각'/, '버튼 라벨');
   assert.match(index, /data-act="bt-retreat"/);
 });
