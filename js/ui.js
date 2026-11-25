@@ -3281,10 +3281,10 @@ function renderInfoSheet() {
       <span>${L.registered ? `${esc(L.registered.nickname)} · 전적 ${LGC.recordLabel(L.records.wins, L.records.losses)} · 원정 도전장` : '내 군단을 등록하고 다른 군주와 겨룬다'}</span>
       ${L.pendingInvasion ? '<i class="lg-entry-alert">국경에 적이 있습니다</i>' : ''}
     </button>`;
-  openSheet('정보', legionBox + head + tabHTML + infoTabHTML() + adminLinkHTML());
+  openSheet('정보', legionBox + head + tabHTML + infoTabHTML());
 }
 
-/* 📊 어드민 링크 — 관리자 계정으로 로그인했을 때만 정보 패널 맨 아래에 작게 보인다.
+/* 📊 어드민 링크 — 관리자 계정으로 로그인했을 때만 ☰ 군의 메뉴 맨 아래에 작게 보인다.
    실제 통계는 /admin.html 이 서버(DB 함수)에서 다시 확인하므로, 여기서는 보여 줄지만 정한다.
    로그인하지 않았거나 일반 계정이면 빈 문자열이라 지금까지 화면과 같다. */
 function adminLinkHTML() {
@@ -3300,7 +3300,7 @@ function adminLinkHTML() {
     else ok = ['andy.leesh33@gmail.com', 'shhy@kakao.com'].indexOf(email.trim().toLowerCase()) >= 0;
   }
   if (!ok) return '';
-  return `<a class="info-admin" href="admin.html" title="접속자 통계">📊 어드민</a>`;
+  return `<a class="admin-link" href="admin.html" title="접속자 통계">📊 어드민</a>`;
 }
 
 function infoTabHTML() {
@@ -4051,6 +4051,7 @@ function openMenu() {  openSheet('군의', `
       <button class="btn big ghost" data-act="legal-terms" style="margin-bottom:8px">이용약관</button>
     </div>
     <button class="btn big ghost" data-act="to-title">타이틀로</button>
+    ${adminLinkHTML()}
   `);
   Cloud.mount($('#menu-account'));
 }

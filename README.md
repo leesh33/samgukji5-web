@@ -261,8 +261,9 @@ python3 tests/verify_monthly.py http://127.0.0.1:4173/index.html local  # 달의
 - 집계: 하루 한 사람 = 한 줄(그날 여러 번 열면 조회수만 증가). 날짜는 한국 시간(KST) 기준입니다.
 - 보기: `https://dotsamguk.vercel.app/admin.html` — 구글·카카오 로그인 후 **오늘 접속자 · 전체 접속자** 와 **14일 / 30일** 막대 추이.
 - 권한: 화면은 이메일 목록으로 안내만 정하고, 실제 통계는 DB 함수 `app_visit_stats` 가 `auth.jwt() ->> 'email'` 로 **다시 확인**합니다(관리자 아님 → 403). 관리자 이메일은 `andy.leesh33@gmail.com` · `shhy@kakao.com`.
-- 입구: 게임 `정보` 패널 맨 아래의 작은 `📊 어드민` 링크(관리자로 로그인했을 때만 보임) 또는 `/admin.html` 직접 접속.
+- 입구: 게임 우측 상단 `☰`(군의) 메뉴 맨 아래의 작은 `📊 어드민` 링크(관리자로 로그인했을 때만 보임) 또는 `/admin.html` 직접 접속.
 - DB: `supabase/app_visits.sql` — 릴스핀·인생 한 턴이 만든 `public.app_visits`·RPC 를 그대로 두고 **앱 구분 허용 목록에 `samguk-han-turn` 만 더합니다**(기존 `reelpin`·`life-turn` 기록은 건드리지 않음). 다시 실행해도 안전합니다.
+- 검증: `python3 tests/verify_admin_menu.py https://dotsamguk.vercel.app/index.html live` — 390×844에서 ☰ 메뉴 맨 아래(마지막 요소)에만 `📊 어드민`, 정보 패널·일반 계정·비로그인에는 DOM 0 (Supabase 요청은 끊어 방문 row 를 남기지 않습니다).
 
 ### 구조
 

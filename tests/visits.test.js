@@ -255,12 +255,15 @@ test('첫 화면: main.js 가 visits.js 를 싣는다', () => {
   assert.ok(!/src="js\/visits\.js"/.test(INDEX), 'script 태그를 더하지 않는다(네이티브 한 파일 빌드가 깨지지 않게)');
 });
 
-test('정보 패널: 관리자일 때만 📊 어드민 링크', () => {
+test('☰ 군의 메뉴: 관리자일 때만 맨 아래 📊 어드민 링크', () => {
   assert.match(UI, /function adminLinkHTML/);
   assert.match(UI, /window\.SamgukVisits/);
   assert.match(UI, /V\.isAdmin\(email\)/);
   assert.match(UI, /href="admin\.html"/);
-  assert.match(UI, /infoTabHTML\(\) \+ adminLinkHTML\(\)/, '정보 패널 맨 아래');
+  const menu = UI.slice(UI.indexOf('function openMenu()'), UI.indexOf('function openLoad()'));
+  assert.match(menu, /data-act="to-title">타이틀로<\/button>\s*\$\{adminLinkHTML\(\)\}/, '☰ 군의 맨 아래');
+  assert.match(UI, /openSheet\('정보', legionBox \+ head \+ tabHTML \+ infoTabHTML\(\)\)/, '정보 패널에는 두지 않는다');
+  assert.ok(!/infoTabHTML\(\) \+ adminLinkHTML\(\)/.test(UI), '정보 패널 맨 아래 링크는 걷어냈다');
 });
 
 test('상단 지도 바 3버튼은 그대로', () => {
