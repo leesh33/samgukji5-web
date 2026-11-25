@@ -297,3 +297,20 @@ test('등록본 — 전적·서버 여부가 저장에 남는다', () => {
   assert.equal(reg.server, true);
   assert.equal(L.registered, reg);
 });
+
+test('원정 보상 — 가끔 임자 없는 보물을 거둔다', () => {
+  const s = newGame(71);
+  const owned = () => E.infoTreasures(s).filter((t) => t.owned).length;
+  const before = owned();
+  const got = E.legionTreasureFind(s, 1, () => 0);
+  assert.ok(got && got.ko, '보물 하나');
+  assert.equal(owned(), before + 1, '도감에 들어온다');
+  assert.ok(E.infoTreasures(s).some((t) => t.owned && t.ko === got.ko));
+  // 확률 밖이면 아무것도 가져오지 않는다
+  const gate = E.legionTreasureFind(s, 0.18, () => 0.99);
+  assert.equal(gate, null);
+  // 이미 다 모았으면 null
+  const full = newGame(72);
+  for (const t of E.infoTreasures(full)) E.gainTreasure(full, t.id, { holder: null });
+  assert.equal(E.legionTreasureFind(full, 1, () => 0), null);
+});

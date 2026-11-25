@@ -3544,7 +3544,7 @@ function openLegionFoe(id) {
     </div>
     <p class="note">${tone} (${ratio}%) · 상대 전적 <b>${LGC.recordLabel(foe.wins, foe.losses)}</b></p>
     ${legionGeneralChipsHTML(foe.generals)}
-    <p class="note">이기면 금 <b>${fmt(reward.gold)}</b> · 군량 <b>${fmt(reward.food)}</b> · 명성 +2~4를 얻고 전적이 남습니다.<br>원정은 모의전 — 지더라도 성의 병력과 장수는 그대로입니다.</p>
+    <p class="note">이기면 금 <b>${fmt(reward.gold)}</b> · 군량 <b>${fmt(reward.food)}</b> · 명성 +2~4와 가끔 보물을 얻고, 전적이 남습니다.<br>원정은 모의전 — 지더라도 성의 병력과 장수는 그대로입니다.</p>
     <button class="btn big" data-act="legion-go" data-id="${esc(foe.id)}">전장으로 (수동 지휘)</button>
     <button class="btn ghost lg-wide" data-act="legion-view" data-view="expedition" style="margin-top:8px">다른 상대 보기</button>
   `);
@@ -3613,6 +3613,9 @@ function finishLegionBattle(res) {
     L.records.wins++;
     if (ctx.kind === 'invasion') L.records.defenseWins++;
     lines.push(`금 <b>${fmt(got.gold)}</b> · 군량 <b>${fmt(got.food)}</b> · 명성 +${got.fame} · 나선 장수 공적 +${fmt(got.merit)}`);
+    // 가끔 임자 없는 보물을 거둔다 — 특수 › 보물에서 장수에게 수여
+    const tr = E.legionTreasureFind(game, 0.18);
+    if (tr) lines.push(`보물 <b>${esc(tr.ko)}</b>을(를) 거두었습니다 — 특수 › 보물에서 수여하세요.`);
     sfx.win();
   } else {
     L.records.losses++;

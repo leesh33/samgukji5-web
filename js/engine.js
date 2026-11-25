@@ -4121,6 +4121,19 @@ export function legionReward(state, cityId, reward) {
   return { cityId: c.id, gold: c.gold - g0, food: c.food - f0, fame, merit };
 }
 
+/* 원정·습격을 이겼을 때 가끔 임자 없는 보물을 거둔다 — 수여는 특수 › 보물 */
+export function legionTreasureFind(state, chance = 0.18, rng = Math.random) {
+  const t = ensureTreasures(state);
+  const pool = TREASURES.filter((tr) => !t.owned.includes(tr.id));
+  if (!pool.length) return null;
+  if ((typeof rng === 'function' ? rng() : 1) >= chance) return null;
+  const tr = pool[Math.floor(rng() * pool.length)];
+  const res = gainTreasure(state, tr.id, { holder: null });
+  if (!res.ok) return null;
+  log(state, `유저 군단과의 싸움에서 ${withJosa(tr.ko, '을')} 거두었습니다 — 특수 › 보물에서 장수에게 수여하세요.`);
+  return res.treasure || tr;
+}
+
 /* 습격을 막지 못했을 때 — 금·군량을 털리고 병사가 조금 흩어진다(성은 그대로) */
 export function legionRaidLoss(state, cityId, loss) {
   const l = loss || {};
