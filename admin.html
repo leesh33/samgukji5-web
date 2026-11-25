@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#14100c" />
+<meta name="robots" content="noindex, nofollow" />
+<title>📊 삼국 한 턴 어드민</title>
+<link rel="icon" href="data:," />
+<!-- 게임과 같은 Gmarket Sans · 다크 우드 톤 (styles → admin 순서로 덮어쓴다) -->
+<link rel="preload" href="assets/fonts/GmarketSans-Medium.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="assets/fonts/GmarketSans-Bold.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="stylesheet" href="css/style.css" />
+<link rel="stylesheet" href="css/admin.css" />
+</head>
+<body class="admin-body">
+<main class="admin-wrap">
+
+  <header class="admin-head">
+    <a class="admin-back" href="index.html" aria-label="게임으로 돌아가기">←</a>
+    <div class="admin-title">
+      <h1>📊 삼국 한 턴 어드민</h1>
+      <p id="adminSub">접속자 통계 · 한국 시간 기준</p>
+    </div>
+  </header>
+
+  <!-- 로그인 전 · 권한 없음 · 오류 안내 -->
+  <section class="admin-card admin-gate" id="adminGate" hidden></section>
+
+  <!-- 통계 -->
+  <section id="adminStats" hidden>
+    <div class="admin-kpis">
+      <article class="admin-kpi">
+        <span class="kpi-label">오늘 접속자</span>
+        <strong class="kpi-value" id="kpiToday">—</strong>
+        <span class="kpi-sub">한국 시간 기준 · 순 방문자</span>
+      </article>
+      <article class="admin-kpi">
+        <span class="kpi-label">전체 접속자</span>
+        <strong class="kpi-value" id="kpiTotal">—</strong>
+        <span class="kpi-sub">누적 순 방문자</span>
+      </article>
+    </div>
+
+    <div class="admin-range" role="group" aria-label="추이 기간">
+      <button type="button" class="range-btn active" data-days="14" aria-pressed="true">14일</button>
+      <button type="button" class="range-btn" data-days="30" aria-pressed="false">30일</button>
+    </div>
+
+    <div class="admin-card chart-card">
+      <div class="chart" id="visitChart" role="group" aria-label="일별 접속자 추이"></div>
+      <p class="chart-hint" id="chartHint">막대 = 그날 접속한 사람 수(순 방문자) · 최근 14일 · 한국 시간 기준</p>
+    </div>
+
+    <div class="admin-foot">
+      <span id="adminWho"></span>
+      <span class="admin-foot-btns">
+        <button type="button" class="foot-btn" id="adminRefresh">새로고침</button>
+        <button type="button" class="foot-btn ghost" id="adminSignOut">로그아웃</button>
+      </span>
+    </div>
+  </section>
+
+  <p class="admin-toast" id="adminToast" hidden></p>
+</main>
+
+<!-- ☁️ 로그인 세션·토큰은 게임과 같은 js/sync.js 를 쓴다 (구글·카카오 로그인 · 세션 갱신) -->
+<script type="module" src="js/admin.js"></script>
+</body>
+</html>

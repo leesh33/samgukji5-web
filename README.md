@@ -209,7 +209,7 @@
 
 ```bash
 python3 -m http.server 4173      # http://127.0.0.1:4173
-node --test 'tests/*.test.js'     # 엔진·전투·방향·진형 상성·포로·일기토·데이터·신군주(전설 주사위 포함)·이동·대화·친밀도·등용·외교·계략·관직·달의 소식·원군·교역·특수·보물·참모(군주 제외)·위임·정보·전투 계략 확장·한자 0자·대회·진형 전수·공적·장군 임명·성 규모·치안 상한 100·포상 실제 상승분·HD-2D 연출·약관·클라우드 동기화·부대 편성·병종 상성·급료·군량·군주 승계·장수 배치·AI 문턱·공성 예상·성 인구 30% 상한·일기토 도발·전투 돌발·새 달의 소식·2026-11-25 점검 수정(P0 전장 탈출·성 방어·출진 예상·곳간 상한·첫 달 유예) 테스트 398개
+node --test 'tests/*.test.js'     # 엔진·전투·방향·진형 상성·포로·일기토·데이터·신군주(전설 주사위 포함)·이동·대화·친밀도·등용·외교·계략·관직·달의 소식·원군·교역·특수·보물·참모(군주 제외)·위임·정보·전투 계략 확장·한자 0자·대회·진형 전수·공적·장군 임명·성 규모·치안 상한 100·포상 실제 상승분·HD-2D 연출·약관·클라우드 동기화·부대 편성·병종 상성·급료·군량·군주 승계·장수 배치·AI 문턱·공성 예상·성 인구 30% 상한·일기토 도발·전투 돌발·새 달의 소식·2026-11-25 점검 수정(P0 전장 탈출·성 방어·출진 예상·곳간 상한·첫 달 유예)·접속자 통계·어드민 테스트 419개
 python3 tests/verify_live.py http://127.0.0.1:4173/index.html local   # Playwright 390×844 검증
 python3 tests/verify_legion_live.py https://dotsamguk.vercel.app live-legion  # 영웅전 — 군단 등록·도전장·전장·습격 검증
 python3 tests/verify_sheet.py http://127.0.0.1:4173/index.html local  # 하단 시트 펼침·스와이프 도시 전환 검증
@@ -252,6 +252,18 @@ python3 tests/verify_monthly.py http://127.0.0.1:4173/index.html local  # 달의
 - DB: `supabase/samguk_cloud_sync.sql` — RLS(본인 행만) + RPC `samguk_put_saves`(과거 revised_at 무시)
 - 공용 프로젝트 `zdcdvjlssncsawpqsjwe` (릴스핀·인생 한 턴과 같은 프로젝트, 테이블·함수 이름은 `samguk_` 접두사로 분리)
 
+### 📊 접속자 통계 · 어드민 (`/admin.html`)
+
+얼마나 많은 사람이 게임에 들어오는지 익명으로 세는 기능입니다(릴스핀·인생 한 턴과 같은 방식).
+
+- 기록: `js/visits.js` 가 첫 화면을 열 때 **1회** Supabase RPC `app_visit_track('samguk-han-turn', visitor_id)` 를 부릅니다. 비로그인 포함이고, 실패하면 조용히 넘어갑니다(게임엔 영향 없음).
+- 방문자 id: 이 기기에서 처음 만든 **임의의 UUID** 를 `localStorage`(`samguk5.visit.id.v1`)에 두고 다시 씁니다. 이메일·이름·IP·기기 정보·위치는 보내지 않습니다.
+- 집계: 하루 한 사람 = 한 줄(그날 여러 번 열면 조회수만 증가). 날짜는 한국 시간(KST) 기준입니다.
+- 보기: `https://dotsamguk.vercel.app/admin.html` — 구글·카카오 로그인 후 **오늘 접속자 · 전체 접속자** 와 **14일 / 30일** 막대 추이.
+- 권한: 화면은 이메일 목록으로 안내만 정하고, 실제 통계는 DB 함수 `app_visit_stats` 가 `auth.jwt() ->> 'email'` 로 **다시 확인**합니다(관리자 아님 → 403). 관리자 이메일은 `andy.leesh33@gmail.com` · `shhy@kakao.com`.
+- 입구: 게임 `정보` 패널 맨 아래의 작은 `📊 어드민` 링크(관리자로 로그인했을 때만 보임) 또는 `/admin.html` 직접 접속.
+- DB: `supabase/app_visits.sql` — 릴스핀·인생 한 턴이 만든 `public.app_visits`·RPC 를 그대로 두고 **앱 구분 허용 목록에 `samguk-han-turn` 만 더합니다**(기존 `reelpin`·`life-turn` 기록은 건드리지 않음). 다시 실행해도 안전합니다.
+
 ### 구조
 
 ```
@@ -272,8 +284,11 @@ js/legal.js           개인정보처리방침·이용약관 문구와 앱 안 �
 assets/actionfx/      행동별 HD-2D 배경 720×405 webp 12장(합계 605KB)
 js/sync-core.js       클라우드 저장 합치기·세션 만료·리다이렉트 해석 (DOM 없음, node 테스트)
 js/sync.js            Google·카카오 로그인(Supabase OAuth PKCE) · 클라우드 동기화
+js/visits.js          익명 접속자 기록(방문자 UUID · app_visit_track 1회)
+js/admin.js           어드민(/admin.html) — 접속자 통계 · 로그인 게이트 · 막대 추이
+admin.html            📊 어드민 화면(검색 비노출)
 js/main.js            부트스트랩
-supabase/             samguk_cloud_sync.sql (테이블·RLS·RPC) + PGlite 검증 스크립트
+supabase/             samguk_cloud_sync.sql (테이블·RLS·RPC) · app_visits.sql(접속자 통계) + PGlite 검증 스크립트
 tests/                node 테스트 + Playwright 라이브 검증
 ```
 

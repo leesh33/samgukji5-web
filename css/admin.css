@@ -1,0 +1,280 @@
+/* ─────────────────────────────────────────────
+   admin.css — 📊 삼국 한 턴 어드민 (/admin.html)
+   게임(css/style.css)의 Gmarket Sans·다크 우드 톤(--bg·--panel·--gold)을 그대로 쓰고,
+   관리자 화면에 필요한 것만 더한다. 390×844 우선 · 가로 넘침 없음.
+   ───────────────────────────────────────────── */
+
+.admin-body {
+  display: block;
+  height: auto;
+  min-height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  user-select: text;
+  -webkit-user-select: text;
+  background: radial-gradient(120% 70% at 50% 0%, #1b1410 0%, var(--bg) 45%, var(--bg-deep) 100%) fixed;
+}
+
+.admin-wrap {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 16px calc(28px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ── 머리 ── */
+.admin-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.admin-back {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid #6b4b28;
+  box-shadow: inset 0 1px 0 rgba(255, 226, 176, 0.12);
+  color: var(--gold-hi);
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.admin-back:active { transform: scale(0.96); }
+.admin-title h1 {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--gold-hi);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+}
+.admin-title p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: keep-all;
+}
+
+/* ── 카드 ── */
+.admin-card {
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid #6b4b28;
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 226, 176, 0.1), 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+/* ── 숫자 카드 ── */
+.admin-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.admin-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 14px 12px;
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid #6b4b28;
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 rgba(255, 226, 176, 0.1), 0 2px 6px rgba(0, 0, 0, 0.45);
+  min-width: 0;
+}
+.kpi-label { font-size: 11px; font-weight: 600; color: var(--text-dim); }
+.kpi-value {
+  font-size: 27px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--gold-hi);
+  letter-spacing: -0.4px;
+}
+.admin-kpi:last-child .kpi-value { color: #9fd7a0; }
+.kpi-sub { font-size: 10px; color: var(--muted); word-break: keep-all; }
+
+/* ── 기간 전환 ── */
+.admin-range {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0 8px;
+}
+.range-btn {
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid #57402a;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.range-btn.active {
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  border-color: var(--gold-hi);
+}
+
+/* ── 막대 그래프 ── */
+.chart-card { padding: 12px 10px 10px; }
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 148px;
+  /* 날짜 라벨이 양 끝에서 잘리지 않도록 넘침을 열어 둔다 (가로 넘침은 페이지에서 0) */
+  overflow: visible;
+  padding: 0 10px;
+}
+.bar-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+.bar-value {
+  height: 12px;
+  font-size: 8px;
+  line-height: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+}
+.bar-track {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+}
+.bar-fill {
+  display: block;
+  width: 68%;
+  max-width: 20px;
+  min-width: 3px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, var(--gold-hi) 0%, var(--gold) 70%, var(--gold-dim) 100%);
+}
+.bar-fill.zero { background: var(--line2); width: 40%; min-width: 2px; }
+.bar-day {
+  height: 14px;
+  margin-top: 3px;
+  width: 36px;
+  text-align: center;
+  font-size: 8px;
+  line-height: 14px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.chart-empty {
+  margin: 0;
+  padding: 30px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  width: 100%;
+}
+.chart-hint {
+  margin: 8px 2px 0;
+  font-size: 10px;
+  color: var(--muted);
+  word-break: keep-all;
+}
+
+/* ── 안내(로그인·권한·오류) ── */
+.admin-gate {
+  padding: 20px 16px 18px;
+  text-align: center;
+}
+.gate-lead {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--gold-hi);
+  word-break: keep-all;
+}
+.gate-sub {
+  margin: 6px 0 14px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  word-break: keep-all;
+}
+.gate-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.gate-btn {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 11px 18px;
+  border: 1px solid #6b4b28;
+  border-radius: 4px;
+  background: linear-gradient(180deg, var(--panel3), var(--panel2));
+  color: var(--gold-hi);
+  cursor: pointer;
+}
+.gate-btn.kakao { color: #ffd76a; }
+.gate-btn.ghost { color: var(--text-dim); }
+
+/* ── 발끝 ── */
+.admin-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 10.5px;
+  color: var(--muted);
+  min-width: 0;
+}
+.admin-foot > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-foot-btns { flex: none; display: flex; gap: 6px; }
+.foot-btn {
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: linear-gradient(180deg, var(--panel2), var(--panel));
+  border: 1px solid #57402a;
+  border-radius: 999px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.foot-btn.ghost { color: var(--muted); }
+
+/* ── 토스트 ── */
+.admin-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: min(340px, calc(100vw - 32px));
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(10, 7, 6, 0.92);
+  border: 1px solid #57402a;
+  color: var(--parch);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: center;
+  z-index: 20;
+}
+
+/* 넓은 화면에서도 게임과 같은 폭의 프레임 */
+@media (min-width: 520px) {
+  .admin-wrap { padding-top: 26px; }
+}

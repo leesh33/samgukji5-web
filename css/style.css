@@ -1280,6 +1280,11 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 
 .info-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 0 0 8px; }
 .info-tabs .pick-chip { min-width: 0; padding: 6px 2px; font-size: 10.5px; }
+/* 📊 어드민 — 관리자 계정으로 로그인했을 때만 정보 패널 맨 아래에 작게 보인다 */
+.info-admin { display: block; width: fit-content; margin: 10px auto 2px; padding: 5px 12px; border-radius: 999px;
+  font-size: 10px; letter-spacing: 0.4px; color: #b9a276; text-decoration: none;
+  background: linear-gradient(180deg, #241b12, #16100a); border: 1px solid #3d2c1c; }
+.info-admin:active { border-color: var(--gold); color: var(--gold-hi); }
 .info-row { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name rel" "nums nums"; gap: 2px 8px; width: 100%; text-align: left; margin-bottom: 5px; padding: 7px 9px; border-radius: 3px;
   background: linear-gradient(180deg, #241b12, #16100a); border: 1px solid #3d2c1c; border-left: 2px solid #4a4030; }
 .info-row.fac.mine { border-left-color: var(--gold); }

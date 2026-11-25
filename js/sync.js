@@ -728,6 +728,18 @@ export function state() {
 
 export function currentUser() { return user(); }
 
+/* ---------- 어드민(/admin.html) 창구 ----------
+   어드민 화면은 **로그인·세션·토큰**만 빌려 쓰고 저장소(samguk_saves)는 건드리지 않는다.
+   (그래서 start() 대신 completeRedirect() 를 쓴다 — 로그인 응답만 마무리한다) */
+export const AdminBridge = {
+  session,
+  user,
+  signIn,
+  signOut: () => signOut(),
+  token,
+  completeRedirect,
+};
+
 export function signOutNow() { return signOut(); }
 
 /* App Store 5.1.1(v) — 계정 삭제. ui 가 2단계 확인을 거쳐 부른다. */
