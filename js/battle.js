@@ -231,7 +231,7 @@ export function createBattle(opts) {
     used.add(`${u.x},${u.y}`);
   }
 
-  battle.log.push(`${battle.terrainName} 전장 — ${sideName(battle, 'atk')}군의 공격이 시작되었다.`);
+  battle.log.push(`${battle.terrainName} 전장 — ${sideName(battle, 'atk')}군의 공격이 시작되었다. (성 방어 ${Math.round(battle.defBonus)})`);
   return battle;
 }
 
@@ -313,6 +313,19 @@ const isWaterTile = (b, x, y) => {
   const t = tileAt(b, x, y);
   return !!t && t.t === 'water';
 };
+
+/* ---------- 성 방어 (성의 방어 수치) ----------
+ * 성 시트의 '방'과 치안 명령의 '방어 +1'이 실제 전장의 피해에 걸린다.
+ * 55를 기준으로 1당 1/150 — 방 95면 받는 피해 27% 감소, 방 25면 20% 증가.
+ * 성 안(수비측) 부대가 맞을 때만 걸린다 — 공격측이 수비 성벽에 몸을 부딪는 셈이다. */
+export const WALL_BASE = 55;
+export const WALL_SCALE = 150;
+export function wallGuard(b, unit) {
+  if (!b || !unit || unit.side !== 'def') return 1;
+  const d = Number(b.defBonus);
+  if (!Number.isFinite(d)) return 1;
+  return clamp(1 + (d - WALL_BASE) / WALL_SCALE, 0.7, 1.45);
+}
 
 /* 병종 상성 한 번의 배율 — 상성 배율 · 수군 물길 공격 보정 · 받는 피해 경감 */
 export function armEdge(b, u, t) {
@@ -493,7 +506,8 @@ export function hitFactors(b, u, t) {
   if (gd.skill === 'cheolbyeok') def *= 1.2;
   if (gd.skill === 'gyeonsu') def *= 1.1;
   if (t.defDown > 0) def *= 0.85;   // 혼란·낙석으로 방어진이 흐트러진 상태
-  return { atk, def, edge, arm, guard: arm.guard };
+  def *= wallGuard(b, t);           // 성 방어 수치 — 수비측이 성벽에 기대어 받는다
+  return { atk, def, edge, arm, guard: arm.guard, wall: wallGuard(b, t) };
 }
 
 /* 반격 배율 — t가 u를 친다 */
@@ -508,7 +522,8 @@ export function counterFactors(b, u, t) {
   atk *= 1 + (t.rankBonus || 0);     // 직위 보정 — 반격
   atk *= arm.mult;                   // 병종 상성 — 반격에도 적용
   def *= 1 + (u.rankBonus || 0);
-  return { atk, def, edge, arm, guard: arm.guard };
+  def *= wallGuard(b, u);            // 성 방어 수치 — 반격을 받는 수비측에도 걸린다
+  return { atk, def, edge, arm, guard: arm.guard, wall: wallGuard(b, u) };
 }
 
 /* 공격 미리보기 — 실제 피해와 같은 식에 난수만 기대값(1.0)으로 넣는다 */

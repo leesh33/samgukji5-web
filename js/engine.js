@@ -1251,7 +1251,9 @@ export function runDelegations(state, rng = rngOf(state)) {
       const up = checkCitySizeUp(state, c.id);
       if (up) notes.push(`${up.cityKo} ${up.fromKo}→${up.toKo} 승격`);
     } else {
-      const wantDraft = c.troops < 8000 && c.gold >= 250 && c.food >= 400;
+      // 군사 위임 — 성의 주둔 상한(인구 30%)의 70%까지는 스스로 병력을 채운다
+      const capT = cityTroopsCap(state, c.id);
+      const wantDraft = c.troops < Math.round(capT * 0.7) && c.gold >= 250 && c.food >= 400;
       if (wantDraft) {
         const add = Math.min(Math.round((600 + Math.floor(t.lead * 3)) * sizeDraftMul(c.size)), Math.max(0, cityTroopsCap(state, c.id) - c.troops));
         c.gold -= 250; c.food -= 400; c.troops += add;
@@ -1359,10 +1361,33 @@ export function cityPower(state, cityId, defensive = true) {
 }
 /* ---------- 출진 예상 ---------- */
 /* 출진 시트의 '예상 전력' — 실제 격자 전장에서 잰 승률을 옮긴 어림값이다.
-   병력이 수비의 1.2배면 반반, 1.5배면 거의 확실하다(전장 시뮬레이션 200판 기준). */
-export const SIEGE_EVEN = 0.9;    // 이 비율 아래는 열세
-export const SIEGE_SAFE = 1.2;   // 이 비율부터는 우세
-/* opts: { generals: [gid], troops } — 고른 장수와 나설 병력으로 잰다 */
+   수비는 성에 있는 장수(최대 5명)의 지휘 상한만큼만 나서고, 성 방어 수치가 받는 피해를 줄인다.
+   전장 시뮬레이션 81사례×9비율 실측: 전력비 1.15 아래는 대개 지고, 1.5를 넘으면 대개 이긴다. */
+export const SIEGE_EVEN = 1.15;   // 이 비율 아래는 열세
+export const SIEGE_SAFE = 1.5;    // 이 비율부터는 우세
+/* 성 방어 수치 → 받는 피해 배율 (battle.js의 wallGuard와 같은 식) */
+export const WALL_DEF_BASE = 55;
+export const WALL_DEF_SCALE = 150;
+export function wallDefMul(def) {
+  const d = Number(def);
+  if (!Number.isFinite(d)) return 1;
+  return clamp(1 + (d - WALL_DEF_BASE) / WALL_DEF_SCALE, 0.7, 1.45);
+}
+/* 수비가 전장에 실제로 내는 힘 — 성 병력 전부가 아니라 성에 있는 장수(최대 5명)의 지휘 상한까지 */
+export function siegeDefense(state, cityId) {
+  const c = state.cities[cityId];
+  if (!c) return null;
+  const gens = generalsInCity(state, cityId).slice(0, MAX_ARMY);
+  const capSum = gens.reduce((s, g) => s + maxTroopsOf(state, g.id), 0);
+  const best = gens.reduce((m, g) => {
+    const t = generalOf(state, g.id);
+    return t ? Math.max(m, ((t.lead || 0) + (t.war || 0)) / 2) : m;
+  }, 40);
+  const fielded = Math.min(c.troops, capSum);
+  const factor = (0.7 + c.train / 180) * (0.72 + best / 260) * wallDefMul(c.def);
+  return { generals: gens.length, capSum, fielded: Math.round(fielded), best, factor, power: Math.round(fielded * factor) };
+}
+/* opts: { generals: [gid], troops, reinforce: [cityId] } — 고른 장수와 나설 병력·원군으로 잰다 */
 export function siegeOdds(state, fromCityId, toCityId, opts = {}) {
   const from = state.cities[fromCityId];
   const to = state.cities[toCityId];
@@ -1373,13 +1398,30 @@ export function siegeOdds(state, fromCityId, toCityId, opts = {}) {
     return t ? Math.max(m, ((t.lead || 0) + (t.war || 0)) / 2) : m;
   }, 40);
   const factor = (0.7 + from.train / 180) * (0.72 + best / 260);
-  const troops = Math.max(0, Math.round(typeof opts.troops === 'number' ? opts.troops : from.troops));
-  const myPower = troops * factor;
-  const defPower = cityPower(state, toCityId, true);
+  const want = Math.max(0, Math.round(typeof opts.troops === 'number' ? opts.troops : from.troops));
+  // 장군 지휘 상한을 넘는 병력은 전장에 나서지 못한다
+  const atkCap = gids.reduce((s, gid) => s + maxTroopsOf(state, gid), 0);
+  const troops = atkCap > 0 ? Math.min(want, atkCap) : want;
+  // 원군 — 공격측은 고른 성, 수비측은 성 옆 아군 성에서 붙는다(자동)
+  const plan = planReinforcements(state, fromCityId, toCityId, { atkReinforcements: opts.reinforce || [], aiReinforce: false });
+  const atkRein = plan.atk.reduce((s, r) => s + r.troops, 0);
+  const defRein = plan.def.reduce((s, r) => s + r.troops, 0);
+  const myPower = troops * factor + atkRein * factor;
+  const def = siegeDefense(state, toCityId);
+  const defPower = def.power + defRein * def.factor;
   const ratio = defPower > 0 ? myPower / defPower : 99;
-  const recommend = factor > 0 ? Math.ceil((defPower * SIEGE_SAFE) / factor) : 0;
+  const needPower = defPower * SIEGE_SAFE;
+  const needTroops = Math.max(0, factor > 0 ? Math.ceil((needPower - atkRein * factor) / factor) : 0);
+  // 권장 병력은 지휘 상한 안에서만 — 상한이 모자라면 그 사실을 따로 알린다
+  const recommend = atkCap > 0 ? Math.min(needTroops, atkCap) : needTroops;
+  const capLimited = atkCap > 0 && needTroops > atkCap;
   const label = ratio >= SIEGE_SAFE ? '우세' : ratio >= SIEGE_EVEN ? '호각' : '열세';
-  return { myPower: Math.round(myPower), defPower, ratio, recommend, label, best, factor };
+  return {
+    myPower: Math.round(myPower), defPower: Math.round(defPower), ratio, recommend, label, best, factor,
+    troops, atkCap, capLimited, needTroops,
+    defFielded: def.fielded, defGens: def.generals, defCapSum: def.capSum,
+    atkReinforce: Math.round(atkRein), defReinforce: Math.round(defRein),
+  };
 }
 
 /* 적 성 — 동맹·정전 중인 세력의 성은 공격 대상에서 빠진다 */
@@ -1625,6 +1667,14 @@ export function citySalaryOf(state, cityId) {
   if (!c) return 0;
   return Math.round(c.troops * SALARY_PER_TROOP) + generalsInCity(state, cityId).length * SALARY_PER_GENERAL;
 }
+/* 성 곳간 상한 — 규모가 큰 성일수록 많이 쌓지만, 쌓을 곳이 없으면 더 쌓이지 않는다
+   (금·식량이 끝없이 불어나는 후반 인플레를 막는 장치다. 성 시트에 '금 X / 상한'으로 보여 준다) */
+export function cityStoreCap(state, cityId) {
+  const c = state && state.cities ? state.cities[cityId] : null;
+  if (!c) return { gold: 0, food: 0 };
+  return citySize(c.size).store;
+}
+
 /* 성 하나의 월 수지 — 턴 진행과 화면이 같은 식을 쓴다 */
 export function cityMonthlyBalance(state, cityId) {
   const c = state.cities[cityId];
@@ -2186,7 +2236,15 @@ export function buildEvent(state, id, rng = Math.random) {
 
 /* 달이 바뀔 때 30% 확률로 이벤트 */
 export function rollMonthlyEvent(state, rng = Math.random) {
-  if (state.pendingEvent) return state.pendingEvent;
+  if (state.pendingEvent) {
+    // 지난 달에 ✕로 닫아 둔 소식은 그 달의 일로 마무리한다 — 새 소식을 영영 막지 않게
+    if (state.pendingEvent.turn !== state.turn) {
+      const opts = state.pendingEvent.options || [];
+      resolveEvent(state, opts.length ? opts[opts.length - 1].id : null);
+    } else {
+      return state.pendingEvent;
+    }
+  }
   if (rng() >= EVENT_CHANCE) return null;
   const pool = monthlyEventPool(state);
   if (!pool.length) return null;
@@ -3227,7 +3285,11 @@ export function buildTournament(state, kind, rng = Math.random) {
 /* 달이 바뀔 때 조건(장수 30명 이상·5월/10월)을 채우면 대회를 연다 */
 export function maybeOpenTournament(state, rng = null) {
   if (!state || state.gameOver) return null;
-  if (state.pendingTournament) return state.pendingTournament;
+  if (state.pendingTournament) {
+    // 지난 달에 닫아 둔 대회는 치하만 하고 넘긴다 — 5·10월 대회가 영영 잠기지 않게
+    if (state.pendingTournament.turn !== state.turn) finishStaleTournament(state);
+    else return state.pendingTournament;
+  }
   const kind = tournamentKindOf(state.month);
   if (!kind) return null;
   if (!canHoldTournament(state)) return null;
@@ -3242,6 +3304,15 @@ export function maybeOpenTournament(state, rng = null) {
   log(state, `${state.month}월 ${tv.title} — ${withJosa(tv.championKo, '이')} 우승했습니다. (${tv.statKo} ${tv.championStat})`);
   bumpRng(state, 7);
   return tv;
+}
+
+/* 달이 바뀌었는데 남아 있는 대회 — 무료인 '치하만 하기'로 마무리한다 */
+function finishStaleTournament(state) {
+  const tv = state.pendingTournament;
+  if (!tv) return null;
+  const res = resolveTournamentReward(state, 'praise');
+  if (!res.ok) { state.pendingTournament = null; }
+  return res;
 }
 
 /* 하사할 수 있는 보물 — 창고에 있는 보유 보물, 없으면 임자 없는 보물 하나를 대회 포상으로 내건다 */
@@ -3343,6 +3414,8 @@ export function endTurnPhase1(state) {
   for (const a of attacks) {
     const targetOwner = state.cities[a.to].owner;
     if (targetOwner === state.playerId) {
+      // 새 게임 첫 달 — AI가 곧바로 달려들지 않는다(1성 세력이 첫 턴에 사라지는 것을 막는다)
+      if (state.turn <= 1) continue;
       state.pendingBattles.push({ ...battleSetup(state, a.from, a.to), aiAttack: true });
     } else {
       resolveAutoBattle(state, a.from, a.to, rng);
@@ -3368,20 +3441,23 @@ function aiEconomy(state, fid, rng) {
   let ap = calcActionPoints(state, fid);
   const cities = factionCities(state, fid).filter((c) => generalsInCity(state, c.id).length > 0);
   if (!cities.length) return;
-  cities.sort(() => rng() - 0.5);
+  // 승격이 가까운 성부터 한 곳씩 마무리한다 — 42성에 행동력을 흩으면 어느 성도 커지지 못한다
+  const remainOf = (c) => {
+    const rem = citySizeUpRemain(state, c.id);
+    return rem == null ? Number.MAX_SAFE_INTEGER : rem;
+  };
+  cities.sort((a, b) => remainOf(a) - remainOf(b));
   let guard = 0;
   while (ap > 0 && guard++ < 40) {
-    const c = cities[Math.floor(rng() * cities.length)];
+    const ready = cities.filter((c) => generalsInCity(state, c.id).some((g) => !g.acted));
+    if (!ready.length) break;
+    ready.sort((a, b) => remainOf(a) - remainOf(b));
+    const c = ready[0];
     const gens = generalsInCity(state, c.id).filter((g) => !g.acted);
-    if (!gens.length) {
-      // 새 성으로 이동 (인접 아군 성에 장수가 없으면)
-      break;
-    }
     gens.sort((a, b) => generalOf(state, b.id).pol - generalOf(state, a.id).pol);
     const g = gens[0];
     const t = generalOf(state, g.id);
     const needFood = foodShortage(state, c.id);
-    const stat = needFood ? 'agri' : (c.agri < c.comm ? 'agri' : 'comm');
     const cap = sizeCap(c.size);
     const troopCap = cityTroopsCap(state, c.id);
     const target = Math.round(troopCap * 0.7);   // 성 상한(인구 30%)의 70%까지는 병력을 채운다(금이 되는 만큼)
@@ -3393,16 +3469,22 @@ function aiEconomy(state, fid, rng) {
       payFromRealm(state, fid, c.id, 'food', 400);
       c.troops += Math.min(Math.round((900 + Math.floor(t.lead * 4)) * sizeDraftMul(c.size)), Math.max(0, troopCap - c.troops));
       c.order = clamp(c.order - 3, 0, ORDER_CAP);
-    } else if (c.order < 45) {
-      c.order = clamp(c.order + 3 + Math.floor(t.pol / 22), 0, ORDER_CAP);
-    } else if (c.train < 70) {
+    } else if (c.train < 45) {
+      // 훈련이 바닥이면 먼저 — 병력이 있어도 싸우지 못한다
       c.train = clamp(c.train + 4, 0, 100);
-    } else if (stat === 'agri' && c.agri < cap) {
+    } else if (c.order < ORDER_CAP) {
+      // 치안 100은 규모 승격의 마지막 관문 — 45에서 멈추면 AI 성은 영원히 작은 채로 남는다
+      c.order = clamp(c.order + 3 + Math.floor(t.pol / 22), 0, ORDER_CAP);
+    } else if (needFood && c.agri < cap) {
+      c.agri = clamp(c.agri + 2 + Math.floor(t.pol / 26), 0, cap);
+    } else if (c.agri < c.comm && c.agri < cap) {
       c.agri = clamp(c.agri + 2 + Math.floor(t.pol / 26), 0, cap);
     } else if (c.comm < cap) {
       c.comm = clamp(c.comm + 2 + Math.floor(t.pol / 26), 0, cap);
     } else if (c.water < cap) {
       c.water = clamp(c.water + 2 + Math.floor(t.int / 26), 0, cap);
+    } else if (c.agri < cap) {
+      c.agri = clamp(c.agri + 2 + Math.floor(t.pol / 26), 0, cap);
     } else {
       c.train = clamp(c.train + 4, 0, 100);
     }
@@ -3478,6 +3560,7 @@ export function resolveAutoBattle(state, from, to, rng = rngOf(state)) {
   } else {
     fromC.troops = Math.max(500, Math.round(fromC.troops * (0.5 + rng() * 0.2)));
     toC.troops = Math.max(600, Math.round(toC.troops * (0.7 + rng() * 0.2)));
+    clampCityTroops(toC);   // 인구가 적은 성은 600명도 상한을 넘는다 — 상한 안으로 돌려놓는다
     toC.order = clamp(toC.order - 5, 10, ORDER_CAP);
     log(state, `${state.factions[atkFid] ? state.factions[atkFid].name : '?'}군의 ${cityName(to)} 공격이 격퇴되었습니다.`);
     bumpFame(state, atkFid, -2);
@@ -3714,11 +3797,21 @@ export function endTurnPhase2(state) {
     growCityPop(c);
   }
   // 월 수입·소비 — 성 규모가 크면 세입도 조금 두둑하다. 병력만큼 급료도 나간다
+  let cappedCities = 0;
   for (const c of Object.values(state.cities)) {
     if (!c.owner) continue;
     const bal = cityMonthlyBalance(state, c.id);
-    c.gold += bal.goldNet;
-    c.food += bal.foodNet;
+    const store = cityStoreCap(state, c.id);
+    // 곳간 상한 — 넘치면 더 쌓이지 않는다(징병·포상·교역으로 써야 한다)
+    const goldNext = c.gold + bal.goldNet;
+    const foodNext = c.food + bal.foodNet;
+    if (c.owner === state.playerId && (goldNext > store.gold + 4 || foodNext > store.food + 4)) cappedCities++;
+    c.gold = Math.min(store.gold, goldNext);
+    c.food = Math.min(store.food, foodNext);
+  }
+  // 넘친 곳간은 해마다 한 번만 알린다(매달 알리면 기록이 금방 가득 찬다)
+  if (cappedCities > 0 && state.month === 1) {
+    log(state, `곳간이 가득 찬 성이 ${cappedCities}곳입니다 — 금·식량은 성 규모의 곳간 상한까지만 쌓입니다. 징병·포상·교역으로 쓰세요.`);
   }
   // 모자란 성은 같은 세력의 다른 성 창고에서 메운다(한 나라의 살림으로 본다)
   for (const c of Object.values(state.cities)) {

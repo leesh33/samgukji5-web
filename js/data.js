@@ -76,10 +76,10 @@ const CITY_ROWS = [
  * 주둔 병력 상한은 두 겹이다 — 규모가 정한 맥스(troopCap)와 성 인구의 30% 중 작은 쪽.
  * 규모를 올려도 성에 사람이 받쳐 주지 않으면 30%가 먼저 걸린다. */
 export const CITY_SIZES = [
-  { id: 0, ko: '소형', cap: 100, draft: 1.0, income: 1.0, troopCap: 30000, popCap: 110000 },
-  { id: 1, ko: '중형', cap: 130, draft: 1.25, income: 1.08, troopCap: 50000, popCap: 190000 },
-  { id: 2, ko: '대형', cap: 160, draft: 1.5, income: 1.16, troopCap: 100000, popCap: 380000 },
-  { id: 3, ko: '특대형', cap: 200, draft: 1.8, income: 1.25, troopCap: 200000, popCap: 720000 },
+  { id: 0, ko: '소형', cap: 100, draft: 1.0, income: 1.0, troopCap: 30000, popCap: 110000, store: { gold: 6000, food: 12000 } },
+  { id: 1, ko: '중형', cap: 130, draft: 1.25, income: 1.08, troopCap: 50000, popCap: 190000, store: { gold: 10000, food: 20000 } },
+  { id: 2, ko: '대형', cap: 160, draft: 1.5, income: 1.16, troopCap: 100000, popCap: 380000, store: { gold: 16000, food: 32000 } },
+  { id: 3, ko: '특대형', cap: 200, draft: 1.8, income: 1.25, troopCap: 200000, popCap: 720000, store: { gold: 24000, food: 48000 } },
 ];
 /* 주둔 병력은 성 인구의 30%를 넘지 않는다 */
 export const TROOP_POP_RATIO = 0.3;   // 주둔 병력 = min(규모 맥스, 인구 × 0.3)
@@ -93,6 +93,8 @@ export const ORDER_CAP = 100;
 export const statCap = (n, key) => (key === 'order' ? ORDER_CAP : sizeCap(n));
 export const sizeDraftMul = (n) => citySize(n).draft;
 export const sizeIncomeMul = (n) => citySize(n).income;
+export const sizeStoreGold = (n) => citySize(n).store.gold;
+export const sizeStoreFood = (n) => citySize(n).store.food;
 export const sizeTroopCap = (n) => citySize(n).troopCap;
 export const sizePopCap = (n) => citySize(n).popCap;
 /* 인구가 정한 병력 상한 — 성 인구의 30%(내림) */

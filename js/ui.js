@@ -651,6 +651,10 @@ function afterGameInit() {
   renderGame();
   autoSave();
   if ((game.pendingPrisoners || []).length) setTimeout(openPrisonerSheet, 500);
+  // 새 게임 안내 — 첫 달은 적이 움직이지 않는다
+  if (game.turn <= 1 && (game.log || []).length <= 3) {
+    setTimeout(() => toast('첫 달은 적이 움직이지 않습니다 — 징병으로 성을 지키고 내정을 펼치세요.', 3200), 900);
+  }
 }
 
 function autoSave() {
@@ -1073,6 +1077,7 @@ function renderCityPanel(dir = 0) {
   const troopCap = E.cityTroopsCap(game, selectedCity);
   const cap = E.cityStatCap(game, selectedCity);
   const orderCap = E.cityStatCap(game, selectedCity, 'order');
+  const store = E.cityStoreCap(game, selectedCity);
   const remain = mine ? E.citySizeUpRemain(game, selectedCity) : null;
   const capText = `농업·상업·수리 ${cap} · 치안 ${orderCap}`;
   const sizeTip = !mine
@@ -1111,8 +1116,8 @@ function renderCityPanel(dir = 0) {
         <div class="stat stat-wide" title="병력 ${fmt(c.troops)} / 최대 ${fmt(troopCap)} — 성 인구 ${fmt(pop)}의 30%와 ${sizeKo} 맥스(${fmt(CITY_SIZES[size].troopCap)}) 중 작은 쪽까지 모을 수 있습니다."><i>병력</i><b>${fmt(c.troops)}</b><em class="stat-cap">/${fmt(troopCap)}</em></div>
         <div class="stat" title="성 인구 — 인구의 30%가 주둔 병력 상한입니다. 농업·상업·수리·치안을 올리면 수용력(${fmt(E.cityPopCeil(game, selectedCity))})까지 늘어납니다."><i>인구</i><b>${fmt(pop)}</b></div>
         <div class="stat"><i>훈련</i><b>${c.train}</b></div>
-        <div class="stat stat-wide" title="${mine ? `월 세입 금 ${fmt(balanceOf(selectedCity).goldIn)} − 병사 급료 ${fmt(balanceOf(selectedCity).salary)}` : ''}"><i>금${mine ? balanceTag(balanceOf(selectedCity).goldNet) : ''}</i><b>${fmt(c.gold)}</b></div>
-        <div class="stat stat-wide" title="${mine ? `월 생산 식량 ${fmt(balanceOf(selectedCity).foodIn)} − 군량 ${fmt(balanceOf(selectedCity).foodOut)}` : ''}"><i>식량${mine ? balanceTag(balanceOf(selectedCity).foodNet) : ''}</i><b>${fmt(c.food)}</b></div>
+        <div class="stat stat-wide" title="${mine ? `월 세입 금 ${fmt(balanceOf(selectedCity).goldIn)} − 병사 급료 ${fmt(balanceOf(selectedCity).salary)}` : ''} · 곳간 상한 ${fmt(store.gold)}금(규모 ${sizeKo})"><i>금${mine ? balanceTag(balanceOf(selectedCity).goldNet) : ''}</i><b>${fmt(c.gold)}</b>${mine ? `<em class="stat-cap">/${fmt(store.gold)}</em>` : ''}</div>
+        <div class="stat stat-wide" title="${mine ? `월 생산 식량 ${fmt(balanceOf(selectedCity).foodIn)} − 군량 ${fmt(balanceOf(selectedCity).foodOut)}` : ''} · 곳간 상한 ${fmt(store.food)}량(규모 ${sizeKo}). 곳간이 차면 더 쌓이지 않습니다."><i>식량${mine ? balanceTag(balanceOf(selectedCity).foodNet) : ''}</i><b>${fmt(c.food)}</b>${mine ? `<em class="stat-cap">/${fmt(store.food)}</em>` : ''}</div>
       </div>
       ${gens.length ? `<div class="cp-gens">${genHTML}</div>` : '<div class="cp-gens"><span class="none">주둔 장수 없음</span></div>'}
       ${delegHTML}
@@ -1734,7 +1739,6 @@ function marchSheetHTML() {
   const enemies = E.adjacentEnemies(game, p.cityId);
   const target = game.cities[p.targetId];
   const tname = fname(target.owner);
-  const defPower = E.cityPower(game, p.targetId, true);
   // 장군 직위의 지휘 상한 — 넘는 병력은 성에 남는다
   const capSum = p.generals.reduce((s, gid) => s + E.maxTroopsOf(game, gid), 0);
   // 부대 편성 — 편성된 병력이 있으면 그 병력으로 나선다
@@ -1742,12 +1746,18 @@ function marchSheetHTML() {
   const useAssign = plan.hasAssigned;
   const ask = Math.round(c.troops * p.ratio);
   const going = useAssign ? plan.total : Math.min(ask, capSum);
-  // 예상 전력 — 실제 전장 승률을 옮긴 값(수비보다 이만큼은 강해야 한다)
-  const odds = E.siegeOdds(game, p.cityId, p.targetId, { generals: p.generals, troops: going });
+  // 예상 전력 — 실제 전장 승률을 옮긴 값(수비가 실제로 내는 병력·성 방어·원군까지 넣는다)
+  const odds = E.siegeOdds(game, p.cityId, p.targetId, { generals: p.generals, troops: going, reinforce: p.reinforce });
   const myPower = odds ? odds.myPower : Math.round(going * (0.7 + c.train / 180) * 0.95);
+  const defPower = odds ? odds.defPower : E.cityPower(game, p.targetId, true);
   const oddsKo = odds ? (odds.label === '우세' ? '승산 높음' : odds.label === '호각' ? '반반' : '열세') : '';
   const oddsColor = odds && odds.label === '우세' ? '#8ed18e' : odds && odds.label === '호각' ? '#d9c07a' : '#e08a7a';
-  const needMore = odds && going < odds.recommend ? ` — 수비를 이기려면 병력 ${fmt(odds.recommend)} 안팎이 필요합니다` : '';
+  const needMore = !odds ? ''
+    : odds.capLimited ? ` — 지휘 상한 ${fmt(odds.atkCap)}명으로는 모자랍니다`
+      : going < odds.recommend ? ` — 병력 ${fmt(odds.recommend)} 안팎이 필요합니다` : '';
+  const defNote = !odds || !odds.defFielded ? ''
+    : odds.defFielded < target.troops ? ` · 전장에는 ${fmt(odds.defFielded)}만 나섬(장수 지휘 상한)` : '';
+  const reinNote = odds && odds.defReinforce ? ` · 수비 원군 ${fmt(odds.defReinforce)} 가능` : '';
   const ratioRow = useAssign
     ? `<div class="field-row"><label>출진 병력 ${fmt(going)} / ${fmt(c.troops)}</label><span class="rg-tag">부대 편성</span></div>
     <p class="note">부대 편성대로 출진합니다 — 편성하지 않은 병력(예비병 ${fmt(Math.max(0, c.troops - plan.total))})은 성에 남습니다. 병력을 다시 나누려면 <b>군사 › 부대 편성</b>.</p>`
@@ -1758,7 +1768,7 @@ function marchSheetHTML() {
     <div class="field-row"><label>공격 대상</label><div class="chip-row" style="margin:0">
       ${enemies.map((e) => `<button class="pick-chip ${e === p.targetId ? 'on' : ''}" data-act="march-target" data-city="${e}">${CITY_BY_ID[e].ko}</button>`).join('')}
     </div></div>
-    <p class="note">${CITY_BY_ID[p.targetId].ko}: ${tname}군 · 병력 ${fmt(target.troops)} · 성 방어 ${target.def}<br>
+    <p class="note">${CITY_BY_ID[p.targetId].ko}: ${tname}군 · 병력 ${fmt(target.troops)}${defNote} · 성 방어 ${target.def}${reinNote}<br>
     예상 전력 — 아군 ${fmt(myPower)} vs 수비 ${fmt(defPower)} <span style="color:${oddsColor};font-weight:600">(${oddsKo})</span>${needMore}</p>
     ${ratioRow}
     <p class="note">출진 장수 (최대 5명)</p>
@@ -1871,6 +1881,8 @@ function beginBattle(setup, playerSide) {
   battleSel = null; battleMode = null; battleBusy = false;
   pendingProvoke = null; pendingBattleEvent = null;
   lastBattleResult = null;
+  retreatConfirm = false;
+  clearTimeout(retreatConfirmT);
   show('scr-battle');
   setTimeout(resizeBattleCanvas, 20);
   renderBattle();
@@ -2353,6 +2365,12 @@ function renderBattle() {
   `;
   $('#bt-next').textContent = battle.phase === my ? '진행 ▶' : '적 행동…';
   $('#bt-next').disabled = battleBusy || battle.phase !== my || !!battle.over;
+  const rb = $('#bt-retreat');
+  if (rb) {
+    rb.textContent = retreatConfirm ? '정말 퇴각?' : '퇴각';
+    rb.classList.toggle('danger', retreatConfirm);
+    rb.disabled = !!battle.over;
+  }
   const cards = mine.map((u) => unitCardHTML(u, u === battleSel)).join('');
   if (cards) $('#bt-info').insertAdjacentHTML('beforeend', `<div class="bt-card-row">${cards}</div>`);
 }
@@ -2494,10 +2512,26 @@ function playerNext() {
 }
 
 function retreat() {
-  if (!battle) return;
+  if (!battle || battle.over) return;
+  // 오탭 방지 — 한 번 더 눌러야 실제로 퇴각한다
+  if (!retreatConfirm) {
+    retreatConfirm = true;
+    sfx.select();
+    renderBattle();
+    toast(battle.playerSide === 'def'
+      ? '한 번 더 누르면 퇴각합니다 — 수비측이 퇴각하면 성을 내주게 됩니다.'
+      : '한 번 더 누르면 퇴각합니다 — 공략을 접고 돌아갑니다.', 2600);
+    clearTimeout(retreatConfirmT);
+    retreatConfirmT = setTimeout(() => { retreatConfirm = false; if (battle && !battle.over) renderBattle(); }, 4000);
+    return;
+  }
+  retreatConfirm = false;
+  clearTimeout(retreatConfirmT);
   battle.over = battle.playerSide === 'atk' ? 'def' : 'atk';
   finishBattle();
 }
+let retreatConfirm = false;
+let retreatConfirmT = null;
 
 function finishBattle() {
   if (!battle) return;
@@ -2530,7 +2564,10 @@ function finishBattle() {
 
 function closeBattle() {
   closeSheet();
+  lastBattleResult = null;
   battle = null; battleSel = null; battleMode = null; battleBusy = false;
+  retreatConfirm = false;
+  clearTimeout(retreatConfirmT);
   pendingProvoke = null; pendingBattleEvent = null;
   // 잡힌 장수가 있으면 처분 화면을 먼저 연다
   if ((game.pendingPrisoners || []).length) {
@@ -3914,8 +3951,17 @@ function onClick(e) {
     case 'sheet-close':
       // 일기토 도발은 답을 받아야 적의 차례가 이어진다 — 배경·✕로 닫히지 않게 한다
       if (pendingProvoke) { toast('일기토 도발에 답해 주세요.', 1600); break; }
+      // 전투 결과 창 — ✕·배경으로 닫아도 전장에 갇히지 않고 전투를 마친다
+      if (battle && lastBattleResult) { closeBattle(); break; }
+      // 달의 소식·대회는 선택지가 있다 — ✕는 '나중에'(군의 메뉴에서 다시 열 수 있다)로 둔다
       pendingBattleEvent = null;   // 돌발 이벤트를 그냥 닫으면 다음 기회를 막지 않는다
+      const closedTitle = $('#sheet-title').textContent || '';
       if (prisonerSheetOpen) closePrisonerSheet(); else closeSheet();
+      if (closedTitle.includes('달의 소식') && game && game.pendingEvent) {
+        toast('이번 달 소식은 ☰ 군의 → 달의 소식에서 다시 열 수 있습니다.', 2400);
+      } else if (closedTitle.includes('대회') && game && game.pendingTournament) {
+        toast('이달의 대회는 ☰ 군의 → 이달의 대회에서 다시 열 수 있습니다.', 2400);
+      }
       break;
     case 'menu': openMenu(); break;
     case 'open-load': openLoad(); break;
