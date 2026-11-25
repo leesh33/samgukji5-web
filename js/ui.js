@@ -2522,7 +2522,7 @@ function retreat() {
       ? '한 번 더 누르면 퇴각합니다 — 수비측이 퇴각하면 성을 내주게 됩니다.'
       : '한 번 더 누르면 퇴각합니다 — 공략을 접고 돌아갑니다.', 2600);
     clearTimeout(retreatConfirmT);
-    retreatConfirmT = setTimeout(() => { retreatConfirm = false; if (battle && !battle.over) renderBattle(); }, 4000);
+    retreatConfirmT = setTimeout(() => { retreatConfirm = false; if (battle && !battle.over) renderBattle(); }, 6000);
     return;
   }
   retreatConfirm = false;
