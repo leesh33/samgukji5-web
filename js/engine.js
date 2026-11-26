@@ -1471,6 +1471,38 @@ export function siegeOdds(state, fromCityId, toCityId, opts = {}) {
   };
 }
 
+/* 일기토 도발 조언 — 무력 차이로 문구를 고른다. ±8 안쪽만 '비슷함'으로 본다.
+   예전 ±15 기준은 조인(86) vs 여포(100) 같은 14 차이를 '비슷하다'고 해 판단 근거를 믿을 수 없게 했다. */
+export const DUEL_CLOSE_GAP = 8;
+export function duelAdvice(warGap) {
+  const g = Math.round(Number(warGap) || 0);
+  const gapTxt = g === 0 ? '무력 동일' : `무력 ${g > 0 ? '+' : ''}${g}`;
+  if (g >= DUEL_CLOSE_GAP) return { tone: 'strong', gap: g, text: `우리 장수가 무력에서 앞섭니다(${gapTxt}). 받아칠 만합니다.` };
+  if (g <= -DUEL_CLOSE_GAP) return { tone: 'weak', gap: g, text: `무력에서 밀립니다(${gapTxt}). 거절해도 탓할 일은 아닙니다.` };
+  return { tone: 'even', gap: g, text: `무력이 비슷합니다(${gapTxt}). 물러서면 아군 사기가 꺾입니다.` };
+}
+
+/* 출진 시트 문구 — 두 절대값만 보이면 '아군이 더 큰데 왜 열세?'로 읽힌다.
+   판정 기준(전력비 1.15)과 비율을 함께 보여 주고, 필요 병력이 이 성 병력보다 많으면 그 사실을 말해 준다. */
+export function siegeOddsNote(odds, cityTroops, going = 0) {
+  if (!odds) return { ratioTxt: '', oddsKo: '', needTxt: '', needStrong: false };
+  const n = (v) => Math.round(v).toLocaleString('ko-KR');
+  const oddsKo = odds.label === '우세' ? '승산 높음' : odds.label === '호각' ? '반반' : '열세';
+  const ratioTxt = `전력비 ×${Number(odds.ratio).toFixed(2)}`;
+  let needTxt = '';
+  let needStrong = false;
+  if (odds.needTroops > cityTroops) {
+    needStrong = true;
+    needTxt = `권장 병력 ${n(odds.needTroops)} — 이 성 병력 ${n(cityTroops)}으로는 부족합니다. 다른 성에서 수송하거나 원군으로 합류시키세요.`;
+  } else if (odds.capLimited) {
+    needStrong = true;
+    needTxt = `권장 병력 ${n(odds.needTroops)} — 지휘 상한 ${n(odds.atkCap)}명으로는 모자랍니다. 직위를 올리거나 장수를 더 데려가세요.`;
+  } else if (going < odds.needTroops) {
+    needTxt = `권장 병력 ${n(odds.needTroops)} 안팎 — 지금 승산은 ${oddsKo}입니다.`;
+  }
+  return { ratioTxt, oddsKo, needTxt, needStrong };
+}
+
 /* 적 성 — 동맹·정전 중인 세력의 성은 공격 대상에서 빠진다 */
 export function adjacentEnemies(state, cityId) {
   const own = ownerOf(state, cityId);

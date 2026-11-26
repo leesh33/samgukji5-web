@@ -455,6 +455,14 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   text-shadow: 0 1px 0 rgba(255, 240, 210, 0.6);
 }
 .turn-btn small { font-size: 9.5px; color: #5a3a12; letter-spacing: 1px; font-weight: 500; margin-top: 3px; }
+/* 행동력이 남은 채 턴 종료를 눌렀을 때 — 한 번 더 누르면 넘어간다 */
+.turn-btn.confirm {
+  background: linear-gradient(180deg, #ffe0c8 0%, #f0b48c 34%, #d08a5c 68%, #a25f34 100%);
+  border-color: #ffe6d2;
+  animation: endturnPulse 0.9s ease-in-out infinite alternate;
+}
+.turn-btn.confirm small { color: #6b2f10; letter-spacing: 0.3px; }
+@keyframes endturnPulse { from { box-shadow: inset 0 1px 0 #fff2e6, 0 3px 0 #6d451a, 0 8px 20px rgba(0, 0, 0, 0.5); } to { box-shadow: inset 0 1px 0 #fff2e6, 0 3px 0 #6d451a, 0 0 26px rgba(255, 140, 70, 0.6); } }
 .turn-btn:active { transform: translateY(1px); box-shadow: inset 0 2px 6px rgba(90, 50, 10, 0.5), 0 1px 0 #6d451a, 0 5px 14px rgba(0, 0, 0, 0.45); }
 
 .toast {
@@ -465,8 +473,20 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
   border: 1px solid #7a5a30;
   box-shadow: inset 0 1px 0 rgba(255, 220, 160, 0.14), 0 10px 26px rgba(0, 0, 0, 0.6), 0 0 20px rgba(200, 120, 40, 0.16);
   animation: toastIn 0.16s ease-out;
+  word-break: keep-all; overflow-wrap: anywhere;
+  pointer-events: none;   /* 안내 문구가 아래 버튼의 탭을 가로채지 않는다 */
   z-index: 120;
 }
+/* 시트가 열려 있으면 토스트는 시트 위가 아니라 화면 위쪽 여백으로 비켜난다 — '슬롯 1에 저장' 같은 시트 버튼을 가리지 않게 */
+body.sheet-open .toast {
+  top: calc(10px + env(safe-area-inset-top));
+  bottom: auto;
+  max-width: 78%;
+  padding: 7px 11px;
+  font-size: 11px;
+  animation: toastInTop 0.16s ease-out;
+}
+@keyframes toastInTop { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 .report-row { padding: 7px 0; border-bottom: 1px solid #2e2216; font-size: 11.5px; color: #c3d0a6; line-height: 1.6; }
@@ -555,7 +575,8 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .size-note { color: #c7b48a; }
 .size-note b { color: #ffd79a; font-weight: 600; }
 
-.cp-gens { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+/* 장수 칩은 잘리지 않게 두 줄로 접어 모두 보이게 한다(390 폭에서 9명이면 2줄) */
+.cp-gens { display: flex; flex-wrap: wrap; gap: 6px 5px; padding-bottom: 2px; }
 .cp-gens::-webkit-scrollbar { display: none; }
 .gen-chip {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; width: 46px; gap: 2px;
@@ -841,13 +862,20 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .fg-pincer { color: #e2c05c; font-style: normal; }
 .fg-guard { color: #7fb0e6; font-style: normal; }
 .fg-none { color: #a2917a; font-style: normal; }
+/* 부대 카드는 5장이 390 폭에 모두 들어가게 폭을 나눠 갖는다 — 4번째부터 잘리지 않게 */
 .bt-card-row { display: flex; align-items: stretch; gap: 4px; overflow-x: auto; overflow-y: hidden; margin-top: 5px; padding-bottom: 2px; }
-.bt-card { display: flex; align-items: center; flex: 0 0 auto; gap: 4px; padding: 3px 6px; }
-.bt-card .form-svg { border: 1px solid #4a3622; }
-.bt-card .bc-main { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
-.bt-card .bc-name { font-size: 10.5px; color: #f0e0bc; white-space: nowrap; }
+.bt-card { display: flex; align-items: center; flex: 1 1 0; min-width: 0; gap: 3px; padding: 3px 4px; border-left-width: 2px; }
+/* 병종은 카드 왼쪽 테두리 색으로 읽는다 — 좁은 카드에서 글자로 넣으면 사기가 잘린다 */
+.bt-card.arm-기병 { border-left-color: #e8825c; }
+.bt-card.arm-궁병 { border-left-color: #9ed08a; }
+.bt-card.arm-보병 { border-left-color: #a8c6e8; }
+.bt-card.arm-수군 { border-left-color: #7ecbd0; }
+.bt-card .form-svg { flex: 0 0 auto; border: 1px solid #4a3622; }
+.bt-card .bc-main { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; min-width: 0; }
+.bt-card .bc-name { max-width: 100%; font-size: 10.5px; color: #f0e0bc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bt-card .bc-troop { font-size: 9.5px; color: #b0d8a6; white-space: nowrap; }
 .bt-card .bc-morale { font-size: 8.5px; color: #c6b38a; white-space: nowrap; }
+.bt-card.done { opacity: 0.48; }
 
 /* 출진 전 진형 고르기 */
 .form-pick-box { border-top: 1px solid #3a2a1c; margin-top: 10px; padding-top: 6px; }
@@ -896,15 +924,26 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .pw-btn.exec.on { background: linear-gradient(180deg, #5c2218, #37120e); color: #ffd8cc; }
 .pw-btn[disabled] { opacity: 0.4; pointer-events: none; }
 .bt-log {
-  flex: 1 1 auto; min-height: 56px; overflow-y: auto; margin: 3px 10px; padding: 8px 10px;
+  flex: 1 1 auto; min-height: 34px; max-height: 96px; overflow-y: auto; margin: 3px 10px; padding: 7px 10px;
   border-radius: 4px; font-size: 10.5px; color: #cbbb96; line-height: 1.7;
   background: linear-gradient(180deg, #201810, #120c07); border: 1px solid #4a3622;
   box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.7), 0 2px 10px rgba(0, 0, 0, 0.3);
 }
+/* 남는 세로 공간은 빈 로그 상자를 늘리는 대신 안내와 명령 사이 여백으로 둔다 */
+.bt-fill { flex: 1 1 auto; min-height: 0; }
 .bt-log div { margin-bottom: 1px; }
 .bt-log .hi { color: #ffd98a; }
 .bt-log .bad { color: #ff9a8a; }
-.bt-guide { flex: 0 0 auto; margin: 3px 10px 0; padding: 6px 8px; border-radius: 3px; background: linear-gradient(180deg, #1e170f, #140e09); border: 1px solid #32251a; font-size: 9px; color: #8f7d63; }
+.bt-guide { flex: 0 0 auto; margin: 3px 10px 0; padding: 4px 8px; border-radius: 3px; background: linear-gradient(180deg, #1e170f, #140e09); border: 1px solid #32251a; font-size: 9px; color: #8f7d63; }
+/* 진형 상성표는 기본으로 접어 둔다 — ⓘ 를 누르면 펼친다 */
+.bg-toggle {
+  display: flex; align-items: center; gap: 5px; width: 100%; padding: 3px 0;
+  font: inherit; font-size: 9.5px; color: #c0b096; letter-spacing: 0.8px; text-align: left; background: none; border: 0;
+}
+.bg-toggle span { color: #7d6c56; margin-left: 2px; }
+.bg-toggle em { margin-left: auto; font-style: normal; color: var(--gold); font-size: 9px; letter-spacing: 0.4px; }
+.bt-guide.collapsed .bg-cols, .bt-guide.collapsed .bg-tip { display: none; }
+.bt-guide.collapsed .bg-toggle { padding: 2px 0; }
 .bg-head { font-size: 9.5px; color: #c0b096; letter-spacing: 0.8px; margin-bottom: 4px; }
 .bg-head span { color: #7d6c56; margin-left: 4px; }
 .bg-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
@@ -916,6 +955,9 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .bg-tip { margin-top: 4px; font-size: 9px; color: #8f7d63; }
 .bt-cmds { flex: 0 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 6px 8px; }
 .bt-cmds .btn { min-height: 44px; padding: 2px; font-size: 12px; letter-spacing: 0; min-width: 0; overflow: hidden; }
+/* 명령이 왜 잠겨 있는지 한 줄로 알려준다 — '부대를 눌러 고르세요' */
+.bt-hint { grid-column: 1 / -1; font-size: 10px; line-height: 1.5; color: #e0c98a; letter-spacing: 0.3px; }
+.bt-hint b { color: #ffe3b4; font-weight: 600; }
 .bt-bar { flex: 0 0 auto; display: flex; gap: 8px; padding: 4px 10px calc(8px + env(safe-area-inset-bottom)); }
 .bt-bar .btn { flex: 1; }
 /* 화면이 낮으면(브라우저 툴바·큰 글꼴) 진형 상성표를 접어 카드·안내·명령 버튼이 한 화면에 남게 한다 */
@@ -1005,7 +1047,9 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .dp-row.truce { border-left-color: #5a8ecc; }
 .dp-row.good { border-left-color: #86a85e; }
 .dp-row.bad { border-left-color: #c24a3a; }
-.dp-top { display: flex; align-items: center; gap: 9px; }
+.dp-top { display: flex; align-items: center; gap: 9px; width: 100%; padding: 0; font: inherit; text-align: left; background: none; border: 0; color: inherit; }
+.dp-chev { flex: 0 0 auto; width: 16px; text-align: center; font-size: 11px; color: var(--gold); }
+.dp-hint { margin: 0 0 6px; font-size: 10px; color: #a2917a; letter-spacing: 0.3px; }
 .dp-top img { width: 46px; height: 46px; flex: 0 0 auto; display: block; border-radius: 3px; border: 1px solid #6b4b28; }
 .dp-main { flex: 1; min-width: 0; }
 .dp-name { font-size: 13px; color: #f2e4c6; }
@@ -1022,10 +1066,12 @@ button { font-family: inherit; color: inherit; background: none; border: 0; padd
 .dp-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; }
 .dp-btn.advise { color: #ffd9a2; border-color: #7d5e2a; }
 .dp-btn {
-  min-height: 32px; font-size: 10px; color: #e6d3ad; letter-spacing: 0.3px; border-radius: 3px;
+  min-height: 32px; padding: 5px 3px; font-size: 10px; color: #e6d3ad; letter-spacing: 0.3px; border-radius: 3px;
   background: linear-gradient(180deg, #2b2015, #191209); border: 1px solid #4b3622;
   box-shadow: inset 0 1px 0 rgba(255, 220, 160, 0.1), 0 1px 0 rgba(0, 0, 0, 0.4);
 }
+.dp-btn small { display: block; margin-top: 1px; font-size: 8px; color: #a2917a; letter-spacing: 0; line-height: 1.35; }
+.dp-row.open { border-color: #6b4b28; box-shadow: var(--bevel-sm), 0 0 14px rgba(200, 130, 50, 0.12); }
 .dp-btn:active { border-color: var(--gold); }
 .dp-btn[disabled] { opacity: 0.35; pointer-events: none; }
 .dp-btn.danger { color: #f0bdb0; border-color: #7a3427; }

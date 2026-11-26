@@ -39,6 +39,10 @@ let pendingProvoke = null;   // 적 장수의 일기토 도발 — 답을 기다
 let pendingBattleEvent = null;   // 전투 중 돌발 이벤트 — 선택을 기다리는 중
 let tickTimer = null;
 let turnPending = false;
+let endTurnConfirm = false;      // 행동력이 남은 채 턴 종료를 한 번 눌렀다
+let endTurnConfirmAp = 0;
+let endTurnConfirmT = null;
+let battleGuideOpen = false;     // 전장 진형 상성표는 기본으로 접어 둔다
 let currentScenario = null;
 let battleSeedCounter = 1;
 
@@ -403,7 +407,7 @@ function renderLords(scenarioId) {
     return `<button class="lord-card" data-act="pick-lord" data-id="${f.id}" data-sc="${sc.id}">
       <img src="${portraitURL(lord.id, lord, 56, color)}" alt="${lord.ko}" />
       <div class="lc-name">${f.name}</div>
-      <div class="lc-mark">${f.mark || f.name[0]}</div>
+      ${f.mark && f.mark !== f.name[0] ? `<div class="lc-mark">깃발 ${f.mark}</div>` : ''}
       <div class="lc-meta"><span>성 <b>${f.cities.length}</b></span><span>장수 <b>${f.generals.length}</b></span></div>
       <div class="lc-meta lc-stats"><span>통 <b>${lord.lead}</b></span><span>무 <b>${lord.war}</b></span><span>지 <b>${lord.int}</b></span></div>
     </button>`;
@@ -717,7 +721,10 @@ function renderGame() {
   $('#res-fame').textContent = Math.round(f.fame);
   $('#res-ap').textContent = `${game.actionPoints}/${game.maxActionPoints}`;
   fitResValues();
-  $('#turn-hint').textContent = `명령 ${game.actionPoints}`;
+  // 남은 행동력을 버리고 턴을 넘기려는 순간에는 한 번 더 물어본다
+  if (endTurnConfirm && game.actionPoints !== endTurnConfirmAp) cancelEndTurnConfirm();
+  $('#turn-hint').textContent = endTurnConfirm ? '정말 끝낼까요?' : `행동력 ${game.actionPoints}/${game.maxActionPoints}`;
+  $('#btn-endturn').classList.toggle('confirm', endTurnConfirm);
   $('#btn-endturn').disabled = !!game.gameOver;
 
 
@@ -1150,8 +1157,12 @@ function openSheet(title, html) {
   $('#sheet-title').textContent = title;
   $('#sheet-body').innerHTML = html;
   $('#sheet').classList.remove('hidden');
+  document.body.classList.add('sheet-open');
 }
-function closeSheet() { $('#sheet').classList.add('hidden'); }
+function closeSheet() {
+  $('#sheet').classList.add('hidden');
+  document.body.classList.remove('sheet-open');
+}
 
 function officerRowHTML(g, actionAct, extra = '', disabledHint = '') {
   const t = gd(g.id);
@@ -1792,9 +1803,12 @@ function marchSheetHTML() {
   const defPower = odds ? odds.defPower : E.cityPower(game, p.targetId, true);
   const oddsKo = odds ? (odds.label === '우세' ? '승산 높음' : odds.label === '호각' ? '반반' : '열세') : '';
   const oddsColor = odds && odds.label === '우세' ? '#8ed18e' : odds && odds.label === '호각' ? '#d9c07a' : '#e08a7a';
-  const needMore = !odds ? ''
-    : odds.capLimited ? ` — 지휘 상한 ${fmt(odds.atkCap)}명으로는 모자랍니다`
-      : going < odds.recommend ? ` — 병력 ${fmt(odds.recommend)} 안팎이 필요합니다` : '';
+  // 판정은 두 숫자의 절대값이 아니라 전력비(아군/수비)로 한다 — 비율과 기준을 함께 보여 줘야 '왜 열세인지'가 읽힌다
+  const note = E.siegeOddsNote(odds, c.troops, going);
+  const oddsTxt = odds
+    ? `<br>예상 전력 — 아군 ${fmt(myPower)} vs 수비 ${fmt(defPower)} · ${note.ratioTxt} <span style="color:${oddsColor};font-weight:600">(공성 유리 기준 ×${E.SIEGE_EVEN} — ${note.oddsKo})</span>`
+    : `<br>예상 전력 — 아군 ${fmt(myPower)} vs 수비 ${fmt(defPower)}`;
+  const needMore = !note.needTxt ? '' : `<br>${note.needStrong ? `<b style="color:#e0a070">${note.needTxt}</b>` : note.needTxt}`;
   const defNote = !odds || !odds.defFielded ? ''
     : odds.defFielded < target.troops ? ` · 전장에는 ${fmt(odds.defFielded)}만 나섬(장수 지휘 상한)` : '';
   const reinNote = odds && odds.defReinforce ? ` · 수비 원군 ${fmt(odds.defReinforce)} 가능` : '';
@@ -1808,8 +1822,7 @@ function marchSheetHTML() {
     <div class="field-row"><label>공격 대상</label><div class="chip-row" style="margin:0">
       ${enemies.map((e) => `<button class="pick-chip ${e === p.targetId ? 'on' : ''}" data-act="march-target" data-city="${e}">${CITY_BY_ID[e].ko}</button>`).join('')}
     </div></div>
-    <p class="note">${CITY_BY_ID[p.targetId].ko}: ${tname}군 · 병력 ${fmt(target.troops)}${defNote} · 성 방어 ${target.def}${reinNote}<br>
-    예상 전력 — 아군 ${fmt(myPower)} vs 수비 ${fmt(defPower)} <span style="color:${oddsColor};font-weight:600">(${oddsKo})</span>${needMore}</p>
+    <p class="note">${CITY_BY_ID[p.targetId].ko}: ${tname}군 · 병력 ${fmt(target.troops)}${defNote} · 성 방어 ${target.def}${reinNote}${oddsTxt}${needMore}</p>
     ${ratioRow}
     <p class="note">출진 장수 (최대 5명)</p>
     <div class="chip-row">${gens.map((g) => {
@@ -1925,6 +1938,7 @@ function beginBattle(setup, playerSide) {
   clearTimeout(retreatConfirmT);
   show('scr-battle');
   setTimeout(resizeBattleCanvas, 20);
+  battleSel = firstReadyUnit();   // 진입하자마자 내 첫 부대를 집어 준다 — 명령 버튼이 왜 잠겼는지 헤매지 않게
   renderBattle();
   sfx.battle();
   if (battle.phase !== battle.playerSide) enemyPhase();
@@ -2312,12 +2326,12 @@ function unitCardHTML(u, selected) {
   const t = gd(u.gid);
   const isPlayer = u.side === battle.playerSide;
   const arm = B.armOf(u);
-  return `<button class="pick-chip bt-card ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" title="${arm} · ${B.armTraitText(arm)}">
-    ${formationSVG(u.formation, u.dir || 'E', 20, isPlayer ? {} : { body: '#f0b3a3', shade: '#3c1310' })}
+  return `<button class="pick-chip bt-card arm-${arm} ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" title="${arm} · ${B.armTraitText(arm)}">
+    ${formationSVG(u.formation, u.dir || 'E', 18, isPlayer ? {} : { body: '#f0b3a3', shade: '#3c1310' })}
     <span class="bc-main">
       <span class="bc-name">${u.name}${u.confused > 0 ? ' <i class="bu-chaos">혼란</i>' : ''}</span>
       <b class="bc-troop">${fmt(u.troops)}</b>
-      <span class="bc-morale"><i class="bc-arm arm-${arm}">${arm}</i> 사기 ${Math.round(u.morale)}</span>
+      <span class="bc-morale">사기 ${Math.round(u.morale)}</span>
     </span>
   </button>`;
 }
@@ -2340,13 +2354,15 @@ function unitInfoHTML(u) {
   </div>`;
 }
 
-/* 전장 아래 진형 상성표 — 지금 어떤 진형이 무엇에 강한지 바로 보이게 */
+/* 전장 아래 진형 상성표 — 기본은 접어 두고 ⓘ 를 누르면 펼친다 */
 function battleGuideHTML() {
   const cols = Object.values(FORMATION_GROUPS).map((g) => `<div class="bg-col">
       <b class="fg-${g.id}">${g.ko}진</b>
       ${g.forms.filter((f) => FORMATIONS[f]).map((f) => `<span class="bg-item${battleSel && battleSel.formation === f ? ' on' : ''}">${formationSVG(f, 'E', 15)}${FORMATIONS[f].ko}</span>`).join('')}
     </div>`).join('');
-  return `<div class="bg-head">진형 상성 <span>돌격 → 포위 → 방어 → 돌격</span></div>
+  const selKo = battleSel && FORMATIONS[battleSel.formation] ? ` · ${FORMATIONS[battleSel.formation].ko}` : '';
+  return `<button class="bg-toggle" data-act="bt-guide-toggle" aria-expanded="${battleGuideOpen}">
+      진형 상성 <span>돌격 → 포위 → 방어 → 돌격${selKo}</span><em>${battleGuideOpen ? '접기 ▴' : '펼치기 ▾'}</em></button>
     <div class="bg-cols">${cols}</div>
     <div class="bg-tip">노란 창벽이 정면 — 옆에서 치면 <b class="lg-flank">측면 ×1.25</b>, 뒤에서 치면 <b class="lg-rear">배후 ×1.50</b></div>
     <div class="bg-tip bg-arm-tip"><b>병종 상성</b> ${B.ARM_CYCLE_KO} <span>기병 기동+1 · 궁병 사거리2 · 보병 피해-15% · 수군 물길+15%</span></div>`;
@@ -2364,6 +2380,23 @@ function battleLegendHTML() {
     <span class="lg-arm arm-기병">기병</span><span class="lg-sep">›</span><span class="lg-arm arm-궁병">궁병</span><span class="lg-sep">›</span><span class="lg-arm arm-보병">보병</span><span class="lg-sep">›</span><span class="lg-arm arm-기병">기병</span>
     <small>상성 유리 +20% · 열세 -15%</small>
   </div>`;
+}
+
+/* 아직 행동하지 않은 내 부대 중 첫 번째 — 전투 진입·내 차례 복귀 때 자동 선택 */
+function firstReadyUnit() {
+  if (!battle) return null;
+  return battle.units.find((u) => u.alive && u.side === battle.playerSide && !u.acted) || null;
+}
+
+/* 명령 버튼이 잠겨 있을 때 이유를 한 줄로 — 선택 안내가 없으면 기능이 없는 줄 안다 */
+function battleHintHTML() {
+  if (!battle || battle.over) return '';
+  const my = battle.playerSide;
+  if (battleBusy) return '<div class="bt-hint">적 부대가 움직이는 중입니다…</div>';
+  if (battle.phase !== my) return '<div class="bt-hint">적의 차례입니다 — <b>진행 ▶</b>을 누르면 적이 움직입니다.</div>';
+  if (!battleSel) return '<div class="bt-hint">부대를 눌러 고르세요 — 고른 부대만 <b>이동·공격·계략</b>을 쓸 수 있습니다.</div>';
+  if (battleSel.acted) return `<div class="bt-hint"><b>${battleSel.name}</b> 부대는 행동을 마쳤습니다. 다른 부대를 고르세요.</div>`;
+  return '';
 }
 
 function renderBattle() {
@@ -2384,6 +2417,7 @@ function renderBattle() {
   $('#bt-info').innerHTML = info;
   $('#bt-legend').innerHTML = battleLegendHTML();
   $('#bt-guide').innerHTML = battleGuideHTML();
+  $('#bt-guide').classList.toggle('collapsed', !battleGuideOpen);
 
   $('#bt-log').innerHTML = battle.log.slice(-40).map((l) => {
     const cls = /\[원군 도착!\]|\[야습 성공\]|\[화공 성공\]|\[내응\]|\[동요\]/.test(l) ? 'rein'
@@ -2397,6 +2431,7 @@ function renderBattle() {
   const canAct = !battleBusy && !battle.over && battle.phase === my && battleSel && !battleSel.acted && battleSel.side === my;
   const duelReady = canAct && B.duelOptions(battle, battleSel).length > 0;
   $('#bt-cmds').innerHTML = `
+    ${battleHintHTML()}
     <button class="btn" data-act="bt-move" ${canAct ? '' : 'disabled'}>이동</button>
     <button class="btn" data-act="bt-attack" ${canAct && B.targetsFor(battle, battleSel).length ? '' : 'disabled'}>공격</button>
     <button class="btn" data-act="bt-tactic" ${canAct ? '' : 'disabled'}>계략</button>
@@ -2495,7 +2530,9 @@ function runEnemySteps() {
       renderBattle();
       if (battle.over) { finishBattle(); return; }
       if (battle.phase !== battle.playerSide) { setTimeout(enemyPhase, 300); return; }
-      battleBusy = false; renderBattle();
+      battleBusy = false;
+      battleSel = firstReadyUnit();
+      renderBattle();
       maybeBattleEvent();   // 새 라운드가 열렸다 — 돌발 이벤트를 굴린다
       return;
     }
@@ -2826,9 +2863,8 @@ function openProvokeSheet(ev) {
   pendingProvoke = ev;
   const ct = gd(ev.challenger.gid), tt = gd(ev.target.gid);
   const warGap = tt.war - ct.war;
-  const odds = warGap >= 15 ? '우리 장수가 무력에서 앞섭니다. 받아칠 만합니다.'
-    : warGap <= -15 ? '무력에서 크게 밀립니다. 거절해도 탓할 일은 아닙니다.'
-    : '무력이 비슷합니다. 물러서면 아군 사기가 꺾입니다.';
+  const advice = E.duelAdvice(warGap);
+  const odds = advice.text;
   openSheet('일기토 도발', `
     <div class="ev-box">
       <div class="ev-title">적장의 도전</div>
@@ -2907,9 +2943,31 @@ function doBattleEvent(choiceId) {
 }
 
 /* ---------- 턴 종료 ---------- */
+function cancelEndTurnConfirm() {
+  endTurnConfirm = false;
+  endTurnConfirmAp = 0;
+  clearTimeout(endTurnConfirmT);
+}
+
 function endTurn() {
   if (!game || game.gameOver) return;
   if (battle) return;
+  // 행동력이 남아 있으면 두 번 눌러야 넘어간다(한 번 누르면 남은 양을 알려 준다)
+  if (game.actionPoints > 0 && !endTurnConfirm) {
+    endTurnConfirm = true;
+    endTurnConfirmAp = game.actionPoints;
+    sfx.select();
+    renderGame();
+    toast(`행동력이 ${game.actionPoints} 남아 있습니다. 한 번 더 누르면 턴을 끝냅니다.`, 2800);
+    clearTimeout(endTurnConfirmT);
+    endTurnConfirmT = setTimeout(() => {
+      if (!endTurnConfirm) return;
+      cancelEndTurnConfirm();
+      if (game && !battle) renderGame();
+    }, 3200);
+    return;
+  }
+  cancelEndTurnConfirm();
   sfx.turn();
   const battles = E.endTurnPhase1(game);
   if (battles && battles.length) {
@@ -2930,8 +2988,9 @@ function endTurn() {
 
 /* ---------- 외교 ---------- */
 let diploConfirm = null;
+let diploTarget = null;   // 액션 선반을 연 세력
 
-function openDiplomacy() { sfx.click(); diploConfirm = null; renderDiplomacySheet(); }
+function openDiplomacy() { sfx.click(); diploConfirm = null; diploTarget = null; renderDiplomacySheet(); }
 
 function renderDiplomacySheet() {
   if (!game) return;
@@ -2946,33 +3005,36 @@ function renderDiplomacySheet() {
       <div class="dp-cell"><b>${game.actionPoints}/${game.maxActionPoints}</b><span>행동력</span></div>
     </div>
     <p class="note">${nx ? `다음 관직 <b style="color:#e0c98a">${nx.ko}</b> — ${nx.needCities ? `성 ${nx.needCities}곳 더` : '성 조건 충족'}${nx.needFame ? ` · 명성 ${nx.needFame} 더` : ''} (행동력 +${nx.ap} · 세금 +${Math.round(nx.tax * 100)}%)` : '이미 황제의 자리에 올랐습니다.'}</p>
-    <p class="note">증정 금 300(+15~25) · 증정 식량 1,200(+12~22) · 동맹 500 · 정전 400 · 권고 — 모두 행동력 1을 씁니다. 동맹·정전 중에는 서로 칠 수 없습니다.</p>
-    <p class="note">항복 권고는 성·병력이 압도적으로 앞설 때만 통합니다. 성공하면 그 성·장수·자원을 거두고, 실패하면 우호도가 -25 떨어집니다.</p>`;
+    <p class="note">증정 금 300 · 증정 식량 1,200 · 동맹 500 · 정전 400 · 권고 — 모두 행동력 1을 씁니다. 동맹·정전 중에는 서로 칠 수 없습니다. 권고는 압도적으로 앞설 때만 통하고, 실패하면 우호도 -25.</p>`;
   if (!list.length) { openSheet('외교', head + '<p class="note">겨룰 세력이 남아 있지 않습니다.</p>'); return; }
+  // 세력을 누르면 그 세력의 액션 선반이 열린다 — 40개 버튼을 한꺼번에 늘어놓지 않는다
   const rows = list.map((d) => {
     const tone = d.allied ? 'ally' : d.truce ? 'truce' : d.rel >= 60 ? 'good' : d.rel < 30 ? 'bad' : 'mid';
     const chk = (k) => E.diplomacyCheck(game, k, d.id).ok;
     const breaking = diploConfirm === d.id;
-    return `<div class="dp-row ${tone}">
-      <div class="dp-top">
+    const open = diploTarget === d.id;
+    const btns = open ? `<div class="dp-btns">
+        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="giftGold" ${chk('giftGold') ? '' : 'disabled'}>증정 금 300<small>우호 +15~25</small></button>
+        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="giftFood" ${chk('giftFood') ? '' : 'disabled'}>증정 식량 1,200<small>우호 +12~22</small></button>
+        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="alliance" ${chk('alliance') ? '' : 'disabled'}>동맹 500<small>서로 칠 수 없음</small></button>
+        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="truce" ${chk('truce') ? '' : 'disabled'}>정전 400<small>기간 중 휴전</small></button>
+        <button class="dp-btn advise" data-act="diplo-act" data-fid="${d.id}" data-kind="surrender" ${chk('surrender') && d.surrender > 0 ? '' : 'disabled'}>권고 ${d.surrender}%<small>성째 거둔다</small></button>
+        ${d.allied ? `<button class="dp-btn danger ${breaking ? 'on' : ''}" data-act="diplo-act" data-fid="${d.id}" data-kind="break">${breaking ? '파기 확정' : '동맹 파기'}<small>${breaking ? '한 번 더 누르면 파기' : '우호도 큰 폭 하락'}</small></button>` : ''}
+      </div>` : '';
+    return `<div class="dp-row ${tone} ${open ? 'open' : ''}">
+      <button class="dp-top" data-act="diplo-open" data-fid="${d.id}" aria-expanded="${open}">
         <img src="${portraitURL(d.lordId, gd(d.lordId), 44, d.color)}" alt="${d.lordName}" />
         <div class="dp-main">
           <div class="dp-name">${d.name}군 <small>${d.lordName}</small></div>
           <div class="dp-meta">성 ${d.cities} · 병력 ${fmt(d.troops)} · 명성 ${d.fame}</div>
         </div>
         <div class="dp-rel"><b>${d.label}</b><span>우호 ${d.rel}</span>${d.allied ? `<em>동맹 ${d.allyMonths}개월</em>` : d.truce ? `<em>정전 ${d.truceMonths}개월</em>` : ''}</div>
-      </div>
-      <div class="dp-btns">
-        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="giftGold" ${chk('giftGold') ? '' : 'disabled'}>증정 금 300</button>
-        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="giftFood" ${chk('giftFood') ? '' : 'disabled'}>증정 식량 1,200</button>
-        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="alliance" ${chk('alliance') ? '' : 'disabled'}>동맹 500</button>
-        <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="truce" ${chk('truce') ? '' : 'disabled'}>정전 400</button>
-        <button class="dp-btn advise" data-act="diplo-act" data-fid="${d.id}" data-kind="surrender" ${chk('surrender') && d.surrender > 0 ? '' : 'disabled'}>권고 ${d.surrender}%</button>
-        ${d.allied ? `<button class="dp-btn danger ${breaking ? 'on' : ''}" data-act="diplo-act" data-fid="${d.id}" data-kind="break">${breaking ? '파기 확정' : '동맹 파기'}</button>` : ''}
-      </div>
+        <span class="dp-chev">${open ? '▴' : '▾'}</span>
+      </button>
+      ${btns}
     </div>`;
   }).join('');
-  openSheet('외교', head + rows);
+  openSheet('외교', head + `<p class="dp-hint">세력을 눌러 증정·동맹·정전·권고를 고르세요.</p>` + rows);
 }
 
 function doDiplomacy(kind, fid) {
@@ -3059,7 +3121,7 @@ function renderPlotSheet() {
     ${foes.length > 1 ? `<div class="chip-row">${foes.map((n) => `<button class="pick-chip ${n === d.toCityId ? 'on' : ''}" data-act="plot-to" data-city="${n}">${CITY_BY_ID[n].ko}</button>`).join('')}</div>` : ''}
     ${intel}
     <div class="chip-row">${kinds}</div>
-    <p class="note">${E.PLOTS[d.kind].desc} 이 성의 금 ${fmt(gold)} · 행동력 1을 씃니다.</p>
+    <p class="note">${E.PLOTS[d.kind].desc} 이 성의 금 ${fmt(gold)} · 행동력 1을 씁니다.</p>
     ${srcs.length > 1 ? `<div class="chip-row">${srcs.map((s) => `<button class="pick-chip ${s === d.fromCityId ? 'on' : ''}" data-act="plot-from" data-city="${s}">${CITY_BY_ID[s].ko}</button>`).join('')}</div>` : ''}
     <p class="note" style="margin-top:8px">파견 장수 — 지력이 높을수록 성공률이 오릅니다. 예상 성공률 <b>${chance}%</b></p>
     ${rows}
@@ -3650,6 +3712,7 @@ function beginLegionBattle(setup, playerSide) {
   clearTimeout(retreatConfirmT);
   show('scr-battle');
   setTimeout(resizeBattleCanvas, 20);
+  battleSel = firstReadyUnit();
   renderBattle();
   sfx.battle();
   toast(ctx.kind === 'invasion'
@@ -4018,7 +4081,7 @@ function openPromotionSheet() {
   const f = game.factions[game.playerId];
   const nx = E.nextOffice(game, game.playerId);
   $('#res-ap').textContent = `${game.actionPoints}/${game.maxActionPoints}`;
-  $('#turn-hint').textContent = `명령 ${game.actionPoints}`;
+  $('#turn-hint').textContent = `행동력 ${game.actionPoints}/${game.maxActionPoints}`;
   sfx.win();
   openSheet('관직 승급', `
     <div class="promo">
@@ -4479,6 +4542,14 @@ function onClick(e) {
       // 미적 둔 습격 안내가 있으면 전투·시트를 닫은 김에 띄운다(습격 창을 스스로 닫았을 때는 띄우지 않는다)
       if (closedTitle !== '국경에 적이 나타났습니다') setTimeout(showPendingInvasion, 400);
       break;
+    case 'diplo-open': {
+      const fid = el.dataset.fid;
+      diploTarget = diploTarget === fid ? null : fid;
+      diploConfirm = null;
+      sfx.click();
+      renderDiplomacySheet();
+      break;
+    }
     case 'menu': openMenu(); break;
     case 'open-load': openLoad(); break;
     case 'open-rank': openRank(); break;
@@ -4547,6 +4618,7 @@ function onClick(e) {
     case 'provoke-decline': declineProvoke(); break;
     case 'battle-event-go': doBattleEvent(el.dataset.id); break;
     case 'bt-wait': if (battleSel) { B.endUnit(battleSel); battleMode = null; renderBattle(); } break;
+    case 'bt-guide-toggle': battleGuideOpen = !battleGuideOpen; sfx.click(); renderBattle(); break;
     case 'bt-next': playerNext(); break;
     case 'bt-all': allOut(); break;
     case 'bt-retreat': retreat(); break;
