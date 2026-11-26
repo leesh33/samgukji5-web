@@ -1332,17 +1332,48 @@ function openTransportSheet(cityId) {
   const targets = E.adjacentFriends(game, cityId);
   const c = game.cities[cityId];
   const gens = E.generalsInCity(game, cityId);
+  uiState.trTarget = targets[0];
+  uiState.trGold = 0; uiState.trFood = 0; uiState.trTroops = 0;
+  const room = transportRoomTo(uiState.trTarget);
+  const maxTroops = Math.min(c.troops, room);
   openSheet(`${CITY_BY_ID[cityId].ko} 수송`,
-    `<p class="note">인접한 아군 성으로 금·식량을 보냅니다. 보낼 장수와 대상을 고르세요.</p>
+    `<p class="note">인접한 아군 성으로 금·식량·병력을 보냅니다. 금·식량만, 병력만, 또는 셋 다 함께 보낼 수 있습니다.</p>
      <div class="chip-row" id="tr-targets">${targets.map((t, i) => `<button class="pick-chip ${i === 0 ? 'on' : ''}" data-act="tr-target" data-city="${t}">${CITY_BY_ID[t].ko}</button>`).join('')}</div>
      <div class="field-row"><label>금 (보유 ${fmt(c.gold)})</label><div class="stepper"><button data-act="tr-gold-" data-city="${cityId}">－</button><input id="tr-gold" type="number" value="0" min="0" max="${c.gold}" inputmode="numeric" /><button data-act="tr-gold+" data-city="${cityId}">＋</button></div></div>
      <div class="field-row"><label>식량 (보유 ${fmt(c.food)})</label><div class="stepper"><button data-act="tr-food-" data-city="${cityId}">－</button><input id="tr-food" type="number" value="0" min="0" max="${c.food}" inputmode="numeric" /><button data-act="tr-food+" data-city="${cityId}">＋</button></div></div>
+     <div class="field-row"><label>병력 (보유 ${fmt(c.troops)})</label><div class="stepper"><button data-act="tr-troop-" data-city="${cityId}">－</button><input id="tr-troop" type="number" value="0" min="0" max="${maxTroops}" inputmode="numeric" /><button data-act="tr-troop+" data-city="${cityId}">＋</button></div></div>
+     <p class="note" id="tr-room">${transportRoomText()}</p>
      <div id="tr-officers">${gens.map((g) => officerRowHTML(g, 'do-transport')).join('')}</div>
-     <p class="note" id="tr-note">보낼 장수를 고르면 실행됩니다.</p>`);
-  uiState.trTarget = targets[0];
-  uiState.trGold = 0; uiState.trFood = 0;
+     <p class="note" id="tr-note">보낼 장수를 고르면 실행됩니다. 훈련도는 병력 수로 가중 평균해 옮겨집니다.</p>`);
 }
-const uiState = { trTarget: null, trGold: 0, trFood: 0 };
+const uiState = { trTarget: null, trGold: 0, trFood: 0, trTroops: 0 };
+
+/* 도착 성의 병력 빈자리 — 주둔 상한(성 규모·인구 30%)까지 */
+function transportRoomTo(cityId) {
+  const to = cityId ? game.cities[cityId] : null;
+  if (!to) return 0;
+  return Math.max(0, E.cityTroopsCap(game, cityId) - to.troops);
+}
+function transportRoomText() {
+  const to = uiState.trTarget ? game.cities[uiState.trTarget] : null;
+  if (!to) return '';
+  const cap = E.cityTroopsCap(game, uiState.trTarget);
+  const room = transportRoomTo(uiState.trTarget);
+  return `${CITY_BY_ID[uiState.trTarget].ko} 주둔 ${fmt(to.troops)} / 상한 ${fmt(cap)} — 보낼 수 있는 병력 ${fmt(room)}명`;
+}
+/* 도착 성을 바꾸면 병력 상한·안내를 그 성 기준으로 다시 맞춘다 */
+function syncTransportTarget() {
+  const to = game.cities[uiState.trTarget];
+  const inp = $('#tr-troop');
+  if (!inp || !to) return;
+  const maxTroops = Math.min(game.cities[sheetCityId].troops, transportRoomTo(uiState.trTarget));
+  inp.max = String(maxTroops);
+  const cur = parseInt(inp.value || '0', 10) || 0;
+  if (cur > maxTroops) inp.value = String(maxTroops);
+  uiState.trTroops = parseInt(inp.value || '0', 10) || 0;
+  const note = $('#tr-room');
+  if (note) note.textContent = transportRoomText();
+}
 
 /* ---------- 명령 실행 ---------- */
 const ANIMATED_COMMANDS = new Set(['agri', 'comm', 'order', 'water', 'draft', 'train', 'hire', 'reward']);
@@ -3148,7 +3179,7 @@ function renderSpecialSheet() {
     ${rows}
     <div class="sp-block">
       <div class="sp-block-head">보물 <span>${owned.length}/${E.TREASURES.length}종 · 장착 ${equipped}</span></div>
-      <p class="note">탐색·순찰·포로 처분·세력 멸망으로 얻습니다. 장수에게 수여하면 능력치가 오릅니다.</p>
+      <p class="note">탐색·순찰·포로 처분·세력 멸망으로 얻습니다. 장수는 종류별로 1개씩, 최대 5개까지 함께 지닐 수 있습니다.</p>
       <button class="btn big" data-act="treasures">보물 관리 ▶</button>
     </div>
     <div class="sp-block">
@@ -3188,7 +3219,7 @@ function openTreasureSheet() {
       <div class="ts-side">${status}${btns}</div>
     </div>`;
   }).join('');
-  openSheet('보물', `<p class="note">보물은 지닌 장수의 능력치를 올립니다. 우리가 손에 넣은 보물은 장수에게 수여하거나 창고로 회수할 수 있습니다.</p>${rows}`);
+  openSheet('보물', `<p class="note">보물은 지닌 장수의 능력치를 올립니다. 종류(말·무기·갑옷·서적·보물)별로 장수 1명에게 1개씩, 최대 5개까지 함께 지닐 수 있습니다. 우리가 손에 넣은 보물은 장수에게 수여하거나 창고로 회수할 수 있습니다.</p>${rows}`);
 }
 
 function openTreasurePick(tid) {
@@ -3196,17 +3227,23 @@ function openTreasurePick(tid) {
   const gens = E.factionGenerals(game, game.playerId).map((g) => ({ g, t: gd(g.id) }));
   gens.sort((a, b) => (b.t.war + b.t.lead) - (a.t.war + a.t.lead));
   const rows = gens.map(({ g, t }) => {
-    const now = E.treasureOf(game, g.id);
+    const held = E.treasuresOf(game, g.id);
+    const same = tr ? held.find((x) => x.kind === tr.kind) : null;
+    const tag = !held.length
+      ? '빈손'
+      : same
+        ? `${same.kind} ${same.ko} → 교체`
+        : `지닌 보물 ${held.map((x) => x.ko).join('·')}`;
     return `<button class="officer-row" data-act="treasure-award" data-tid="${tid}" data-gid="${g.id}">
       <img src="${portraitURL(g.id, t, 40, colorOf(g.faction))}" alt="${t.ko}" />
       <div class="or-main">
-        <div class="or-name">${t.ko} <span class="or-tag">${now ? '지닌 보물 ' + now.ko : '빈손'}</span></div>
+        <div class="or-name">${t.ko} <span class="or-tag">${tag}</span></div>
         <div class="or-stats"><span>통<b>${t.lead}</b></span><span>무<b>${t.war}</b></span><span>지<b>${t.int}</b></span><span>정<b>${t.pol}</b></span><span>매<b>${t.cha}</b></span></div>
       </div>
       <div class="or-go">수여</div>
     </button>`;
   }).join('');
-  openSheet(`${tr ? tr.ko : '보물'} 수여`, `<p class="note">${tr ? tr.desc + ' (' + E.treasureBonusText(tr) + ')' : ''} 이미 다른 보물을 지닌 장수에게 주면 그것은 창고로 돌아갑니다.</p>${rows || '<p class="note">수여할 장수가 없습니다.</p>'}`);
+  openSheet(`${tr ? tr.ko : '보물'} 수여`, `<p class="note">${tr ? tr.desc + ' (' + E.treasureBonusText(tr) + ')' : ''} 같은 종류(${tr ? tr.kind : '말·무기·갑옷·서적·보물'})의 보물을 지닌 장수에게 주면 그 보물만 창고로 돌아가고, 다른 종류의 보물은 그대로 남습니다.</p>${rows || '<p class="note">수여할 장수가 없습니다.</p>'}`);
 }
 
 function doTreasureAward(tid, gid) {
@@ -3322,15 +3359,19 @@ function infoTabHTML() {
     const freeN = pool.filter((g) => !g.faction).length;
     const count = `<p class="note ig-count">전체 장수 <b>${pool.length}</b>명 — 아군 ${mine} · 재야 ${freeN} · 그 외 ${pool.length - mine - freeN}</p>`;
     const list = all.slice(0, 60);
-    const rows = list.map((g) => `
-      <div class="info-gen">
+    const rows = list.map((g) => {
+      const trNames = g.treasure ? g.treasure.split('·') : [];
+      const trTag = trNames.length > 1 ? `${trNames[0]} +${trNames.length - 1}` : trNames[0];
+      return `
+      <button class="info-gen" data-act="gen-detail" data-gid="${g.gid}">
         <img src="${portraitURL(g.gid, gd(g.gid), 34, g.faction ? colorOf(g.faction) : '#6b6b6b')}" alt="${g.ko}" />
         <div class="ig-main">
-          <div class="ig-name">${g.ko}${g.isAdvisor ? ' <i class="mv-lord">참모</i>' : ''}${g.treasure ? ` <i class="ig-tr">${g.treasure}</i>` : ''}<em>${infoScope === 'all' ? g.factionName + ' · ' + g.city : g.city}</em></div>
+          <div class="ig-name">${g.ko}${g.isAdvisor ? ' <i class="mv-lord">참모</i>' : ''}${trTag ? ` <i class="ig-tr">${trTag}</i>` : ''}<em>${infoScope === 'all' ? g.factionName + ' · ' + g.city : g.city}</em></div>
           <div class="ig-stats"><span>통 ${g.lead}</span><span>무 ${g.war}</span><span>지 ${g.int}</span><span>정 ${g.pol}</span><span>매 ${g.cha}</span>${infoScope === 'mine' ? `<span>충 ${g.loyalty}</span><span>친 ${g.affinity}</span>` : ''}</div>
         </div>
-      </div>`).join('');
-    return `${scope}${count}${rows || '<p class="note">장수가 없습니다.</p>'}<p class="note">보물을 지닌 장수는 능력치가 보정된 값으로 보입니다.${all.length > 60 ? ' (상위 60명만)' : ''}</p>`;
+      </button>`;
+    }).join('');
+    return `${scope}${count}${rows || '<p class="note">장수가 없습니다.</p>'}<p class="note">장수를 누르면 상세(능력치·보유 보물 전부)를 봅니다. 보물을 지닌 장수는 능력치가 보정된 값으로 보입니다. 여러 개를 지녔으면 첫 보물 이름 뒤에 +n으로 표시합니다.${all.length > 60 ? ' (상위 60명만)' : ''}</p>`;
   }
   if (infoTab === 'treasures') {
     const rows = E.infoTreasures(game).map((t) => `
@@ -3858,7 +3899,7 @@ function openGeneralDetail(gid) {
   const fac = rec.faction ? game.factions[rec.faction] : null;
   const city = rec.city ? CITY_BY_ID[rec.city] : null;
   const aff = E.affinityOf(game, gid);
-  const tr = E.treasureOf(game, gid);
+  const trList = E.treasuresOf(game, gid);
   // 전수로 익힌 진형과 진행 중인 숙련도
   const learned = E.learnedFormationsOf(game, gid);
   const learning = Object.entries((game.formationMastery || {})[gid] || {})
@@ -3906,7 +3947,7 @@ function openGeneralDetail(gid) {
       <div class="gd-row"><span>최대 지휘</span><b>${fmt(rk.cap)}명</b></div>
       <div class="gd-row"><span>병종</span><b>${arm}${arm !== baseArm ? ` <em>원래 ${baseArm}</em>` : ''}</b></div>
       ${isMine ? `<div class="gd-row"><span>편성 병력</span><b>${own ? `${fmt(own)}명` : '없음'} <em>예비 ${fmt(reserve)}</em></b></div>` : ''}
-      <div class="gd-row"><span>보유 보물</span><b>${tr ? `${tr.ko} <em>${E.treasureBonusText(tr)}</em>` : '없음'}</b></div>
+      <div class="gd-row"><span>보유 보물</span><b class="gd-treasures">${trList.length ? trList.map((x) => `${x.ko} <em>${E.treasureBonusText(x)}</em>`).join('<br>') : '없음'}</b></div>
       <div class="gd-row"><span>주력 진형</span><b class="gd-forms">${formHTML || '어린'}</b></div>
     </div>
     ${canUp.ok ? `<button class="btn big promote" data-act="promote-do" data-officer="${gid}" style="margin-top:10px">${rk.next.ko}로 임명</button>` : ''}
@@ -4359,9 +4400,10 @@ function onClick(e) {
     case 'tr-target': {
       uiState.trTarget = el.dataset.city;
       $$('#tr-targets .pick-chip').forEach((b) => b.classList.toggle('on', b.dataset.city === el.dataset.city));
+      syncTransportTarget();
       break;
     }
-    case 'tr-gold+': case 'tr-gold-': case 'tr-food+': case 'tr-food-': adjustTransport(act); break;
+    case 'tr-gold+': case 'tr-gold-': case 'tr-food+': case 'tr-food-': case 'tr-troop+': case 'tr-troop-': adjustTransport(act); break;
     case 'do-transport': doTransport(el.dataset.officer); break;
     case 'march': pendingSetup = null; cityCmdGroup = null; syncCmdPopover(); openMarchSheet(el.dataset.city); break;
     /* 부대 편성 */
@@ -4518,23 +4560,31 @@ function onClick(e) {
 }
 
 function adjustTransport(act) {
-  const goldInp = $('#tr-gold'), foodInp = $('#tr-food');
+  const goldInp = $('#tr-gold'), foodInp = $('#tr-food'), troopInp = $('#tr-troop');
   const cityId = sheetCityId;
   if (act === 'tr-gold+') uiState.trGold = Math.min(game.cities[cityId].gold, uiState.trGold + 500);
   if (act === 'tr-gold-') uiState.trGold = Math.max(0, uiState.trGold - 500);
   if (act === 'tr-food+') uiState.trFood = Math.min(game.cities[cityId].food, uiState.trFood + 1000);
   if (act === 'tr-food-') uiState.trFood = Math.max(0, uiState.trFood - 1000);
+  if (act === 'tr-troop+' || act === 'tr-troop-') {
+    const maxTroops = parseInt(troopInp?.max || '0', 10) || 0;
+    uiState.trTroops = act === 'tr-troop+'
+      ? Math.min(maxTroops, uiState.trTroops + 500)
+      : Math.max(0, uiState.trTroops - 500);
+  }
   if (goldInp) goldInp.value = uiState.trGold;
   if (foodInp) foodInp.value = uiState.trFood;
+  if (troopInp) troopInp.value = uiState.trTroops;
 }
 
 function doTransport(officerId) {
   const cityId = sheetCityId;
   const gold = parseInt($('#tr-gold')?.value || '0', 10) || 0;
   const food = parseInt($('#tr-food')?.value || '0', 10) || 0;
-  const res = E.runCommand(game, 'transport', { cityId, officerId, targetCityId: uiState.trTarget, gold, food });
+  const troops = parseInt($('#tr-troop')?.value || '0', 10) || 0;
+  const res = E.runCommand(game, 'transport', { cityId, officerId, targetCityId: uiState.trTarget, gold, food, troops });
   closeSheet();
-  if (res.ok) { sfx.ok(); toast(res.msg); } else { sfx.fail(); toast(res.msg); }
+  if (res.ok) { sfx.ok(); toast(res.msg, 3000); } else { sfx.fail(); toast(res.msg, 2800); }
   renderGame(); autoSave();
 }
 

@@ -228,12 +228,22 @@ test('보물: 수여·회수로 장수 능력치가 오르고 내린다', () => 
   assert.equal(E.effectiveGeneral(s, 'xiahou_dun').war, dunBase.war + TREASURE_BY_ID.uicheon.bonus.war);
   assert.match(aw.msg, /수여/);
 
-  // 다른 보물을 주면 앞의 보물은 창고로 돌아간다
+  // 다른 종류의 보물을 주면 앞의 보물과 함께 지닌다(종류별 1개씩)
   s.treasures.owned.push('okse');
   const aw2 = E.awardTreasure(s, 'okse', 'xiahou_dun');
   assert.ok(aw2.ok, aw2.msg);
-  assert.equal(E.treasureOf(s, 'xiahou_dun').id, 'okse');
-  assert.equal(E.treasureHolder(s, 'uicheon'), null, '앞 보물은 창고로');
+  assert.deepEqual(E.treasuresOf(s, 'xiahou_dun').map((x) => x.id).sort(), ['okse', 'uicheon']);
+  assert.equal(E.treasureHolder(s, 'uicheon'), 'xiahou_dun', '다른 종류는 그대로');
+  assert.equal(E.effectiveGeneral(s, 'xiahou_dun').war,
+    dunBase.war + TREASURE_BY_ID.uicheon.bonus.war + (TREASURE_BY_ID.okse.bonus.war || 0));
+
+  // 같은 종류의 보물을 주면 앞의 그 보물만 창고로 돌아간다
+  delete s.treasures.where.chilseong;
+  s.treasures.owned.push('chilseong');
+  const aw3 = E.awardTreasure(s, 'chilseong', 'xiahou_dun');
+  assert.ok(aw3.ok, aw3.msg);
+  assert.deepEqual(E.treasuresOf(s, 'xiahou_dun').map((x) => x.id).sort(), ['chilseong', 'okse']);
+  assert.equal(E.treasureHolder(s, 'uicheon'), null, '같은 종류(무기) 의천검은 창고로');
   assert.ok(s.treasures.owned.includes('uicheon'));
 
   // 아군 장수에게만 수여한다

@@ -757,25 +757,34 @@ export function treasureHolder(state, tid) {
   const t = ensureTreasures(state);
   return t.where[tid] || null;
 }
-/* 이 장수가 지닌 보물 */
-export function treasureOf(state, gid) {
+/* 이 장수가 지닌 보물 전부 — 종류(말·무기·갑옷·서적·보물)별로 1개씩, 최대 5개 */
+export function treasuresOf(state, gid) {
   const t = ensureTreasures(state);
-  const tid = Object.keys(t.where).find((k) => t.where[k] === gid);
-  return tid ? TREASURE_BY_ID[tid] : null;
+  return TREASURES.filter((tr) => t.where[tr.id] === gid);
 }
+/* 이 장수가 지닌 보물 가운데 첫 하나 — 한 개만 보여 주면 되는 곳에서 쓴다 */
+export function treasureOf(state, gid) {
+  return treasuresOf(state, gid)[0] || null;
+}
+/* 지닌 보물 모든 종류의 능력치 보너스를 합산한다 (충성 보너스는 loyal 로 따로 합산) */
 export function treasureBonusOf(state, gid) {
-  const tr = treasureOf(state, gid);
-  return tr ? { ...tr.bonus } : {};
+  const total = {};
+  for (const tr of treasuresOf(state, gid)) {
+    for (const k of STAT_KEYS) if (tr.bonus && tr.bonus[k]) total[k] = (total[k] || 0) + tr.bonus[k];
+    if (tr.loyal) total.loyal = (total.loyal || 0) + tr.loyal;
+  }
+  return total;
 }
 /* 보물을 반영한 장수 능력치 — 전투·내정 표시가 모두 이 값을 쓴다 */
 export function effectiveGeneral(state, gid) {
   const g = generalOf(state, gid);
   if (!g) return null;
   const b = treasureBonusOf(state, gid);
-  const tr = treasureOf(state, gid);
+  const held = treasuresOf(state, gid);
   const out = { ...g };
   for (const k of STAT_KEYS) out[k] = clamp((g[k] || 0) + (b[k] || 0), 1, 200);
-  out.treasure = tr ? tr.ko : null;
+  out.treasure = held.length ? held.map((tr) => tr.ko).join('·') : null;
+  out.treasures = held.map((tr) => tr.id);
   return out;
 }
 export function effectiveGeneralMap(state) {
@@ -823,7 +832,8 @@ export function findTreasure(state, cityId, chance = 0.18, rng = null) {
   const res = gainTreasure(state, tr.id, { holder: null });
   return res.ok ? { ...res, cityId } : null;
 }
-/* 보유 보물을 아군 장수에게 수여(장착) — 그 장수가 이미 다른 보물을 지녔으면 그것은 창고로 돌아간다 */
+/* 보유 보물을 아군 장수에게 수여(장착) — 종류별로 1개씩 지닐 수 있고,
+   같은 종류를 이미 지녔을 때만 그 보물이 창고로 돌아간다(다른 종류는 그대로) */
 export function awardTreasure(state, tid, gid) {
   const tr = TREASURE_BY_ID[tid];
   const t = ensureTreasures(state);
@@ -834,15 +844,16 @@ export function awardTreasure(state, tid, gid) {
   if (g.faction !== state.playerId) return { ok: false, msg: '아군 장수에게만 수여할 수 있습니다.' };
   const holder = t.where[tid];
   if (holder === gid) return { ok: false, msg: '이미 그 장수가 지니고 있습니다.' };
-  const prev = treasureOf(state, gid);
-  if (prev) delete t.where[prev.id];
+  // 같은 종류의 보물만 창고로 돌려보낸다
+  const same = treasuresOf(state, gid).filter((x) => x.kind === tr.kind);
+  for (const p of same) delete t.where[p.id];
   t.where[tid] = gid;
   if (tr.loyal) g.loyalty = clamp((g.loyalty || 0) + tr.loyal, 0, 100);
   const t2 = generalOf(state, gid);
-  const back = prev ? ` (${prev.ko}은(는) 창고로 돌아갔습니다)` : '';
+  const back = same.length ? ` (${same.map((p) => p.ko).join('·')}${withJosa(same[0].ko, '은')} 창고로 돌아갔습니다)` : '';
   const msg = `${withJosa(t2.ko, '에게')} ${withJosa(tr.ko, '을')} 수여했습니다. (${treasureBonusText(tr)})${back}`;
   log(state, msg);
-  return { ok: true, msg, treasure: tr, holder: gid };
+  return { ok: true, msg, treasure: tr, holder: gid, replaced: same.map((p) => p.id) };
 }
 /* 보물을 회수해 창고에 둔다 */
 export function revokeTreasure(state, tid) {
@@ -864,11 +875,17 @@ function dropTreasuresOf(state, gid) {
 }
 /* 이길 때 적 장수의 보물을 거둔다 — 처분하면 우리 것이 된다 */
 export function takeTreasuresOf(state, gid, reason = '') {
-  const tr = treasureOf(state, gid);
-  if (!tr) return null;
-  const res = gainTreasure(state, tr.id, { holder: null });
-  log(state, `${withJosa(tr.ko, '을')} 거두었습니다.${reason ? ' (' + reason + ')' : ''} — 특수에서 수여할 수 있습니다.`);
-  return res;
+  const held = treasuresOf(state, gid);
+  if (!held.length) return null;
+  const got = [];
+  for (const tr of held) {
+    const res = gainTreasure(state, tr.id, { holder: null });
+    if (res.ok) got.push(res);
+  }
+  if (!got.length) return null;
+  log(state, `${got.map((r) => withJosa(r.treasure.ko, '을')).join('·')} 거두었습니다.${reason ? ' (' + reason + ')' : ''} — 특수에서 수여할 수 있습니다.`);
+  const first = got[0];
+  return { ...first, treasures: got.map((r) => r.treasure), treasure: got.length > 1 ? got[got.length - 1].treasure : first.treasure };
 }
 
 /* ---------- 참모 ---------- */
@@ -2535,7 +2552,7 @@ export const COMMANDS = {
   search: { ko: '탐색', stat: 'int', desc: '인재와 물자를 찾는다.' },
   hire: { ko: '등용', stat: 'cha', desc: '재야 장수를 불러들인다.' },
   reward: { ko: '포상', stat: 'cha', desc: '금을 써서 장수 충성도를 올린다.' },
-  transport: { ko: '수송', stat: 'pol', desc: '인접한 아군 성으로 금·식량을 보낸다.' },
+  transport: { ko: '수송', stat: 'pol', desc: '인접한 아군 성으로 금·식량·병력을 보낸다.' },
 };
 
 export function commandCost(type) {
@@ -2651,7 +2668,7 @@ export function canCommand(state, type, cityId, officerId) {
   return { ok: true };
 }
 
-/* 명령 실행. opts: {cityId, officerId, targetCityId, gold, food, hireId, rewardId} */
+/* 명령 실행. opts: {cityId, officerId, targetCityId, gold, food, troops, hireId, rewardId} */
 export function runCommand(state, type, opts) {
   const check = canCommand(state, type, opts.cityId, opts.officerId);
   if (!check.ok) return { ok: false, msg: check.why };
@@ -2800,12 +2817,30 @@ export function runCommand(state, type, opts) {
     case 'transport': {
       const to = opts.targetCityId;
       if (!to || !adjacentFriends(state, c.id).includes(to)) return { ok: false, msg: '수송할 인접 아군 성을 고르세요.' };
-      const gold = Math.max(0, Math.min(opts.gold || 0, c.gold));
-      const food = Math.max(0, Math.min(opts.food || 0, c.food));
-      if (gold + food <= 0) return { ok: false, msg: '보낼 물자가 없습니다.' };
+      const dest = state.cities[to];
+      const gold = Math.max(0, Math.min(Math.floor(opts.gold || 0), c.gold));
+      const food = Math.max(0, Math.min(Math.floor(opts.food || 0), c.food));
+      // 병력은 출발 성 보유분까지만, 도착 성 주둔 상한의 빈자리까지만 들어간다
+      const room = Math.max(0, cityTroopsCap(state, to) - dest.troops);
+      const wantTroops = Math.max(0, Math.floor(opts.troops || 0));
+      const troops = Math.min(wantTroops, c.troops, room);
+      if (wantTroops > 0 && troops <= 0) return { ok: false, msg: troopCapWhy(state, to) };
+      if (gold + food + troops <= 0) return { ok: false, msg: '보낼 물자나 병력이 없습니다.' };
       c.gold -= gold; c.food -= food;
-      state.cities[to].gold += gold; state.cities[to].food += food;
-      msg = `${cityName(c.id)}에서 ${cityName(to)}(으)로 금 ${gold}, 식량 ${food}을 보냈습니다.`;
+      dest.gold += gold; dest.food += food;
+      if (troops > 0) {
+        // 훈련도는 옮기는 병력 수로 가중 평균한다 — 정예가 오면 성 훈련도가 오른다
+        const before = dest.troops;
+        dest.train = clamp(Math.round((dest.train * before + c.train * troops) / (before + troops)), 10, 100);
+        dest.troops = before + troops;
+        c.troops -= troops;
+      }
+      const parts = [];
+      if (gold) parts.push(`금 ${fmtOr(gold)}`);
+      if (food) parts.push(`식량 ${fmtOr(food)}`);
+      if (troops) parts.push(`병력 ${fmtOr(troops)}명`);
+      msg = `${cityName(c.id)}에서 ${withJosa(cityName(to), '로')} ${parts.join(', ')}을 보냈습니다.`;
+      if (troops < wantTroops) msg += ` (도착 성 주둔 상한까지만 — ${fmtOr(troops)}명 수송)`;
       break;
     }
     default:
@@ -3727,7 +3762,7 @@ export function recruitPrisoner(state, gid, rng = Math.random) {
     return { ok: true, accepted: false, chance, aff: affinityOf(state, gid), msg: `${t.ko}: "두 임금을 섬길 수 없습니다." — 등용에 응하지 않았습니다.` };
   }
   const lord = lordOf(state, state.playerId);
-  const held = treasureOf(state, gid);
+  const held = treasuresOf(state, gid);
   g.captive = false;
   g.dead = false;
   // 포로를 잡아 둔 성이 자리가 차 있으면 자리가 남은 성으로 보낸다
@@ -3735,7 +3770,8 @@ export function recruitPrisoner(state, gid, rng = Math.random) {
   g.loyalty = clamp(46 + Math.round((lord ? lord.cha : 60) / 6) - (rec.isLord ? 12 : 0), 30, 88);
   const aff = bumpAffinity(state, gid, 12);
   state.stats.recruited++;
-  if (held) gainTreasure(state, held.id, { holder: gid });
+  // 그가 지닌 보물은 종류를 가리지 않고 모두 그대로 따라온다
+  for (const tr of held) gainTreasure(state, tr.id, { holder: gid });
   dropPrisoner(state, gid);
   // 적 군주를 불러들였다면 그 세력에는 차기 군주가 필요하다
   if (rec.faction) ensureLord(state, rec.faction);
@@ -3813,10 +3849,10 @@ export function checkFactionDeath(state, fid, victorFid = null) {
       const took = [];
       for (const g of Object.values(state.generals)) {
         if (g.dead || g.faction !== fid) continue;
-        const tr = treasureOf(state, g.id);
-        if (!tr) continue;
-        gainTreasure(state, tr.id, { holder: null });
-        took.push(tr.ko);
+        for (const tr of treasuresOf(state, g.id)) {
+          gainTreasure(state, tr.id, { holder: null });
+          took.push(tr.ko);
+        }
       }
       if (took.length) log(state, `${f.name} 세력이 무너지며 ${took.join('·')}을(를) 거두었습니다.`);
     }
