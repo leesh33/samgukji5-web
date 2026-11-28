@@ -875,7 +875,7 @@ const CITY_CMD_GROUPS = [
     ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'], ['trade', '교역'], ['transport', '수송'],
   ] },
   { id: 'people', ko: '인사', hint: '등용·이동', subs: [
-    ['search', '탐색'], ['focus', '집중 탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['promote', '장군 임명'], ['advisor', '참모'],
+    ['search', '탐색'], ['focus', '집중 탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['promote', '품관 임명'], ['advisor', '참모'],
   ] },
   { id: 'army', ko: '군사', hint: '징병·출진', subs: [
     ['draft', '징병', '2령'], ['train', '훈련'], ['learn', '진형전수'], ['reorg', '부대 편성'], ['march', '출진'],
@@ -1865,7 +1865,7 @@ function marchSheetHTML() {
     <p class="note">부대 편성대로 출진합니다 — 편성하지 않은 병력(예비병 ${fmt(Math.max(0, c.troops - plan.total))})은 성에 남습니다. 병력을 다시 나누려면 <b>군사 › 부대 편성</b>.</p>`
     : `<div class="field-row"><label>출진 병력 ${fmt(going)} / ${fmt(c.troops)}</label>
       <div class="stepper"><button data-act="march-ratio-" >－</button><input id="march-ratio" type="number" value="${Math.round(p.ratio * 100)}" min="20" max="100" />%<button data-act="march-ratio+">＋</button></div></div>
-    ${ask > capSum ? `<p class="note warn">장군 지휘 상한 ${fmt(capSum)}명 — 상한을 넘는 병력은 성에 남습니다. 직위를 올리면 더 많이 데려갈 수 있습니다.</p>` : ''}`;
+    ${ask > capSum ? `<p class="note warn">장군 지휘 상한 ${fmt(capSum)}명 — 상한을 넘는 병력은 성에 남습니다. 품관을 올리면 더 많이 데려갈 수 있습니다.</p>` : ''}`;
   return `
     <div class="field-row"><label>공격 대상</label><div class="chip-row" style="margin:0">
       ${enemies.map((e) => `<button class="pick-chip ${e === p.targetId ? 'on' : ''}" data-act="march-target" data-city="${e}">${CITY_BY_ID[e].ko}</button>`).join('')}
@@ -2374,7 +2374,8 @@ function unitCardHTML(u, selected) {
   const t = gd(u.gid);
   const isPlayer = u.side === battle.playerSide;
   const arm = B.armOf(u);
-  return `<button class="pick-chip bt-card arm-${arm} ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" title="${arm} · ${B.armTraitText(arm)}">
+  const rk = u.gid && game && game.generals && game.generals[u.gid] ? E.rankInfoOf(game, u.gid) : null;
+  return `<button class="pick-chip bt-card arm-${arm} ${selected ? 'on' : ''} ${u.acted ? 'done' : ''}" data-act="bt-select" data-unit="${u.id}" title="${arm} · ${B.armTraitText(arm)}${rk ? ` · ${rk.ko}` : ''}">
     ${formationSVG(u.formation, u.dir || 'E', 18, isPlayer ? {} : { body: '#f0b3a3', shade: '#3c1310' })}
     <span class="bc-main">
       <span class="bc-name">${u.name}${u.confused > 0 ? ' <i class="bu-chaos">혼란</i>' : ''}</span>
@@ -2391,12 +2392,14 @@ function unitInfoHTML(u) {
   const rel = formationCounterText(u.formation);
   const dirKo = DIR_KO[u.dir || 'E'] || '동';
   const arm = B.armOf(u);
+  const rk = u.gid && game && game.generals && game.generals[u.gid] ? E.rankInfoOf(game, u.gid) : null;
   return `<div class="bt-unitinfo">
     ${formationSVG(u.formation, u.dir || 'E', 34)}
     <div class="bu-main">
       <div class="bu-name"><b>${u.name}</b> <span>${fmt(u.troops)} · 사기 ${Math.round(u.morale)}</span>${u.acted ? ' <i class="bu-done">행동 완료</i>' : ''}${u.confused > 0 ? ' <i class="bu-chaos">혼란</i>' : ''}</div>
       <div class="bu-form">${f.ko} <em class="fg-${grp ? grp.id : 'none'}">${grp ? grp.ko + '진' : ''}</em> · 사거리 ${B.attackRange(u)} · ${dirKo}쪽을 바라봄</div>
       <div class="bu-arm"><b class="arm-${arm}">${arm}</b> ${B.armTraitText(arm)}</div>
+      ${rk ? `<div class="bu-rank">품관 <b>${rk.ko}</b> · 지휘 상한 ${fmt(rk.cap)}</div>` : ''}
       <div class="bu-ct">${rel}</div>
     </div>
   </div>`;
@@ -2689,7 +2692,7 @@ function finishBattle() {
     </div>
     <p class="note">${summary} · ${res.rounds}라운드${prisoners ? '<br>사로잡은 장수: <b style="color:#f5d97a">' + prisoners + '</b> — 처분을 기다립니다' : ''}</p>
     ${win && res.winner === 'attacker' ? `<p class="note">${E.withJosa(CITY_BY_ID[battle.toCityId].ko, '이')} 우리 것이 되었습니다.</p>` : ''}
-    ${win && applied.merit ? `<p class="note" style="color:#c0d8a8">승전 공적 — 나선 장수들이 합쳐 <b>+${fmt(applied.merit)}</b>을 쌓았습니다. 인사 → 장군 임명에서 확인하세요.</p>` : ''}
+    ${win && applied.merit ? `<p class="note" style="color:#c0d8a8">승전 공적 — 나선 장수들이 합쳐 <b>+${fmt(applied.merit)}</b>을 쌓았습니다. 인사 → 품관 임명에서 확인하세요.</p>` : ''}
     <button class="btn big" data-act="bt-close" style="margin-top:12px">${prisoners ? '포로 처분으로 ▶' : '계속'}</button>
   `);
 }
@@ -4109,22 +4112,23 @@ function openGeneralDetail(gid) {
     <div class="gd-rows">
       <div class="gd-row"><span>충성</span><b>${rec.faction === game.playerId ? rec.loyalty : '-'}</b></div>
       <div class="gd-row"><span>친밀</span><b>${aff} <em>${E.affinityLabel(aff)}</em></b></div>
-      <div class="gd-row"><span>직위</span><b>${rk.ko} <em>전투 보정 +${Math.round(rk.bonus * 100)}%</em></b></div>
-      <div class="gd-row"><span>공적</span><b>${rk.merit}${rk.next ? ` / ${rk.next.merit}` : ' <em>최고 직위</em>'}</b></div>
-      <div class="gd-merit"><div class="merit-bar"><i style="width:${Math.round(rk.progress * 100)}%"></i></div><em>${rk.next ? `다음 ${rk.next.ko}까지 ${rk.toNext}` : '대장군'}</em></div>
+      <div class="gd-row"><span>품관</span><b>${rk.ko}${!rk.isLord && !rk.hasTitle ? ' <span class="gd-notitle">장군 직위 없음</span>' : ''} <em>전투 보정 +${Math.round(rk.bonus * 100)}%</em></b></div>
+      <div class="gd-row"><span>공적</span><b>${rk.merit}${rk.next ? ` / ${rk.next.merit}` : ' <em>최고 품관</em>'}</b></div>
+      <div class="gd-merit"><div class="merit-bar"><i style="width:${Math.round(rk.progress * 100)}%"></i></div><em>${rk.next ? `다음 ${rk.next.ko}까지 ${rk.toNext}` : '1품관 · 대장군'}</em></div>
+      ${!rk.isLord && !rk.hasTitle && isMine ? `<p class="note">9품관은 장군 직위가 없습니다 — 공적 ${rk.next ? rk.next.merit : 80}을 쌓아 <b>8품관 · 비장군</b>으로 임명되면 첫 장군 직위를 얻습니다.</p>` : ''}
       <div class="gd-row"><span>최대 지휘</span><b>${fmt(rk.cap)}명</b></div>
       <div class="gd-row"><span>병종</span><b>${arm}${arm !== baseArm ? ` <em>원래 ${baseArm}</em>` : ''}</b></div>
       ${isMine ? `<div class="gd-row"><span>편성 병력</span><b>${own ? `${fmt(own)}명` : '없음'} <em>예비 ${fmt(reserve)}</em></b></div>` : ''}
       <div class="gd-row"><span>보유 보물</span><b class="gd-treasures">${trList.length ? trList.map((x) => `${x.ko} <em>${E.treasureBonusText(x)}</em>`).join('<br>') : '없음'}</b></div>
       <div class="gd-row"><span>주력 진형</span><b class="gd-forms">${formHTML || '어린'}</b></div>
     </div>
-    ${canUp.ok ? `<button class="btn big promote" data-act="promote-do" data-officer="${gid}" style="margin-top:10px">${rk.next.ko}로 임명</button>` : ''}
+    ${canUp.ok ? `<button class="btn big promote" data-act="promote-do" data-officer="${gid}" style="margin-top:10px">${E.withJosa(rk.next.ko, '로')} 임명</button>` : ''}
     <button class="btn big ghost" data-act="sheet-close" style="margin-top:6px">닫기</button>
   `);
   sfx.select();
 }
 
-/* ---------- 장군 임명 (공적 → 직위) ---------- */
+/* ---------- 품관 임명 (공적 → 9품관~1품관) ---------- */
 function openPromoteSheet() {
   const fid = game.playerId;
   const lordId = game.factions[fid].lord;
@@ -4146,15 +4150,15 @@ function openPromoteSheet() {
           <em>공적 ${rk.merit}</em>
         </div>
         <div class="or-stats"><span>최대 지휘 <b>${fmt(rk.cap)}</b></span><span>전투 <b>+${Math.round(rk.bonus * 100)}%</b></span><span>충성 <b>${g.loyalty}</b></span></div>
-        <div class="pm-next">${next ? `다음 ${next.ko} — 공적 ${next.merit} · 지휘 ${fmt(next.cap)} · 전투 +${Math.round(next.bonus * 100)}%${rk.toNext ? ` · <i>${rk.toNext} 남음</i>` : ' · <i class="ok">지금 임명 가능</i>'}` : '대장군 — 더 오를 직위가 없습니다.'}</div>
+        <div class="pm-next">${next ? `다음 ${next.ko} — 공적 ${next.merit} · 지휘 ${fmt(next.cap)} · 전투 +${Math.round(next.bonus * 100)}%${rk.toNext ? ` · <i>${rk.toNext} 남음</i>` : ' · <i class="ok">지금 임명 가능</i>'}` : '1품관 · 대장군 — 더 오를 품관이 없습니다.'}</div>
       </div>
       <button class="pw-btn ${chk.ok ? 'rec' : 'rel'}" data-act="promote-do" data-officer="${g.id}" ${chk.ok ? '' : 'disabled'}>
         ${chk.ok ? '임명' : next ? '공적 부족' : '최고'}
       </button>
     </div>`;
   }).join('');
-  openSheet('장군 임명', `
-    <p class="note">공적을 쌓은 장수에게 직위를 내립니다. 임명하면 <b>최대 지휘 병력</b>과 <b>전투 보정</b>이 오르고 <b>충성 +5</b>. <b>행동력은 쓰지 않습니다 — 언제든 즉시</b> 임명할 수 있습니다.</p>
+  openSheet('품관 임명', `
+    <p class="note">장수는 <b>9품관</b>으로 시작해 공적을 쌓아 <b>8품관 · 비장군</b>부터 <b>1품관 · 대장군</b>까지 오릅니다. 9품관은 장군 직위가 없고, <b>8품관 비장군이 첫 장군 직위</b>입니다. 임명하면 <b>최대 지휘 병력</b>과 <b>전투 보정</b>이 오르고 <b>충성 +5</b>. <b>행동력은 쓰지 않습니다 — 언제든 즉시</b> 임명할 수 있습니다.</p>
     ${ready ? `<div class="pm-ready">지금 임명할 수 있는 장수 <b>${ready}명</b></div>` : '<div class="pm-ready dim">아직 공적이 모자랍니다 — 개발·징병·훈련·등용·전투로 공적을 쌓으세요.</div>'}
     ${rows}`);
 }
@@ -4168,7 +4172,7 @@ function doPromote(gid) {
   autoSave();
   const t = gd(gid);
   playActionFx({
-    kind: 'promote', name: t.ko, line: `${res.to}에 임명되었습니다!`,
+    kind: 'promote', name: t.ko, line: `${E.withJosa(res.to, '로')} 임명되었습니다!`,
     delta: `최대 지휘 ${fmt(res.cap)} · 충성 +${res.loyaltyGain != null ? res.loyaltyGain : E.PROMOTE_LOYALTY}`,
     merit: 0, portrait: portraitURL(gid, t, 64, colorOf(game.playerId)),
   }).then(() => { if (game) openPromoteSheet(); });
@@ -4355,7 +4359,7 @@ function openHelp() {
     <b style="color:#e6d9b3">20. 담당</b> — 성마다 직할·내정 위임·군사 위임을 정합니다. 위임한 성은 턴이 바뀔 때 행동력 없이 스스로 개발·징병·훈련을 합니다.<br>
     <b style="color:#e6d9b3">21. 전술 계략</b> — 화계·혼란·고무·치료에 수계(물가)·낙석(산기슭)이 더해집니다. 계략마다 지력·매력으로 정해지는 성공률이 표시됩니다.<br>
     <b style="color:#e6d9b3">22. 저장</b> — 매 명령마다 자동 저장되며, 슬롯 3개에 수동 저장할 수 있습니다.<br>
-    <b style="color:#e6d9b3">23. 공적·장군 임명</b> — 개발·상업·징병·훈련·등용·친교·계략·전투 승리로 장수마다 공적이 쌓입니다. 인사 → 장군 임명에서 일반→비장군→편장군→아장군→진북장군→정북장군→대장군으로 올리면 최대 지휘 병력(7,500→25,000)과 전투 보정(+3%씩)이 오르고 충성 +5. 행동력은 들지 않습니다.<br>
+    <b style="color:#e6d9b3">23. 공적·품관 임명</b> — 개발·상업·징병·훈련·등용·친교·계략·전투 승리로 장수마다 공적이 쌓입니다. 장수는 9품관(장군 직위 없음)으로 시작해 인사 → 품관 임명에서 9품관→8품관 비장군→7품관 편장군→6품관 아장군→5품관 중랑장→4품관 진북장군→3품관 정북장군→2품관 거기장군→1품관 대장군으로 오릅니다. 최대 지휘 병력(7,500→25,000)과 전투 보정(0→+18%)이 오르고 충성 +5. 행동력은 들지 않습니다.<br>
     <b style="color:#e6d9b3">24. 행동 연출</b> — 징병·훈련·개발·등용 같은 주요 명령을 실행하면 장수 초상화와 2초 도트 연출이 재생되고 저절로 닫힙니다.<br>
     <b style="color:#e6d9b3">25. 부대 편성</b> — 군사 → 부대 편성에서 성 총병력을 장수마다 나누어 맡기고(예: 하후돈 3,000 · 조인 2,000 · 나머지 예비병), 병종을 보병·기병·궁병으로 바꿉니다(금 100, 행동력 0). 병종은 서로 물고 물립니다 — <b>기병 &gt; 궁병 &gt; 보병 &gt; 기병</b>(수군은 중립). 상성에서 이기면 피해 +20%, 지면 -15%이며, 기병은 기동 +1, 궁병은 사거리 2(원거리 사격은 반격 없음), 보병은 받는 피해 -15%, 수군은 물길에서 공격·방어 +15%입니다. 균등 편성·상한 채우기·모두 해제로 한 번에 나누고, 저장한 편성 그대로 출진합니다. 성에 남긴 병력은 예비병이 되어 다음 출진·수비에 쓰입니다.
     </p>`);

@@ -1,4 +1,4 @@
-"""삼국 한 턴 — 공적·장군 임명 + 2초 행동 연출 라이브 검증 (390×844)
+"""삼국 한 턴 — 공적·품관 임명 + 2초 행동 연출 라이브 검증 (390×844)
 사용: LD_LIBRARY_PATH=... python3 samgukji5-web/tests/verify_merit_fx.py [URL] [TAG]
 """
 import json
@@ -93,12 +93,12 @@ with sync_playwright() as p:
     step("접기 버튼이 헤더 맨 오른쪽", head["toggleRight"] >= head["rowRight"] - 6 and head["afterNav"],
          f"toggleRight={head['toggleRight']} rowRight={head['rowRight']}")
 
-    # ---------- 2. 인사 팝오버에 장군 임명 ----------
+    # ---------- 2. 인사 팝오버에 품관 임명 ----------
     open_group(page, "people")
     labels = [x.split("\n")[0] for x in page.locator("#cmdp .btn").all_inner_texts()]
-    step("인사 팝오버 7개 · 장군 임명 포함", len(labels) == 7 and "장군 임명" in labels, labels)
+    step("인사 팝오버 7개 · 품관 임명 포함", len(labels) == 7 and "품관 임명" in labels, labels)
     promote_btn = page.locator('#cmdp .btn[data-act="promote-open"]')
-    step("장군 임명 항목에 공적 상태 표시", promote_btn.count() == 1,
+    step("품관 임명 항목에 공적 상태 표시", promote_btn.count() == 1,
          promote_btn.first.inner_text().replace("\n", "/"))
 
     # ---------- 3. 공적을 쌓아 임명 가능 상태로 (엔진 상태 직접 주입) ----------
@@ -117,13 +117,13 @@ with sync_playwright() as p:
     promote_btn.click(); page.wait_for_timeout(450)
     title = page.locator("#sheet-title").inner_text()
     body = page.locator("#sheet-body").inner_text()
-    step("장군 임명 시트 열림", title == "장군 임명", title)
+    step("품관 임명 시트 열림", title == "품관 임명", title)
     step("임명 안내 — 행동력 무소모·충성 +5", ("행동력은 쓰지 않습니다" in body) and ("충성 +5" in body))
     step("직위·공적·최대 지휘·다음 직위 표시",
          ("일반" in body) and ("공적 260" in body) and ("최대 지휘" in body) and ("비장군" in body))
     step("공적을 채운 장수의 임명 버튼 활성", page.locator('[data-act="promote-do"]:not([disabled])').count() >= 1)
     o = overflow(page)
-    step("가로 넘침 없음(장군 임명 시트)", len(o["bad"]) == 0, o)
+    step("가로 넘침 없음(품관 임명 시트)", len(o["bad"]) == 0, o)
     shot(page, "live-general-rank")
 
     # ---------- 4. 징병 — 2초 연출 ----------
@@ -176,7 +176,7 @@ with sync_playwright() as p:
          [x for x in detail.split("\n") if "직위" in x or "최대 지휘" in x][:2])
     page.click('.sheet-head [data-act="sheet-close"]'); page.wait_for_timeout(250)
 
-    # ---------- 6. 장군 임명 실행 — 연출 + 직위 상승 ----------
+    # ---------- 6. 품관 임명 실행 — 연출 + 품관 상승 ----------
     open_group(page, "people")
     page.locator('#cmdp .btn[data-act="promote-open"]').click(); page.wait_for_timeout(400)
     target_row = page.locator(".promo-row", has=page.locator('[data-act="promote-do"]:not([disabled])')).first
@@ -193,7 +193,7 @@ with sync_playwright() as p:
               delta: e.querySelector('.afx-deltas').textContent.replace(/\\s+/g, ' ').trim(),
               buttons: e.querySelectorAll('button').length};
     }""")
-    step("임명 연출 — 장군 임명", pfx["tag"] == "장군 임명" and "임명되었습니다" in pfx["line"], pfx)
+    step("임명 연출 — 품관 임명", pfx["tag"] == "품관 임명" and "임명되었습니다" in pfx["line"], pfx)
     step("임명 연출 — 새 지휘 상한·충성", ("최대 지휘" in pfx["delta"]) and ("충성 +5" in pfx["delta"]), pfx["delta"])
     page.wait_for_selector("#actionfx", state="detached", timeout=5000)
     page.wait_for_timeout(400)
@@ -207,7 +207,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(300)
     reopened = page.locator("#sheet-title").inner_text() if page.locator("#sheet").is_visible() else ""
     body2 = page.locator("#sheet-body").inner_text() if reopened else ""
-    step("임명 뒤 임명 시트가 새 직위로 다시 열림", reopened == "장군 임명" and "비장군" in body2, reopened)
+    step("임명 뒤 임명 시트가 새 직위로 다시 열림", reopened == "품관 임명" and "비장군" in body2, reopened)
     step("새 최대 지휘 4,000 표시", "4,000" in body2 and "공적" in body2)
     o = overflow(page)
     step("가로 넘침 없음(임명 뒤)", len(o["bad"]) == 0, o)

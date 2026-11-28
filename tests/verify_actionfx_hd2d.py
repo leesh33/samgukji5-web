@@ -20,7 +20,7 @@ os.makedirs(OUT, exist_ok=True)
 
 KINDS = ["draft", "train", "agri", "comm", "order", "water", "hire", "befriend", "reward", "learn", "plot", "promote"]
 KO = {"draft": "징병", "train": "훈련", "agri": "개발", "comm": "상업", "order": "치안", "water": "수리",
-      "hire": "등용", "befriend": "친교", "reward": "포상", "learn": "진형 전수", "plot": "계략", "promote": "장군 임명"}
+      "hire": "등용", "befriend": "친교", "reward": "포상", "learn": "진형 전수", "plot": "계략", "promote": "품관 임명"}
 
 steps, errors = [], []
 
@@ -228,7 +228,7 @@ with sync_playwright() as p:
               cw: c.width};
     }""")
     page.screenshot(path=os.path.join(OUT, "live-action-anim-hd2d-promote.png"))
-    step("장군 임명 연출도 HD-2D 배경·16:9", pf["tag"] == "장군 임명" and pf["cw"] == 720 and abs(pf["ratio"] - 16 / 9) < 0.02, pf)
+    step("장군 임명 연출도 HD-2D 배경·16:9", pf["tag"] == "품관 임명" and pf["cw"] == 720 and abs(pf["ratio"] - 16 / 9) < 0.02, pf)
     page.wait_for_selector("#actionfx", state="detached", timeout=5000)
 
     # ---------- 5. ☰ 메뉴 — 개인정보처리방침 · 이용약관 ----------

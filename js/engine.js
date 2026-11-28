@@ -2,7 +2,7 @@
 import { CITIES, CITY_BY_ID, GENERALS, GENERAL_BY_ID, SCENARIOS, FORMATIONS, FACTION_COLORS, ARMS, SKILLS, CUSTOM_COLORS, TREASURES, TREASURE_BY_ID, TREASURE_OWNERS, TREASURE_STAT_KO, CITY_SIZES, CITY_SIZE_MAX, CITY_SIZE_SEED, citySize, citySizeKo, sizeCap, statCap, ORDER_CAP, sizeDraftMul, sizeIncomeMul, sizeTroopCap, sizePopCap, popTroopCap, cityTroopCapOf, cityPopCeilOf, seedCityPop, TROOP_POP_RATIO } from './data.js';
 import { pickTalkLine, talkStyleOf } from './talk.js';
 
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 export const MAX_ARMY = 5;
 export const MAX_OFFICERS_PER_CITY = 12;
 
@@ -84,6 +84,7 @@ export function createGame(scenarioId, factionId, seed = Date.now() % 100000, op
 
   const state = {
     version: SAVE_VERSION,
+    rankSchema: RANK_SCHEMA,
     seed,
     rngState: seed,
     scenarioId,
@@ -975,21 +976,27 @@ function E_adjacentFoeCount(state) {
   return set.size;
 }
 
-/* ---------- 공적 · 장군 직위 ----------
+/* ---------- 공적 · 품관(9품관~1품관) ----------
    장수는 개발·상업·치안·수리·징병·훈련·등용·친교·계략·전투 승리로 개인 공적(merit)을 쌓는다.
-   군주가 직위를 내리면 최대 지휘 병력과 전투 보정이 오르고, 임명받은 장수는 충성이 오른다.
-   군주는 따로 임명받지 않고 '군주' 직위로 10,000명을 지휘한다. */
+   군주가 품관을 내리면 최대 지휘 병력과 전투 보정이 오르고, 임명받은 장수는 충성이 오른다.
+   9품관은 장군 직위가 없고, 8품관 비장군이 첫 장군 직위다. 1품관 대장군이 맨 위다.
+   군주는 따로 임명받지 않고 '군주' 자리로 25,000명을 지휘한다. */
+export const RANK_SCHEMA = 1;   // 1 = 9품관 체계. 이 값이 없는 옛 저장(7단계)은 열 때 옮긴다
 export const RANKS = [
-  { ko: '일반', merit: 0, cap: 7500, bonus: 0 },
-  { ko: '비장군', merit: 80, cap: 10000, bonus: 0.03 },
-  { ko: '편장군', merit: 200, cap: 12500, bonus: 0.06 },
-  { ko: '아장군', merit: 400, cap: 16000, bonus: 0.09 },
-  { ko: '진북장군', merit: 700, cap: 20000, bonus: 0.12 },
-  { ko: '정북장군', merit: 1100, cap: 22500, bonus: 0.15 },
-  { ko: '대장군', merit: 1600, cap: 25000, bonus: 0.18 },
+  { grade: '9품관', title: '', ko: '9품관', legacy: '일반', merit: 0, cap: 7500, bonus: 0 },
+  { grade: '8품관', title: '비장군', ko: '8품관 · 비장군', merit: 80, cap: 10000, bonus: 0.02 },
+  { grade: '7품관', title: '편장군', ko: '7품관 · 편장군', merit: 200, cap: 12500, bonus: 0.04 },
+  { grade: '6품관', title: '아장군', ko: '6품관 · 아장군', merit: 400, cap: 16000, bonus: 0.06 },
+  { grade: '5품관', title: '중랑장', ko: '5품관 · 중랑장', merit: 550, cap: 18000, bonus: 0.08 },
+  { grade: '4품관', title: '진북장군', ko: '4품관 · 진북장군', merit: 700, cap: 20000, bonus: 0.10 },
+  { grade: '3품관', title: '정북장군', ko: '3품관 · 정북장군', merit: 1100, cap: 22500, bonus: 0.12 },
+  { grade: '2품관', title: '거기장군', ko: '2품관 · 거기장군', merit: 1350, cap: 24000, bonus: 0.15 },
+  { grade: '1품관', title: '대장군', ko: '1품관 · 대장군', merit: 1600, cap: 25000, bonus: 0.18 },
 ];
 export const RANK_MAX = RANKS.length - 1;
-export const LORD_RANK = { ko: '군주', cap: 25000, bonus: 0.18 };
+export const LORD_RANK = { grade: '', title: '군주', ko: '군주', cap: 25000, bonus: 0.18 };
+/* 옛 7단계 직위 이름 — 저장을 옮길 때 같은 이름의 품관을 찾는다 */
+export const LEGACY_RANKS = ['일반', '비장군', '편장군', '아장군', '진북장군', '정북장군', '대장군'];
 export const PROMOTE_LOYALTY = 5;
 /* 행동별 공적 — [최소, 최대] */
 export const MERIT_GAIN = {
@@ -1005,15 +1012,26 @@ export function isLordId(state, gid) {
   return false;
 }
 
-/* 옛 저장(v3~v9)에는 공적·직위가 없다 — 0으로 채운다 */
+/* 옛 저장(v3~v9)에는 공적·직위가 없다 — 0으로 채운다.
+   v13 이하의 7단계 직위(0~6)는 이름을 기준으로 9품관 자리로 옮기고,
+   그 품관 문턱보다 공적이 낮으면 문턱까지 올려 진행도가 어긋나지 않게 한다. */
 export function ensureRanks(state) {
   if (!state || !state.generals) return state;
+  const legacy = !state.rankSchema;
   for (const g of Object.values(state.generals)) {
     const m = Number(g.merit);
     g.merit = Number.isFinite(m) ? Math.max(0, Math.round(m)) : 0;
-    const r = Number(g.rank);
-    g.rank = Number.isFinite(r) ? clamp(Math.round(r), 0, RANK_MAX) : 0;
+    const raw = Number(g.rank);
+    let r = Number.isFinite(raw) ? Math.round(raw) : 0;
+    if (legacy) {
+      const oldKo = LEGACY_RANKS[clamp(r, 0, LEGACY_RANKS.length - 1)];
+      const idx = RANKS.findIndex((x) => (x.legacy || x.title) === oldKo);
+      r = idx >= 0 ? idx : clamp(r, 0, RANK_MAX);
+      if (g.merit < RANKS[r].merit) g.merit = RANKS[r].merit;
+    }
+    g.rank = clamp(r, 0, RANK_MAX);
   }
+  if (legacy) state.rankSchema = RANK_SCHEMA;
   return state;
 }
 
@@ -1050,9 +1068,12 @@ export function rankInfoOf(state, gid) {
   return {
     merit, index, isLord: lord,
     ko: lord ? LORD_RANK.ko : cur.ko,
+    grade: lord ? LORD_RANK.grade : cur.grade,
+    title: lord ? LORD_RANK.title : cur.title,
+    hasTitle: !lord ? !!cur.title : true,
     cap: lord ? LORD_RANK.cap : cur.cap,
     bonus: lord ? LORD_RANK.bonus : cur.bonus,
-    next: next ? { ko: next.ko, merit: next.merit, cap: next.cap, bonus: next.bonus } : null,
+    next: next ? { ko: next.ko, grade: next.grade, title: next.title, merit: next.merit, cap: next.cap, bonus: next.bonus } : null,
     toNext: next ? Math.max(0, next.merit - merit) : 0,
     progress: next ? clamp((merit - cur.merit) / span, 0, 1) : 1,
     canPromote: !lord && !!next && merit >= next.merit,
@@ -1068,7 +1089,7 @@ export function canPromote(state, gid) {
   if (g.faction !== state.playerId) return { ok: false, why: '아군 장수만 임명할 수 있습니다.' };
   if (isLordId(state, gid)) return { ok: false, why: '군주는 이미 군주 직위입니다.' };
   const r = rankInfoOf(state, gid);
-  if (!r.next) return { ok: false, why: '이미 대장군입니다.' };
+  if (!r.next) return { ok: false, why: `이미 ${r.ko}입니다.` };
   if (r.merit < r.next.merit) return { ok: false, why: `공적이 모자랍니다 (${r.merit}/${r.next.merit}).` };
   return { ok: true, next: r.next };
 }
@@ -1078,7 +1099,7 @@ export function promotableGenerals(state) {
   return factionGenerals(state, state.playerId).filter((g) => canPromote(state, g.id).ok).map((g) => g.id);
 }
 
-/* 장군 임명 — 행동력을 쓰지 않는다(군주가 직접 내리는 직위). 한 단계씩 오르고 충성 +5 */
+/* 품관 임명 — 행동력을 쓰지 않는다(군주가 직접 내리는 품관). 한 단계씩 오르고 충성 +5 */
 export function promoteGeneral(state, gid) {
   const chk = canPromote(state, gid);
   if (!chk.ok) return { ok: false, msg: chk.why };
@@ -1092,7 +1113,7 @@ export function promoteGeneral(state, gid) {
   const loyGain = g.loyalty - loyBefore;   // 100에서 멈춘 만큼은 빼고 알린다
   const msg = `${withJosa(t.ko, '을')} ${withJosa(to.ko, '로')} 임명했습니다! 최대 지휘 ${to.cap.toLocaleString()}명 · 전투 보정 +${Math.round(to.bonus * 100)}% · 충성 +${loyGain}`;
   log(state, msg);
-  return { ok: true, msg, gid, ko: t.ko, from: from.ko, to: to.ko, rank: g.rank, cap: to.cap, bonus: to.bonus, loyalty: g.loyalty, loyaltyGain: loyGain, merit: meritOf(state, gid) };
+  return { ok: true, msg, gid, ko: t.ko, from: from.ko, to: to.ko, grade: to.grade, title: to.title, rank: g.rank, cap: to.cap, bonus: to.bonus, loyalty: g.loyalty, loyaltyGain: loyGain, merit: meritOf(state, gid) };
 }
 
 /* ---------- 쌀 시세 · 교역 ---------- */
@@ -4603,8 +4624,8 @@ export function serialize(state) {
 }
 export function deserialize(json) {
   const s = JSON.parse(json);
-  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전, 9 = 공적·장군 직위 이전, 10 = 성 규모 이전, 11 = 부대 편성 이전, 12 = 성 인구 이전. 열어서 새 양식으로 옮긴다.
-  if (!s || ![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
+  // 3 = 신군주 이전, 4 = 포로 처분 이전, 5 = 대화·이동 이전, 6 = 외교·관직 이전, 7 = 항복 권고·친밀도 이전, 8 = 보물·참모·위임 이전, 9 = 공적·장군 직위 이전, 10 = 성 규모 이전, 11 = 부대 편성 이전, 12 = 성 인구 이전, 13 = 9품관 이전. 열어서 새 양식으로 옮긴다.
+  if (!s || ![3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, SAVE_VERSION].includes(s.version)) throw new Error('저장 파일 형식이 다릅니다.');
   s.version = SAVE_VERSION;
   s.customGenerals = s.customGenerals || {};
   s.pendingBattles = s.pendingBattles || [];

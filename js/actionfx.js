@@ -22,7 +22,7 @@ export const ACTION_FX_SCENES = {
   reward: { ko: '포상', tone: '#ffd79a' },
   learn: { ko: '진형 전수', tone: '#9cd0a8' },
   plot: { ko: '계략', tone: '#b09ae0' },
-  promote: { ko: '장군 임명', tone: '#ffd79a' },
+  promote: { ko: '품관 임명', tone: '#ffd79a' },
 };
 export const ACTION_FX_DEFAULT = { ko: '명령', tone: '#d9a05a' };
 
