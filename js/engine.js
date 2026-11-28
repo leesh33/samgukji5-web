@@ -997,6 +997,7 @@ export const MERIT_GAIN = {
   draft: [18, 24], train: [18, 24],
   search: [8, 14], hire: [22, 30], reward: [8, 14],
   learn: [18, 24], befriend: [22, 30], plot: [22, 28], win: [50, 80],
+  focus: [14, 22], joint: [16, 24],
 };
 
 export function isLordId(state, gid) {
@@ -1601,6 +1602,7 @@ export const DIPLO = {
   giftGold: { ko: '증정', res: 'gold', gold: 300, food: 0, ap: 1, desc: '금 300을 선물해 우호도를 크게 올립니다(+15~25).' },
   giftFood: { ko: '증정', res: 'food', gold: 0, food: 1200, ap: 1, desc: '식량 1200을 선물해 우호도를 올립니다(+12~22).' },
   alliance: { ko: '동맹 제의', gold: 500, food: 0, ap: 1, desc: '12개월 동맹 — 서로 공격하지 않고 원군을 받습니다.' },
+  joint: { ko: '공동 공격', gold: 400, food: 0, ap: 1, desc: '동맹(또는 우호 65 이상) 세력에 함께 칠 성을 청합니다. 승낙하면 그 달에 그 세력이 그 성을 칩니다.' },
   truce: { ko: '정전 협정', gold: 400, food: 0, ap: 1, desc: '6개월 정전 — 공격을 유예합니다.' },
   surrender: { ko: '항복 권고', gold: 0, food: 0, ap: 1, desc: '압도적으로 열세인 세력에 항복을 권고합니다. 성공하면 그 성·장수·자원을 모두 거두고, 실패하면 우호도 -25.' },
   break: { ko: '동맹 파기', gold: 0, food: 0, ap: 0, desc: '즉시 공격할 수 있게 되지만 명성 -15, 타 세력 우호도 하락.' },
@@ -1614,7 +1616,12 @@ export function pairKey(a, b) { return a < b ? `${a}|${b}` : `${b}|${a}`; }
 export function ensureDiplomacy(state) {
   state.diplomacy = state.diplomacy || {};
   const d = state.diplomacy;
-  d.rel = d.rel || {}; d.ally = d.ally || {}; d.truce = d.truce || {};
+  d.rel = d.rel || {}; d.ally = d.ally || {}; d.truce = d.truce || {}; d.joint = d.joint || {};
+  // 공동 공격 약속 — { [동맹 세력id]: { city, months } }
+  for (const fid of Object.keys(d.joint)) {
+    const p = d.joint[fid];
+    if (!p || typeof p.city !== 'string' || !state.cities[p.city] || !(p.months > 0)) delete d.joint[fid];
+  }
   const ids = Object.keys(state.factions || {}).filter((id) => state.factions[id] && state.factions[id].alive !== false);
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
@@ -1705,6 +1712,9 @@ export function cleanDiplomacy(state) {
       const [a, b] = k.split('|');
       if (!state.factions[a] || !state.factions[b] || !state.factions[a].alive || !state.factions[b].alive) delete shelf[k];
     }
+  }
+  for (const fid of Object.keys(d.joint || {})) {
+    if (!state.factions[fid] || !state.factions[fid].alive) delete d.joint[fid];
   }
   ensureDiplomacy(state);
 }
@@ -1832,6 +1842,12 @@ export function diplomacyCheck(state, kind, targetFid) {
   if (kind === 'truce' && isTruce(state, me, targetFid)) return { ok: false, why: '이미 정전 중입니다.' };
   if (kind === 'break' && !isAllied(state, me, targetFid)) return { ok: false, why: '동맹 중인 세력이 아닙니다.' };
   if (kind === 'surrender' && isAllied(state, me, targetFid)) return { ok: false, why: '동맹 중인 세력에는 권고를 보낼 수 없습니다. 먼저 동맹을 파기하세요.' };
+  if (kind === 'joint') {
+    if (!isAllied(state, me, targetFid) && relationOf(state, me, targetFid) < 65) {
+      return { ok: false, why: '공동 공격은 동맹이거나 우호도 65 이상인 세력에게만 청할 수 있습니다.' };
+    }
+    if (!jointTargets(state, targetFid).length) return { ok: false, why: '그 세력과 맞닿아 있는 적 성이 없습니다.' };
+  }
   if (state.actionPoints < cost.ap) return { ok: false, why: '행동력이 부족합니다.' };
   if (cost.gold && factionGold(state, me) < cost.gold) return { ok: false, why: `금이 부족합니다(${cost.gold} 필요).` };
   if (cost.food && factionFood(state, me) < cost.food) return { ok: false, why: `식량이 부족합니다(${cost.food} 필요).` };
@@ -1947,6 +1963,105 @@ export function breakAlliance(state, targetFid) {
   const msg = `${state.factions[targetFid].name}군과의 동맹을 깨뜨렸습니다. 명성 -15, 천하가 그대를 의심합니다.`;
   log(state, msg);
   return { ok: true, msg, fame: state.factions[me].fame };
+}
+
+/* ---------- 공동 공격 요청 ----------
+   동맹(또는 우호 65 이상) 세력에 '이 성을 함께 치자'고 청한다. 승낙하면 그 달 턴이 끝날 때
+   그 세력이 약속한 성을 실제로 친다 — AI의 공격 문턱(수비의 1.22배)을 0.95배로 낮춰 준다. */
+export const JOINT_ATTACK_RATIO = 0.95;
+export const JOINT_MONTHS = 1;
+
+/* 그 세력이 함께 칠 수 있는 성 — 나·그 세력의 것이 아니고, 그 세력의 성과 맞닿은 곳 */
+export function jointTargets(state, fid) {
+  const me = state.playerId;
+  const f = state.factions[fid];
+  if (!f || !f.alive) return [];
+  const mine = factionCities(state, fid);
+  const out = [];
+  const seen = new Set();
+  for (const c of mine) {
+    for (const en of adjacentEnemies(state, c.id)) {
+      if (seen.has(en)) continue;
+      const tc = state.cities[en];
+      if (!tc || !tc.owner || tc.owner === me || tc.owner === fid) continue;
+      if (!state.factions[tc.owner] || !state.factions[tc.owner].alive) continue;
+      if (isPacified(state, fid, tc.owner)) continue;   // 그 세력끼리 휴전 중이면 청해도 못 친다
+      if (isPacified(state, me, tc.owner)) continue;    // 우리가 동맹·정전 중인 세력은 대상이 아니다
+      seen.add(en);
+      out.push({
+        id: en, ko: cityName(en), owner: tc.owner, ownerName: state.factions[tc.owner].name,
+        troops: tc.troops, def: Math.round(cityPower(state, en, true)),
+        fromKo: cityName(c.id),
+      });
+    }
+  }
+  return out.sort((a, b) => a.def - b.def);
+}
+
+/* 승낙 확률 — 우호도·군주 매력·동맹 여부, 그리고 그 세력이 그 성을 이길 만한 힘이 있는지 */
+export function jointChance(state, fid, cityId) {
+  const me = state.playerId;
+  const f = state.factions[fid];
+  const tc = state.cities[cityId];
+  if (!f || !f.alive || !tc || !tc.owner) return 0;
+  const rel = relationOf(state, me, fid);
+  const lord = lordOf(state, me);
+  const def = Math.max(1, cityPower(state, cityId, true));
+  const border = factionCities(state, fid).filter((c) => isAdjacent(c.id, cityId));
+  const atk = border.length ? Math.max(...border.map((c) => cityPower(state, c.id, false))) : 0;
+  const edge = atk / def;
+  let c = 0.1 + (rel - 40) / 220 + (lord ? lord.cha : 60) / 700 + (edge - 1) * 0.4;
+  if (isAllied(state, me, fid)) c += 0.26; else c -= 0.1;
+  c += advisorBonus(state);
+  return clamp(c, 0.05, 0.92);
+}
+
+/* 약속 — 이 세력이 이번 달에 어느 성을 치기로 했는가 */
+export function jointPromiseOf(state, fid) {
+  const d = ensureDiplomacy(state);
+  const p = d.joint[fid];
+  if (!p) return null;
+  const tc = state.cities[p.city];
+  if (!tc || !(p.months > 0)) { delete d.joint[fid]; return null; }
+  return { city: p.city, ko: cityName(p.city), months: p.months, owner: tc.owner };
+}
+export function clearJointPromise(state, fid) {
+  const d = ensureDiplomacy(state);
+  delete d.joint[fid];
+}
+
+/* 공동 공격 요청 — 금 400 · 행동력 1 */
+export function requestJointAttack(state, targetFid, cityId, officerId = null) {
+  const c = diplomacyCheck(state, 'joint', targetFid);
+  if (!c.ok) return { ok: false, msg: c.why };
+  const targets = jointTargets(state, targetFid);
+  if (!targets.some((t) => t.id === cityId)) return { ok: false, msg: '그 세력이 그 성을 칠 수 없습니다. 맞닿은 성을 고르세요.' };
+  const chance = jointChance(state, targetFid, cityId);
+  spendFactionGold(state, state.playerId, DIPLO.joint.gold);
+  state.actionPoints -= DIPLO.joint.ap;
+  const d = ensureDiplomacy(state);
+  const k = pairKey(state.playerId, targetFid);
+  const before = d.rel[k] || 40;
+  const rng = rngOf(state);
+  const accepted = rng() < chance;
+  bumpRng(state, 3);
+  let merit = 0;
+  if (officerId && state.generals[officerId]) {
+    merit = meritRoll(state, 'joint', rng);
+    if (merit) addMerit(state, officerId, merit);
+  }
+  const name = state.factions[targetFid].name;
+  if (!accepted) {
+    d.rel[k] = clamp(before - 6, 0, 100);
+    const msg = `${name}군이 공동 공격을 사양했습니다. 우호도 ${before} → ${d.rel[k]}`;
+    log(state, msg);
+    return { ok: true, accepted: false, chance, msg, rel: d.rel[k], merit };
+  }
+  d.joint[targetFid] = { city: cityId, months: JOINT_MONTHS };
+  d.rel[k] = clamp(before + 4, 0, 100);
+  const msg = `${name}군이 응했습니다 — 이번 달에 ${withJosa(cityName(cityId), '을')} 함께 칩니다. (우호도 ${before} → ${d.rel[k]})`;
+  log(state, msg);
+  return { ok: true, accepted: true, chance, msg, city: cityId, months: JOINT_MONTHS, rel: d.rel[k], merit };
 }
 
 /* ---------- 항복 권고 ---------- */
@@ -2675,6 +2790,101 @@ export function befriend(state, gid, officerId = null) {
     ok: true, msg, aff: after, gain: after - before, label: affinityLabel(after), merit,
     fx: { kind: 'befriend', gid: agent || gid, name: agent ? generalOf(state, agent).ko : '사절', line: `${withJosa(t.ko, '과')} 친교를 맺었습니다!`, delta: `친밀도 +${after - before}`, merit, tone: 'good' },
   };
+}
+
+/* ---------- 집중 탐색 (재야 장수 초빙) ----------
+   보통 탐색이 이 성 주변에서 물건과 인재를 '우연히' 찾는다면,
+   집중 탐색은 금 500을 들여 지력 높은 장수를 사자로 보내 마음에 둔 재야 장수 한 명을
+   직접 초빙한다. 성공하면 그 장수가 이 성으로 와서 등용할 수 있게 된다(명장일수록 어렵다). */
+export const FOCUS_SEARCH = { gold: 500, ap: 1 };
+
+/* 초빙 후보 — 아직 세력이 없고 세상에 나온 재야 장수 중 이 성에 없는 이 */
+export function focusSearchCandidates(state, cityId) {
+  const out = [];
+  for (const g of Object.values(state.generals || {})) {
+    if (!g || g.faction || g.dead || g.captive) continue;
+    if (!g.city || !state.cities[g.city] || g.city === cityId) continue;
+    if (!hasAppeared(state, g.id)) continue;
+    const t = generalOf(state, g.id);
+    if (!t) continue;
+    const total = (t.lead || 0) + (t.war || 0) + (t.int || 0) + (t.pol || 0) + (t.cha || 0);
+    const tc = state.cities[g.city];
+    out.push({
+      id: g.id, ko: t.ko, arms: t.arms, skill: t.skill,
+      lead: t.lead, war: t.war, int: t.int, pol: t.pol, cha: t.cha, total,
+      cityId: g.city, cityKo: cityName(g.city), owner: tc.owner || null,
+      ownerName: tc.owner && state.factions[tc.owner] ? state.factions[tc.owner].name : '재야',
+      affinity: affinityOf(state, g.id),
+      chance: focusSearchChance(state, cityId, g.id),
+    });
+  }
+  return out.sort((a, b) => b.total - a.total || b.chance - a.chance);
+}
+
+/* 사자가 그 인물을 모셔 올 확률 — 지력·매력·명성·친밀도가 밀어 주고, 인물의 능력이 버틴다 */
+export function focusSearchChance(state, cityId, gid, officerId = null) {
+  const g = state.generals[gid];
+  if (!g) return 0;
+  const t = generalOf(state, gid) || {};
+  const officer = officerId ? generalOf(state, officerId) : bestOfficer(state, cityId, 'int');
+  const lord = lordOf(state, state.playerId);
+  const f = state.factions[state.playerId];
+  const total = (t.lead || 0) + (t.war || 0) + (t.int || 0) + (t.pol || 0) + (t.cha || 0);
+  const intel = officer && officer.int ? officer.int : 55;
+  const cha = officer && officer.cha ? officer.cha : (lord ? lord.cha : 60);
+  let c = 0.16 + intel / 300 + cha / 900 + (f ? f.fame : 45) / 800 + affinityOf(state, gid) / 500 - total / 1400;
+  c += advisorBonus(state);          // 참모의 조언
+  if (t.skill === 'indeok') c += 0.03;
+  return clamp(c, 0.05, 0.8);
+}
+
+export function focusSearchCheck(state, cityId, officerId, gid) {
+  const c = state.cities[cityId];
+  if (!c || c.owner !== state.playerId) return { ok: false, why: '아군 성이 아닙니다.' };
+  const g = state.generals[gid];
+  if (!g || g.faction || g.dead || g.captive) return { ok: false, why: '재야 장수가 아닙니다.' };
+  if (g.city === cityId) return { ok: false, why: '이미 이 성에 있는 장수입니다. 인사 → 등용으로 부르세요.' };
+  if (!hasAppeared(state, gid)) return { ok: false, why: '아직 세상에 나오지 않은 인물입니다.' };
+  if (generalsInCity(state, cityId).length >= MAX_OFFICERS_PER_CITY) return { ok: false, why: `이 성의 장수가 ${MAX_OFFICERS_PER_CITY}명을 넘습니다.` };
+  const o = officerId ? state.generals[officerId] : bestOfficer(state, cityId, 'int');
+  if (!o || o.city !== cityId || o.faction !== state.playerId || o.captive || o.dead) return { ok: false, why: '이 성에서 사자로 나설 장수가 없습니다.' };
+  if (o.acted) return { ok: false, why: '이번 달에 이미 움직였습니다.' };
+  if (state.actionPoints < FOCUS_SEARCH.ap) return { ok: false, why: '행동력이 부족합니다.' };
+  if (c.gold < FOCUS_SEARCH.gold) return { ok: false, why: `금이 부족합니다(${FOCUS_SEARCH.gold} 필요).` };
+  return { ok: true };
+}
+
+/* 집중 탐색 — 금 500 · 행동력 1. 성공하면 그 장수가 이 성으로 온다 */
+export function focusSearch(state, cityId, officerId, gid) {
+  const check = focusSearchCheck(state, cityId, officerId, gid);
+  if (!check.ok) return { ok: false, msg: check.why };
+  const c = state.cities[cityId];
+  const o = officerId ? state.generals[officerId] : bestOfficer(state, cityId, 'int');
+  const t = generalOf(state, gid);
+  const who = generalOf(state, o.id).ko;
+  const chance = focusSearchChance(state, cityId, gid, o.id);
+  c.gold -= FOCUS_SEARCH.gold;
+  state.actionPoints -= FOCUS_SEARCH.ap;
+  o.acted = true;
+  const rng = rngOf(state);
+  const hit = rng() < chance;
+  bumpRng(state, 2);
+  let aff;
+  let merit = 0;
+  let msg;
+  if (hit) {
+    state.generals[gid].city = cityId;
+    aff = bumpAffinity(state, gid, 10);
+    merit = meritRoll(state, 'focus', rng);
+    if (merit) addMerit(state, o.id, merit);
+    bumpFame(state, state.playerId, 1);
+    msg = `${withJosa(who, '이')} 보낸 사자에 ${withJosa(t.ko, '이')} 응해 ${withJosa(cityName(cityId), '로')} 왔습니다! (친밀도 ${aff} · 인사 → 등용으로 부르세요)`;
+  } else {
+    aff = bumpAffinity(state, gid, 3);
+    msg = `${withJosa(who, '이')} ${withJosa(t.ko, '을')} 찾아갔지만 사양했습니다. (친밀도 ${aff} — 다시 청할 수 있습니다)`;
+  }
+  log(state, msg);
+  return { ok: true, hit, chance, msg, aff, merit, gid, officerId: o.id };
 }
 
 export function canCommand(state, type, cityId, officerId) {
@@ -3503,6 +3713,28 @@ export function endTurnPhase1(state) {
   for (const fid of Object.keys(state.factions)) {
     const f = state.factions[fid];
     if (!f.alive || f.isPlayer) continue;
+    // 동맹의 공동 공격 약속 — 지정한 성을 우선 치고, 문턱을 0.95배로 낮춘다
+    const promise = jointPromiseOf(state, fid);
+    if (promise) {
+      const pc = state.cities[promise.city];
+      let best = null;
+      if (pc && pc.owner && pc.owner !== fid && !claimed.has(promise.city) && !isPacified(state, fid, pc.owner)) {
+        for (const c of factionCities(state, fid)) {
+          if (!isAdjacent(c.id, promise.city) || c.troops <= 1500) continue;
+          const atk = cityPower(state, c.id, false);
+          if (!best || atk > best.atk) best = { from: c.id, atk };
+        }
+      }
+      const pdef = pc ? cityPower(state, promise.city, true) : 0;
+      clearJointPromise(state, fid);
+      if (best && best.atk > pdef * JOINT_ATTACK_RATIO) {
+        attacks.push({ from: best.from, to: promise.city, score: best.atk / Math.max(1, pdef), fid, joint: true });
+        claimed.add(promise.city);
+        log(state, `[공동 공격] ${f.name}군이 약속대로 ${withJosa(cityName(promise.city), '을')} 쳤습니다.`);
+        continue;
+      }
+      if (best || pc) log(state, `${f.name}군이 공동 공격 약속을 지키지 못했습니다 — ${withJosa(cityName(promise.city), '을')} 칠 형편이 아니었습니다.`);
+    }
     const cands = [];
     for (const c of factionCities(state, fid)) {
       for (const en of adjacentEnemies(state, c.id)) {

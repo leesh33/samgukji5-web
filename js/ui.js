@@ -875,7 +875,7 @@ const CITY_CMD_GROUPS = [
     ['agri', '개발'], ['comm', '상업'], ['order', '치안'], ['water', '수리'], ['trade', '교역'], ['transport', '수송'],
   ] },
   { id: 'people', ko: '인사', hint: '등용·이동', subs: [
-    ['search', '탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['promote', '장군 임명'], ['advisor', '참모'],
+    ['search', '탐색'], ['focus', '집중 탐색'], ['hire', '등용'], ['move', '이동'], ['talk', '대화'], ['reward', '포상'], ['promote', '장군 임명'], ['advisor', '참모'],
   ] },
   { id: 'army', ko: '군사', hint: '징병·출진', subs: [
     ['draft', '징병', '2령'], ['train', '훈련'], ['learn', '진형전수'], ['reorg', '부대 편성'], ['march', '출진'],
@@ -916,6 +916,13 @@ function cmdSubHTML(group, ctx) {
       const adv = E.advisorOf(game);
       const label = adv ? adv.ko : (E.advisorCandidates(game).length ? '미임명' : '부하 없음');
       return `<button class="btn" role="menuitem" data-act="advisor">${ko}<small>${label}</small></button>`;
+    }
+    if (k === 'focus') {
+      const n = ctx.focusCount || 0;
+      const gold = game.cities[ctx.cityId] ? game.cities[ctx.cityId].gold : 0;
+      const ready = n > 0 && game.actionPoints >= 1 && gold >= (E.FOCUS_SEARCH ? E.FOCUS_SEARCH.gold : 500);
+      const note = !n ? '재야 없음' : game.actionPoints < 1 ? '행동력 부족' : gold < (E.FOCUS_SEARCH ? E.FOCUS_SEARCH.gold : 500) ? '금 부족' : `금 ${fmt(E.FOCUS_SEARCH ? E.FOCUS_SEARCH.gold : 500)}`;
+      return `<button class="btn focus" role="menuitem" data-act="cmd" data-cmd="focus" ${city} ${ready ? '' : 'disabled'}>${ko}<small>${note}</small></button>`;
     }
     if (k === 'learn') {
       const n = ctx.learnCount || 0;
@@ -1039,7 +1046,7 @@ function renderCityPanel(dir = 0) {
     const diploTab = `<button class="btn diplo" data-act="diplomacy" data-city="${selectedCity}">외교<small>${diploSub}</small></button>`;
     const specialTab = `<button class="btn special" data-act="special-menu" data-city="${selectedCity}">특수<small>순찰·연회</small></button>`;
     cmdHTML = `<div class="cp-cmds">${tabs}${diploTab}<button class="btn ${plotReady ? 'plot' : ''}" data-act="cmd" data-cmd="plot" data-city="${selectedCity}" ${plotReady ? '' : 'disabled'}>계략<small>${plotSub}</small></button>${specialTab}</div>`;
-    cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies, learnCount: E.cityLearnableFormations(game, selectedCity).length, assigned: E.armyBreakdown(game, selectedCity).assigned };
+    cmdCtx = { cityId: selectedCity, moveReady, moveSub, talkSub, partners, talkLeft, enemies, focusCount: E.focusSearchCandidates(game, selectedCity).length, learnCount: E.cityLearnableFormations(game, selectedCity).length, assigned: E.armyBreakdown(game, selectedCity).assigned };
   } else {
     cmdCtx = null;
     const pacified = !!c.owner && E.isPacified(game, game.playerId, c.owner);
@@ -1262,6 +1269,47 @@ function openCommandSheet(type, cityId) {
     : type === 'search' ? '<p class="note">탐색: 숨은 인재·금·식량을 찾습니다. 지력이 높을수록 유리합니다.</p>'
     : `<p class="note">${E.COMMANDS[type] ? E.COMMANDS[type].desc : ''} 행동력 1을 사용합니다.</p>`);
   openSheet(`${CITY_BY_ID[cityId].ko} — ${label}`, extra + rows);
+}
+
+/* ---------- 집중 탐색 (재야 장수 초빙) ---------- */
+function openFocusSearchSheet(cityId) {
+  const city = CITY_BY_ID[cityId];
+  const all = E.focusSearchCandidates(game, cityId);
+  const officer = E.bestOfficer(game, cityId, 'int');
+  const cost = E.FOCUS_SEARCH.gold;
+  const gold = game.cities[cityId] ? game.cities[cityId].gold : 0;
+  const full = E.generalsInCity(game, cityId).length >= 12;
+  const blocked = full ? '이 성의 장수가 12명을 넘어 더 맞아들일 수 없습니다. 다른 성에서 청하세요.'
+    : !officer ? '이 성에서 사자로 나설 장수가 없습니다 — 모두 이번 달 명령을 마쳤습니다.'
+    : game.actionPoints < 1 ? '행동력이 부족합니다. 다음 달에 다시 청하세요.'
+    : gold < cost ? `이 성의 금이 부족합니다(금 ${fmt(cost)} 필요).` : null;
+  const ot = officer ? gd(officer.id) : null;
+  const rows = all.slice(0, 40).map((g) => {
+    const chance = Math.round(g.chance * 100);
+    return `<div class="officer-row hire">
+      <img src="${portraitURL(g.id, g, 40, '#444')}" alt="${g.ko}" />
+      <div class="or-main"><div class="or-name">${g.ko} <span class="or-tag">${g.arms}·${skillName(g.skill)}</span></div>
+      <div class="or-stats"><span>통<b>${g.lead}</b></span><span>무<b>${g.war}</b></span><span>지<b>${g.int}</b></span><span>매<b>${g.cha}</b></span></div>
+      <div class="or-stats"><span>${g.cityKo}<b>${g.ownerName}</b></span><span>친밀 <b>${g.affinity}</b></span><span>승낙 <b>${chance}%</b></span></div></div>
+      <div class="pw-btns"><button class="pw-btn rec" data-act="focus-do" data-gid="${g.id}" data-city="${cityId}" ${blocked ? 'disabled' : ''}>초빙</button></div>
+    </div>`;
+  }).join('');
+  openSheet(`${city.ko} — 집중 탐색`, `
+    ${blocked ? `<div class="warn-box">${blocked}</div>` : ''}
+    <p class="note">사자로 나설 장수 <b>${ot ? `${ot.ko}` : '없음'}</b>${ot ? ` (지력 ${ot.int} · 매력 ${ot.cha})` : ''} — 금 ${fmt(cost)} · 행동력 1. 성공하면 그 인물이 이 성으로 와서 <b>인사 → 등용</b>으로 부를 수 있습니다. 이름난 명장일수록 사자를 사양하고, 친밀도·명성이 높으면 응합니다.</p>
+    ${rows || '<p class="note">세상에 나온 재야 인재가 없습니다.</p>'}
+    ${all.length > 40 ? `<p class="note">이름난 순 40명만 보여 줍니다 — 후보 모두 ${all.length}명.</p>` : ''}`);
+}
+
+function doFocusSearch(cityId, gid) {
+  const officer = E.bestOfficer(game, cityId, 'int');
+  const res = E.focusSearch(game, cityId, officer ? officer.id : null, gid);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2600); return; }
+  renderGame();
+  autoSave();
+  if (res.hit) sfx.win ? sfx.win() : sfx.ok(); else sfx.fail();
+  toast(res.msg, res.hit ? 3600 : 2800);
+  if (!$('#sheet').classList.contains('hidden')) openFocusSearchSheet(cityId);
 }
 
 /* ---------- 진형 전수 (같은 성 스승 장수에게 배우기) ---------- */
@@ -3005,7 +3053,7 @@ function renderDiplomacySheet() {
       <div class="dp-cell"><b>${game.actionPoints}/${game.maxActionPoints}</b><span>행동력</span></div>
     </div>
     <p class="note">${nx ? `다음 관직 <b style="color:#e0c98a">${nx.ko}</b> — ${nx.needCities ? `성 ${nx.needCities}곳 더` : '성 조건 충족'}${nx.needFame ? ` · 명성 ${nx.needFame} 더` : ''} (행동력 +${nx.ap} · 세금 +${Math.round(nx.tax * 100)}%)` : '이미 황제의 자리에 올랐습니다.'}</p>
-    <p class="note">증정 금 300 · 증정 식량 1,200 · 동맹 500 · 정전 400 · 권고 — 모두 행동력 1을 씁니다. 동맹·정전 중에는 서로 칠 수 없습니다. 권고는 압도적으로 앞설 때만 통하고, 실패하면 우호도 -25.</p>`;
+    <p class="note">증정 금 300 · 증정 식량 1,200 · 동맹 500 · 정전 400 · 공동 공격 400 · 권고 — 모두 행동력 1을 씁니다. 동맹·정전 중에는 서로 칠 수 없습니다. 공동 공격은 동맹(또는 우호 65 이상) 세력이 함께 칠 성을 청합니다. 권고는 압도적으로 앞설 때만 통하고, 실패하면 우호도 -25.</p>`;
   if (!list.length) { openSheet('외교', head + '<p class="note">겨룰 세력이 남아 있지 않습니다.</p>'); return; }
   // 세력을 누르면 그 세력의 액션 선반이 열린다 — 40개 버튼을 한꺼번에 늘어놓지 않는다
   const rows = list.map((d) => {
@@ -3013,11 +3061,13 @@ function renderDiplomacySheet() {
     const chk = (k) => E.diplomacyCheck(game, k, d.id).ok;
     const breaking = diploConfirm === d.id;
     const open = diploTarget === d.id;
+    const promise = E.jointPromiseOf(game, d.id);
     const btns = open ? `<div class="dp-btns">
         <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="giftGold" ${chk('giftGold') ? '' : 'disabled'}>증정 금 300<small>우호 +15~25</small></button>
         <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="giftFood" ${chk('giftFood') ? '' : 'disabled'}>증정 식량 1,200<small>우호 +12~22</small></button>
         <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="alliance" ${chk('alliance') ? '' : 'disabled'}>동맹 500<small>서로 칠 수 없음</small></button>
         <button class="dp-btn" data-act="diplo-act" data-fid="${d.id}" data-kind="truce" ${chk('truce') ? '' : 'disabled'}>정전 400<small>기간 중 휴전</small></button>
+        <button class="dp-btn joint" data-act="joint-open" data-fid="${d.id}" ${chk('joint') ? '' : 'disabled'}>공동 공격 400<small>${E.jointTargets(game, d.id).length ? `함께 칠 성 ${E.jointTargets(game, d.id).length}곳` : (d.allied || d.rel >= 65 ? '맞닿은 적 없음' : '동맹·우호 65+')}</small></button>
         <button class="dp-btn advise" data-act="diplo-act" data-fid="${d.id}" data-kind="surrender" ${chk('surrender') && d.surrender > 0 ? '' : 'disabled'}>권고 ${d.surrender}%<small>성째 거둔다</small></button>
         ${d.allied ? `<button class="dp-btn danger ${breaking ? 'on' : ''}" data-act="diplo-act" data-fid="${d.id}" data-kind="break">${breaking ? '파기 확정' : '동맹 파기'}<small>${breaking ? '한 번 더 누르면 파기' : '우호도 큰 폭 하락'}</small></button>` : ''}
       </div>` : '';
@@ -3028,13 +3078,13 @@ function renderDiplomacySheet() {
           <div class="dp-name">${d.name}군 <small>${d.lordName}</small></div>
           <div class="dp-meta">성 ${d.cities} · 병력 ${fmt(d.troops)} · 명성 ${d.fame}</div>
         </div>
-        <div class="dp-rel"><b>${d.label}</b><span>우호 ${d.rel}</span>${d.allied ? `<em>동맹 ${d.allyMonths}개월</em>` : d.truce ? `<em>정전 ${d.truceMonths}개월</em>` : ''}</div>
+        <div class="dp-rel"><b>${d.label}</b><span>우호 ${d.rel}</span>${d.allied ? `<em>동맹 ${d.allyMonths}개월</em>` : d.truce ? `<em>정전 ${d.truceMonths}개월</em>` : ''}${promise ? `<em>공동 ${promise.ko}</em>` : ''}</div>
         <span class="dp-chev">${open ? '▴' : '▾'}</span>
       </button>
       ${btns}
     </div>`;
   }).join('');
-  openSheet('외교', head + `<p class="dp-hint">세력을 눌러 증정·동맹·정전·권고를 고르세요.</p>` + rows);
+  openSheet('외교', head + `<p class="dp-hint">세력을 눌러 증정·동맹·정전·공동 공격·권고를 고르세요.</p>` + rows);
 }
 
 function doDiplomacy(kind, fid) {
@@ -3053,6 +3103,61 @@ function doDiplomacy(kind, fid) {
   renderGame();
   autoSave();
   if (!$('#sheet').classList.contains('hidden')) renderDiplomacySheet();
+}
+
+/* ---------- 공동 공격 요청 ---------- */
+let jointFid = null;
+
+function openJointSheet(fid) {
+  jointFid = fid;
+  renderJointSheet();
+}
+
+function renderJointSheet() {
+  const fid = jointFid;
+  if (!fid) return;
+  const d = E.diplomacyView(game).find((x) => x.id === fid);
+  if (!d) { closeSheet(); return; }
+  const targets = E.jointTargets(game, fid);
+  const ap = game.actionPoints;
+  const gold = E.factionGold(game, game.playerId);
+  const cost = E.DIPLO.joint.gold;
+  const warn = ap < 1 ? '<div class="warn-box">행동력이 부족합니다. 다음 달에 다시 청하세요.</div>'
+    : gold < cost ? `<div class="warn-box">세력 금이 부족합니다(금 ${fmt(cost)} 필요).</div>` : '';
+  const rows = targets.map((t) => {
+    const chance = Math.round(E.jointChance(game, fid, t.id) * 100);
+    return `<button class="officer-row joint" data-act="joint-do" data-fid="${fid}" data-tcity="${t.id}" ${ap < 1 || gold < cost ? 'disabled' : ''}>
+      <div class="or-main">
+        <div class="or-name">${t.ko} <span class="or-tag">${t.ownerName}</span></div>
+        <div class="or-stats"><span>수비 병력<b>${fmt(t.troops)}</b></span><span>수비 전력<b>${fmt(t.def)}</b></span><span>${t.fromKo}에서</span></div>
+        <div class="or-stats"><span>승낙 <b>${chance}%</b></span><span>금 ${fmt(cost)}</span></div>
+      </div>
+      <div class="or-go">청한다</div></button>`;
+  }).join('');
+  openSheet(`${d.name}군 — 공동 공격`, `
+    ${warn}
+    <p class="note">동맹(또는 우호 65 이상) 세력에 함께 칠 성을 청합니다. <b>금 ${fmt(cost)} · 행동력 1</b>, 승낙하면 이번 달 턴이 끝날 때 그 세력이 그 성을 실제로 칩니다. 성을 가져가는 것은 그 세력이지만, 공동의 적을 함께 꺾어 우리 국경이 편해집니다. 거절하면 우호도 -6.</p>
+    ${rows || '<p class="note">이 세력과 맞닿은 적 성이 없습니다. 그 세력의 국경을 보세요.</p>'}`);
+}
+
+function doJointAttack(fid, cityId) {
+  const officer = (() => {
+    const own = Object.values(game.cities).filter((c) => c.owner === game.playerId && E.generalsInCity(game, c.id).length);
+    let best = null;
+    for (const c of own) {
+      const o = E.bestOfficer(game, c.id, 'cha');
+      if (o && (!best || o.cha > best.cha)) best = o;
+    }
+    return best ? best.id : null;
+  })();
+  const res = E.requestJointAttack(game, fid, cityId, officer);
+  if (!res.ok) { sfx.fail(); toast(res.msg, 2800); return; }
+  if (res.accepted === false) { sfx.fail(); toast(res.msg, 3000); }
+  else { sfx.ok(); toast(res.msg, 3200); }
+  renderGame();
+  autoSave();
+  if ($('#sheet').classList.contains('hidden')) return;
+  if (jointFid === fid) renderJointSheet();
 }
 
 /* ---------- 전략 계략 ---------- */
@@ -4231,14 +4336,14 @@ function openHelp() {
     <b style="color:#e6d9b3">1. 목표</b> — 전국 42개 성을 모두 차지하면 천하통일입니다.<br>
     <b style="color:#e6d9b3">2. 달마다</b> — 행동력만큼 명령을 내립니다. 장수는 한 달에 한 번만 움직입니다.<br>
     <b style="color:#e6d9b3">3. 내정</b> — 개발(농업)·상업·치안·수리로 성을 키우고, 징병·훈련으로 군세를 만듭니다. 성에는 규모(소형·중형·대형·특대형)가 있어 농업·상업·수리를 그 성의 상한(소형 100 → 중형 130 → 대형 160 → 특대형 200)까지, 치안을 100까지 채우면 저절로 다음 규모로 승격합니다. 규모가 클수록 징병이 많이 모이고(×1.0·1.25·1.5·1.8) 세입과 주둔 병력 상한도 올라갑니다. 성에는 <b>인구</b>가 있어 <b>인구의 30%</b>와 규모 맥스(소형 3만 · 중형 5만 · 대형 10만 · 특대형 20만) 중 작은 쪽까지만 병력을 둘 수 있습니다 — 성 시트의 병력 칸이 <b>병력 / 최대치</b>입니다. 인구는 농업·상업·수리·치안을 올리면 수용력까지 자라므로, 군세를 키우려면 성을 닦아야 합니다.<br>
-    <b style="color:#e6d9b3">4. 인사</b> — 탐색으로 인재를 찾고 등용합니다. 장수마다 친밀도가 있어 낯설면 등용이 어렵습니다. 친교(금 200·행동력 1)로 친밀도를 쌓고, 포상(금 120)으로 충성과 친밀도를 함께 올립니다.<br>
+    <b style="color:#e6d9b3">4. 인사</b> — 탐색으로 인재를 찾고 등용합니다. 장수마다 친밀도가 있어 낯설면 등용이 어렵습니다. 친교(금 200·행동력 1)로 친밀도를 쌓고, 포상(금 120)으로 충성과 친밀도를 함께 올립니다. **집중 탐색**(금 500·행동력 1)은 지력 높은 장수를 사자로 보내 마음에 둔 재야 장수를 직접 초빙합니다 — 성공하면 그 인물이 우리 성으로 와서 등용할 수 있습니다.<br>
     <b style="color:#e6d9b3">5. 이동</b> — 아군 성끼리 장수를 옮깁니다. 행동력 1을 쓰고, 옮긴 장수는 그 달 행동을 마칩니다.<br>
     <b style="color:#e6d9b3">6. 대화</b> — 성의 장수와 이야기를 나누면 충성도와 친밀도가 오릅니다(행동력 1, 장수마다 한 달 1회, 금은 들지 않음).<br>
     <b style="color:#e6d9b3">7. 출진</b> — 인접한 적 성을 공격합니다. 전장에서 부대를 움직여 성을 함락시키세요.<br>
     <b style="color:#e6d9b3">8. 진형</b> — 어린(공격)·방원(방어)·학익(원거리)·봉시(돌격) 등 9종. 부대의 진형에 따라 공격·방어·사거리가 달라집니다.<br>
     <b style="color:#e6d9b3">9. 계략</b> — 지력이 높은 장수는 화계·혼란·고무·치료를 씁니다.<br>
     <b style="color:#e6d9b3">10. 일기토</b> — 인접한 적 장수에게 1:1 대결을 걸 수 있습니다. 이기면 적 부대 사기가 급락합니다.<br>
-    <b style="color:#e6d9b3">11. 외교</b> — 성 시트의 외교 버튼에서 증정(금 300·식량 1,200)·동맹(금 500·12개월)·정전(금 400·6개월)·항복 권고를 씁니다. 동맹·정전 중인 세력은 서로 치지 못하고, 동맹은 원군도 보냅니다. 동맹 파기는 명성 -15. 항복 권고는 성·병력이 압도적일 때만 통하며 성공하면 그 세력을 통째로 거둡니다.<br>
+    <b style="color:#e6d9b3">11. 외교</b> — 성 시트의 외교 버튼에서 증정(금 300·식량 1,200)·동맹(금 500·12개월)·정전(금 400·6개월)·공동 공격(금 400)·항복 권고를 씁니다. 동맹·정전 중인 세력은 서로 치지 못하고, 동맹은 원군도 보냅니다. 동맹 파기는 명성 -15. **공동 공격**은 동맹(또는 우호 65 이상) 세력에 함께 칠 성을 청해, 승낙하면 그 달에 그 세력이 그 성을 치게 합니다. 항복 권고는 성·병력이 압도적일 때만 통하며 성공하면 그 세력을 통째로 거둡니다.<br>
     <b style="color:#e6d9b3">12. 계략</b> — 적 성을 고르면 계략을 쓸 수 있습니다. 이간(충성 하락)·정탐(3턴 속내 열람)·유언비어(치안·훈련·물자 약화). 지력이 높은 장수일수록 성공합니다.<br>
     <b style="color:#e6d9b3">13. 관직</b> — 성 수와 명성에 따라 현령→자사→주목→대장군→승상→왕→황제로 오르며 행동력·세금이 늘어납니다.<br>
     <b style="color:#e6d9b3">14. 원군</b> — 출진할 때 인접한 아군·동맹 성에서 원군을 고르면 2라운드에 전장 가장자리로 들어옵니다. 방어전에서는 자동으로 합류합니다.<br>
@@ -4338,6 +4443,8 @@ function onClick(e) {
     case 'region-menu': sfx.click(); openRegionMenu(); break;
     case 'diplomacy': openDiplomacy(); break;
     case 'diplo-act': doDiplomacy(el.dataset.kind, el.dataset.fid); break;
+    case 'joint-open': openJointSheet(el.dataset.fid); break;
+    case 'joint-do': doJointAttack(el.dataset.fid, el.dataset.tcity); break;
     case 'plot-city': openPlotSheet(el.dataset.city, null); break;
     case 'plot-to': plotDraft.toCityId = el.dataset.city; renderPlotSheet(); sfx.click(); break;
     case 'plot-kind': plotDraft.kind = el.dataset.kind; renderPlotSheet(); sfx.click(); break;
@@ -4386,6 +4493,7 @@ function onClick(e) {
       else if (cmd === 'plot') openPlotSheet(null, el.dataset.city);
       else if (cmd === 'trade') openTradeSheet(el.dataset.city);
       else if (cmd === 'learn') openFormationLearnSheet(el.dataset.city);
+      else if (cmd === 'focus') openFocusSearchSheet(el.dataset.city);
       else openCommandSheet(cmd, el.dataset.city);
       break;
     }
@@ -4457,6 +4565,7 @@ function onClick(e) {
     case 'talk-go': doTalk(el.dataset.officer); break;
     case 'talk-more': renderTalkSheet(); break;
     case 'do-command': doCommand(sheetCommandType, el.dataset.officer, sheetCityId); break;
+    case 'focus-do': doFocusSearch(el.dataset.city, el.dataset.gid); break;
     case 'do-hire': doHire(sheetCityId, el.dataset.officer); break;
     case 'befriend': doBefriend(el.dataset.gid || el.dataset.officer); break;
     case 'do-reward': doReward(sheetCityId, el.dataset.officer); break;
