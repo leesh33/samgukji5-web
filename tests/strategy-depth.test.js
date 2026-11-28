@@ -302,6 +302,23 @@ test('공동 공격 약속: 힘이 모자라면 지키지 못하고 약속은 �
   assert.equal(E.jointPromiseOf(s, pick.fid), null);
 });
 
+test('공동 공격: 내가 먼저 그 성을 차지했으면 약속한 세력이 나를 치지 않는다', () => {
+  const s = newGame(37);
+  const pick = allyWithTarget(s);
+  assert.ok(pick);
+  const target = pick.target.id;
+  const k = E.pairKey(s.playerId, pick.fid);
+  s.diplomacy.ally[k] = 0;                       // 동맹이 아니라 우호 80인 사이
+  s.diplomacy.rel[k] = 80;
+  s.diplomacy.joint[pick.fid] = { city: target, months: 1 };
+  s.cities[target].owner = s.playerId;           // 내가 그 성을 먼저 가졌다
+  const ownerBefore = s.cities[Object.values(s.cities).find((c) => c.owner === s.playerId && c.id !== target).id].owner;
+  s.turn += 1;
+  E.endTurnPhase1(s);
+  assert.equal(s.cities[target].owner, s.playerId, '약속한 세력이 내 성을 빼앗으면 안 된다');
+  assert.equal(E.jointPromiseOf(s, pick.fid), null);
+});
+
 test('공동 공격: 멸망한 세력의 약속은 외교 정리에서 지워진다', () => {
   const s = newGame(35);
   const pick = allyWithTarget(s);

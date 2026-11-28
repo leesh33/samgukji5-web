@@ -3718,7 +3718,7 @@ export function endTurnPhase1(state) {
     if (promise) {
       const pc = state.cities[promise.city];
       let best = null;
-      if (pc && pc.owner && pc.owner !== fid && !claimed.has(promise.city) && !isPacified(state, fid, pc.owner)) {
+      if (pc && pc.owner && pc.owner !== fid && pc.owner !== state.playerId && !claimed.has(promise.city) && !isPacified(state, fid, pc.owner)) {
         for (const c of factionCities(state, fid)) {
           if (!isAdjacent(c.id, promise.city) || c.troops <= 1500) continue;
           const atk = cityPower(state, c.id, false);
